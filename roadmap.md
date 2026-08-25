@@ -926,7 +926,9 @@ The convention: *a claim derivable from the source is checked against the source
 - **TST-23** `skills check` — the rendered `.claude/skills/` matches its plugin-owned source under
   the managed markers, byte for byte. Drift FAILS the build; it is never silently re-rendered.
 - **TST-24** SKL-06 both ways (no job without a skill, no skill without a job) plus SKL-07: no
-  `SKILL.md` carries a guard matrix, an eligibility rule, or a verdict token that code owns.
+  `SKILL.md` carries a guard matrix, an eligibility rule, or an authorization token that code owns.
+  An output vocabulary a skill must emit (like `nightly-sandcastle`'s `outcome=`) is not banned by
+  this row — only a value that would widen what the run is PERMITTED to do is (§2.30 SKL-07).
 - **TST-25** **No phantom dependencies** — every PACKAGE specifier in a workspace resolves to a
   declared dependency OF THAT WORKSPACE. TST-05 pins relative specifiers and cannot see this one:
   hoisting makes an undeclared import resolve locally and fail only for a consumer, which is the
@@ -1066,7 +1068,12 @@ unattended pass and by a human at a terminal, under ONE name.
 - **SKL-07** What may NOT move into a skill: guard matrices, verdict parsing, eligibility, and every
   authorization decision. JOB-T03 states the rule already — `agent` is reachable only from a literal
   token, *enforced in `parseVerdict`, not asked for in the prompt*. A skill is markdown a human
-  edits; a grant that lives in markdown is a grant anyone can widen in a text editor.
+  edits; a grant that lives in markdown is a grant anyone can widen in a text editor. The boundary,
+  drawn at §5 Q0: an **output vocabulary** (a report format the skill must EMIT — it changes what the
+  caller LEARNS, and nothing is granted by naming it) is allowed; an **authorization token** (a value
+  that WIDENS what the run is PERMITTED to do) is not, and must never appear in markdown. The landed
+  `nightly-sandcastle` skill's `outcome=<changed|none|too-large|suite-failed>` is an output
+  vocabulary, not a violation — `agent` in JOB-T03 is the authorization token this row bans.
 - **SKL-08** A skill's only inputs are `promptArgs` (PRT-05). `SKILL.md` never reads the
   environment, and never names a path into its own directory (HRN-16) — a skill that can be
   refactored by moving a file is not a unit.
@@ -1076,11 +1083,18 @@ unattended pass and by a human at a terminal, under ONE name.
 - **SKL-10** `sync` PRUNES, and the crontab precedent does not survive the port: SUP-08's "foreign
   lines untouched" works because a crontab is ONE file with a delimited block, and `.claude/skills/`
   is a directory TREE with nowhere to put a marker. So ownership must be decidable from the
-  filesystem alone — a symlink into `plugins/*/skills/` is self-evidently ours; a rendered copy needs
-  a ledger of what the last render wrote (§5 Q0 decides which). Given that: an entry that is ours and
-  is not named by a registered job is REMOVED; an entry that is not ours is never touched, never
-  overwritten, and never counted as drift. SKL-06 only DETECTS the orphan — without this row,
-  deleting a job leaves a red build and a manual `rm`, which is housekeeping the tool declined to do.
+  filesystem alone. **Not a ledger** — §5 Q0 settles it: the rendered file itself carries the
+  ownership token, a managed marker in the body matching
+  `^<!-- managed:doppelganger-skills v=(\d+) src=(\S+) -->$`, so the filesystem answers "did we
+  create this?" with no second store to keep in sync. Given that: an entry whose marker matches is
+  OURS; anything else (no `SKILL.md`, or one without that line) is FOREIGN and never touched, never
+  overwritten, never counted as drift. `check` reports five findings: **missing** (a registered job
+  with no rendered file), **drift** (the bytes differ from `render(source)`), **orphan** (an OURS
+  entry not named by a registered job), **collision** (a FOREIGN entry occupying a registered job's
+  name), **stray** (an OURS directory holding anything but `SKILL.md`). `sync` REMOVES an orphan
+  and REFUSES a stray or a collision rather than guessing. SKL-06 only DETECTS the orphan — without
+  this row, deleting a job leaves a red build and a manual `rm`, which is housekeeping the tool
+  declined to do.
 
 ---
 
@@ -1224,7 +1238,7 @@ There is no `supervisor.test.ts` in the reference; the supervisor is covered by 
 Repo layout (§1) · `package.json` (no bundler, no linter, direct-TS run) · `tsconfig` `noEmit` ·
 `typecheck` as `pretest` · CI on `npm test` · this file kept current ·
 `plugins/nightly/skills/nightly-sandcastle/` + its rendered `.claude/skills/` entry as the worked
-example of SKL-03/04 · settle §5 Q0 with the `ln -s` test **before** N3 hand-writes a renderer.
+example of SKL-03/04 · §5 Q0 settled — render, never symlink (2026-08-25).
 **Ships:** D1–D19, TST-21, TST-22.
 
 ### N1 — The kernel the loop needs · **1.5–2 weeks**
@@ -1429,14 +1443,88 @@ have `boot()` at all. See §5 Q6.
 
 ## 5. Open questions
 
-0. **`.claude/skills/` render vs symlink.** SKL-04 renders a managed copy, on the crontab precedent
-   (SUP-08/TST-16). A symlink per skill would be zero-drift and delete TST-23 outright — if the
-   agent CLI's scan follows symlinked skill directories. Verify before M4 hand-writes a renderer.
-   It decides SKL-10 too, and that is the heavier half: pruning needs a filesystem-decidable answer
-   to "did we create this?", which a symlink into `plugins/*/skills/` answers for free and a rendered
-   copy can only answer by keeping a ledger of the last render. Symlink is one mechanism replacing
-   three (renderer, drift gate, ledger); render keeps all three. Cheapest test: `ln -s` one skill,
-   restart the CLI, see if it lists.
+0. **`.claude/skills/` render vs symlink — decided by the user, render, never symlink, 2026-08-25.**
+   Every skill is a **project skill**: `.claude/skills/<job>/SKILL.md` is a real, regular file in the
+   project tree, a rendered COPY of `plugins/<x>/skills/<job>/SKILL.md`. Not a link. Not delivered
+   through the Claude Code plugin-skill mechanism. SKL-04 is confirmed as written; the symlink branch
+   of TST-23 is dead. (Rejected branch, kept for the record: a symlink per skill would have been
+   zero-drift and would have let SKL-10 answer ownership from the inode instead of a marker — the
+   cheapest test would have been `ln -s` one skill and see if the CLI lists it. The user ruled this
+   out; the five rules below are the render answer instead.)
+
+   **Where the managed marker lives.** Two HTML comment lines in the markdown BODY, immediately
+   after the closing `---` of the YAML frontmatter, before the blank line that starts the body —
+   already what the landed worked example does, at lines 5 and 6 of
+   `.claude/skills/nightly-sandcastle/SKILL.md`:
+   ```
+<!-- managed:doppelganger-skills v=1 src=plugins/nightly/skills/nightly-sandcastle -->
+<!-- rendered by `skills render` — do not edit; edit the source and re-render (SKL-04) -->
+   ```
+   The body, not the frontmatter, because the CLI parses the frontmatter block and nobody controls
+   whether an unknown key there is ignored or rejected — an HTML comment in the body is inert to
+   every markdown reader, and it is proven: the rendered `nightly-sandcastle` skill with these two
+   lines is listed by the CLI today. The render rule, stated so two implementations produce the same
+   bytes:
+   ```
+   render(source) = <the frontmatter block, "---\n" … "---\n", copied byte for byte>
+                  + "<!-- managed:doppelganger-skills v=1 src=<POSIX path from repo root to the source DIR> -->\n"
+                  + "<!-- rendered by `skills render` — do not edit; edit the source and re-render (SKL-04) -->\n"
+                  + <the rest of the source file, copied byte for byte>
+   ```
+
+   **How `skills sync` decides an entry is its to delete — filesystem-decidable, no ledger.**
+   - `.claude/skills/<dir>/SKILL.md` exists AND its first body line matches
+     `^<!-- managed:doppelganger-skills v=(\d+) src=(\S+) -->$` → **OURS**.
+   - Anything else — no `SKILL.md`, or a `SKILL.md` without that line → **FOREIGN**. Never touched,
+     never overwritten, never counted as drift (SKL-10, carried from SUP-08).
+   - OURS and `<dir>` is not the name of a registered job → **PRUNE** the whole `<dir>`.
+   - OURS and `<dir>` contains any entry other than `SKILL.md` → **REFUSE**, and say which files —
+     the renderer writes exactly one file, so an extra file is a human's work sitting in a directory
+     the tool owns.
+   - `render` about to create a `<dir>` that already exists and is FOREIGN → **REFUSE the whole
+     render**, naming the collision (SKL-04's "duplicate detection refuses a plain splice").
+   This closes SKL-10's own open point below: the ownership token lives INSIDE the rendered file, so
+   the filesystem answers "did we create this?" with no ledger. The one case a ledger would still
+   beat the marker — a human deleted `SKILL.md` but left other files in an owned directory — is
+   covered by the REFUSE rule, which reports it instead of guessing.
+
+   **How `skills check` detects drift.** For each registered job: compute `render(source)` IN MEMORY
+   and compare byte for byte to the file on disk. Never write. Exit non-zero on **missing** (the job
+   names a skill with no rendered file), **drift** (the bytes differ), **orphan** (an OURS entry
+   whose dir is not a registered job), **collision** (a FOREIGN entry occupying a registered job's
+   name), or **stray** (an OURS directory containing anything but `SKILL.md`). No hash is stored in
+   the marker — a hash would be a second copy of a fact the source file already is.
+
+   **What happens on a hand-edit.** `skills check` fails the build. It never re-renders — silently
+   repairing a hand-edit throws away the human's work and teaches them the file is editable:
+   ```
+   skills: drift in .claude/skills/nightly-sandcastle/SKILL.md
+     the rendered copy does not match its source
+     source:  plugins/nightly/skills/nightly-sandcastle/SKILL.md
+     first difference at line 12
+     .claude/skills is rendered, never hand-edited (SKL-04).
+     fix: move your change into the source file, then run `skills render`.
+   ```
+   `skills sync` behaves the same way — it refuses a drifted entry rather than overwriting it. Only
+   an explicit `skills render` writes over an owned file.
+
+   **The SKL-07 boundary: an output vocabulary is allowed, an authorization token is not.** TST-24 as
+   worded below ("no `SKILL.md` carries … a verdict token that code owns") would fail the worked
+   example: the landed skill carries `outcome=<changed|none|too-large|suite-failed>` at line 47 of
+   `plugins/nightly/skills/nightly-sandcastle/SKILL.md`, and that is correct, not a violation. An
+   **output vocabulary** is the set of values a skill must EMIT so the caller can read its report —
+   nothing is granted by naming it, and `outcome=` is this. An **authorization token** is a value
+   that WIDENS what the run is allowed to do — it must never appear in markdown, because a grant that
+   lives in markdown is a grant anyone can widen in a text editor. SKL-07's own precedent is
+   JOB-T03: `agent` is reachable only from a literal token, *enforced in `parseVerdict`, not asked
+   for in the prompt* — the skill never names `agent`; the code decides. The test that tells them
+   apart: if a value's presence changes what the caller is PERMITTED to do, it is a token — keep it
+   out. If it only changes what the caller LEARNS, it is a vocabulary — the skill states it, and code
+   still validates it (an unknown `outcome=` is a parse failure, not a new outcome).
+
+   **Scope, restated so it is not lost.** PROJECT level only. Never `~/.claude/skills/` (shared
+   across checkouts, contradicts INS-02, and would let SKL-10 prune another instance's skills).
+   Never an agent-CLI plugin namespace, whose `plugin:skill` prefix breaks SKL-01's one identifier.
 1. **Name the resources.** The gate's three resources are workspace-specific (`factory`, `plugin`,
    `services`). Does the kernel take them as config (`resources: string[]`) or does each host declare
    its own set? Leaning: host config, validated at boot (KRN-09 already checks unknown resources).

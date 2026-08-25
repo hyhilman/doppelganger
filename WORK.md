@@ -10,7 +10,8 @@ Rows marked **moved** are listed once, where they were dropped, so nothing goes 
 - [ ] `tsconfig.json` — `noEmit`; `npm run typecheck` wired as `pretest`
 - [ ] CI running `npm test` and nothing else
 - [ ] `plugins/nightly/skills/nightly-sandcastle/SKILL.md` + its rendered `.claude/skills/` entry (already landed)
-- [ ] Settle §5 Q0 — `ln -s` one skill, restart the CLI, see if it lists. Decides SKL-04/10 and TST-23
+- [ ] §5 Q0 settled — render, never symlink (2026-08-25). Confirms SKL-04, fixes SKL-10, kills the
+      symlink branch of TST-23
 - [ ] Fix the two `roadmap.md` claims this repo can already check: corpus path, engine file counts (done 2026-08-25)
 - [ ] **TST-21** `typecheck` as `pretest`
 - [ ] **TST-22** No linter, no bundler, no build step **in a host repo**
