@@ -33,9 +33,14 @@ None exist yet. M0 fixes what they must be — do not introduce anything outside
   supervisor has moved the failure from compile time to 3am.
 - `npm run typecheck` wired as `pretest` (TST-21), `tsconfig` `noEmit`. Tests remain the type check
   for what typecheck cannot express.
-- **No linter, no bundler** (TST-22). No build step **in a host repo** — but this repo is an npm
-  workspace monorepo publishing `@doppelganger/kernel` + one package per plugin, and a workspace
-  link resolves through `node_modules`, so `pretest` is `typecheck && build` here (ADO-14…16).
+- **No linter, no bundler** (TST-22). No build step **in a host repo**, and none in `pretest` here
+  either: measured on Node `22.23.1` (`2026-08-25`, §5 Q5), a workspace link is a symlink and Node
+  strips types through it, so `pretest` is `npm run typecheck` alone (ADO-14, corrects the old
+  ADO-16 premise). This repo is still an npm workspace monorepo publishing `@doppelganger/kernel` +
+  one package per plugin, and the publish build (ADO-15, `tsc -p tsconfig.build.json` → `dist/`)
+  stays — a real install copies the package under `node_modules`, where type stripping does not
+  apply. If this repo ever consumes a workspace by copy instead of by link, `pretest` gains
+  `&& npm run build` that day.
 - Workspaces are `["kernel", "plugins/*", "cli"]` — globs over the existing layout; nothing lives in
   a `packages/` directory, and `host/` is deliberately not a workspace.
 - `node:sqlite` (DBS-01) pins a Node version that ships it; prefer the built-in test runner

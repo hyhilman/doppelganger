@@ -1172,10 +1172,16 @@ they all take an engine fix from one version bump.
   `declaration: true`, `files: ["dist"]`, `exports` pointing at `dist` (ADO-03 decides the shape of
   that map). Internal deps are pinned EXACT. `npm version <x> --workspaces` then
   `npm publish --workspaces` IS ADO-01's lockstep — there is no release tool and no changeset file.
-- **ADO-16** The build lands in the **dev loop**, not only at publish: a workspace link resolves
-  through `node_modules`, so whatever §5 Q5 answers for a consumer it answers for this repo's own
-  test run. `pretest` is `typecheck && build`. TST-22's narrowing to "no build step in a HOST repo"
-  is therefore load-bearing for the engine repo too, not a publishing detail.
+- **ADO-16** **Corrected by §5 Q5's measurement (Node `22.23.1`, `2026-08-25`).** The premise this
+  row used to state — "a workspace link resolves through `node_modules`, so whatever §5 Q5 answers
+  for a consumer it answers for this repo's own test run" — is **false** on the target Node: a
+  workspace link is a symlink, and Node resolves it to its real path (outside `node_modules`) before
+  deciding whether to strip types. The build lands at **publish** (ADO-15) and at any point a
+  package is consumed by copy rather than by link; `pretest` is `typecheck` alone while every
+  internal edge in this repo is a workspace symlink. TST-22's narrowing to "no build step in a HOST
+  repo" stays load-bearing — that is still the real conclusion this row protects. Trip-wire: if this
+  repo ever consumes a workspace by copy instead of by link, `pretest` gains `&& npm run build` that
+  day.
 - **ADO-17** The contract suite has TWO homes: shipped in `kernel/contracts` for a consumer to call
   (TST-01), and invoked at the repo ROOT across every workspace for the engine itself — because
   `assertNoDeepImports` and "boot the whole graph" are repo-wide by nature and cannot be run from
@@ -1443,11 +1449,28 @@ have `boot()` at all. See §5 Q6.
    reference already accepts host-level `bypassPermissions` runs deliberately.
 4. **Session runner** — keep the external session server, or fold the warm-session runner into the
    own-runner library at M11?
-5. **Does the published package need a build step?** Assumed YES and designed for (ADO-15/16):
-   Node's type-stripping does not apply under `node_modules`, which catches a consumer AND this
-   repo's own workspace links. Still worth the two-minute check on the target Node before M2 freezes
-   `exports` — if it turns out unnecessary, the build drops out of ADO-15/16 and nothing else moves,
-   because no host repo has a build step under either answer.
+5. **Does the published package need a build step?** **decided** — measured on Node `22.23.1`,
+   `2026-08-25`.
+   Split answer — the CONSUMER half and this repo's OWN dev loop are different, and the plan of
+   record before this measurement (assuming they were the same) was wrong:
+   - **Consumer half — YES, the build is needed.** A real install copies the package under
+     `node_modules`. Importing a `.ts` entry point from there fails with
+     `ERR_UNSUPPORTED_NODE_MODULES_TYPE_STRIPPING`. ADO-15's `tsc -p tsconfig.build.json` → `dist/`
+     stays exactly as written.
+   - **This repo's own dev loop — NO, the build is not needed.** An npm workspace link is a
+     symlink (`node_modules/@doppelganger/kernel -> ../../kernel`). Node resolves the symlink to its
+     real path before deciding whether to strip types, and the real path is outside `node_modules`,
+     so stripping applies. A cross-workspace `import { x } from '@doppelganger/kernel'`, where the
+     `exports` map points at a `.ts` source file, runs under `node --test` with no build.
+   - **Reproduced with a two-case fixture in `/tmp`**: a workspace-symlink case exits `0`; the same
+     package copied under `node_modules` (no symlink) exits `1` with
+     `ERR_UNSUPPORTED_NODE_MODULES_TYPE_STRIPPING`.
+   - **Trip-wire:** if this repo ever consumes a workspace by copy instead of by link — a vendored
+     package, a `file:` tarball, a Docker image that installs rather than mounts — `pretest` gains
+     `&& npm run build` on that day. `test/toolchain.test.ts` (J0.8) is written so the flip is one
+     line.
+   This corrects **ADO-16** (§2.32), whose stated reason ("a workspace link resolves through
+   `node_modules`") is false on the target Node — §2.32 carries the fix.
 
 6. **Does deferring `boot()` past N4 cost more than it saves?** §4.4 is blunt: *a validation that only
    runs in the supervisor has moved the failure from compile time to 3am.* N1–N4 carry one plugin's
