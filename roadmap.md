@@ -69,10 +69,17 @@ plugins/
   jira/ slack/ github/ notion/ tracker/ pr-review/ corpus/   v1
 host/
   supervisor.ts  config.ts  schedule.ts  jobs/            the app
+cli/                      operator surfaces — supervisor --list, skills, lease-clear, cron
 .claude/skills/<job>/     RENDERED from the manifests — never hand-edited (SKL-04)
 fleet/                                        v1
   Dockerfile  compose.yml  fleet.sh                        workers
+test/                     repo-wide drift gates — layout, commands, toolchain, skills, corpus
 ```
+
+`test/` holds the repo-wide drift gates until `kernel/contracts` exists to generalise them (TST-01).
+At N5 they fold into `kernel/contracts`; until then, `test/` at the repo root is their home, because
+ADO-17 needs a suite invoked at the root across every workspace and there is nowhere else for it to
+live before N5.
 
 **The v0 manifest ships FIVE members** — `name`, `kill`, `jobs`, `schedule`, `env`. `sources`,
 `routes`, `relays` and `lanes` arrive with the plugin that needs them: a port designed against no
