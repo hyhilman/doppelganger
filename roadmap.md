@@ -2,11 +2,13 @@
 
 Extraction of the `xenith/engine` unattended-agent engine into a structured, reusable framework.
 
-**Reference corpus** (`/Users/hyhilman/Projects/xenith/`):
+**Reference corpus** (`/home/hyhilman/projects/xenith/` — present on this machine, verified 2026-08-25):
 `engine/CLAUDE.md` · `engine/README.md` · `engine/jobs.md` · `engine/pipeline.md` ·
 `engine/distribution.md` · `engine/herdr-migration.md` · `engine/mcp-bridge-migration.md` ·
 `engine/cron/schedule.ts` · `engine/labels.sh` · `engine/fleet.sh` · `engine/watchdog.sh` ·
-`engine/src/**` (214 files) · `compose-data/docker-compose.yml` · the framework-extraction draft.
+`engine/src/**` (238 files, 133 non-test) · `compose-data/docker-compose.yml` · the framework-extraction draft.
+
+`engine/**` is 249 TS files / 56,645 lines outside `node_modules`.
 
 This file is the **complete feature inventory** plus the order to build it in. Every feature in the
 reference is listed with an ID. Nothing was dropped; where a feature is deliberately re-shaped
@@ -27,6 +29,17 @@ acceptance criterion.
 | D6 | State store = SQLite (`node:sqlite`) | one file per integration, opened only by the scheduler/broker |
 | D7 | Not an agent-runtime plugin system | extension points are a unit of WORK, not a conversation loop |
 | D8 | No dynamic plugin discovery | hand-registered, duplicate-throws at import (see KRN-01) |
+| D9 | **v0 ships three builtins**: `git` · `ops` · `nightly` | pipeline, tracker, sources, fleet and quota defer to v1 with every ID kept — §3.1 |
+| D10 | A job's prompt **IS a skill**, named in code | `prompt`/`promptFile` are gone; a job names a `skill` or it is deterministic (`exec`) — SKL |
+| D11 | `.claude/skills/` is **rendered**, never hand-edited | the plugin owns the file; the scanned directory is a derived artifact under managed markers (SKL-04) |
+| D12 | Two checkouts on one host are **independent, never coordinated** | one `INSTANCE` name discriminates every host-global write; a resource shared ACROSS instances is a lease, not a gate — INS |
+| D13 | **One repository, many published packages, ONE version** | a host is a separate repo that DEPENDS on the engine; four deployments update with one bump (ADO-01/02) |
+| D14 | The package's `exports` map IS the layering law | `ports` · `db` · `log` public; `gate` · `queue` · `shed` · `registry` internal (ADO-03) |
+| D15 | The reference corpus **is on this machine** | `/home/hyhilman/projects/xenith/` — v0 is an extraction with the original open, not a re-derivation from prose |
+| D16 | **Build the self-running loop first, the plugin seam second** | §3 is N0–N5; M0–M4 map at §3.2. The seam is designed better once a second consumer exists (D9) |
+| D17 | **Prose docs are cut, and the drift gates on prose go with them** | README/jobs/pipeline docs, 16 `*docs*.test.ts` files, long `why:` paragraphs. The **one-line** `why` on each entry and each `EnvSpec` stays — it is a decision record, not documentation. Cost at §4.3 |
+| D18 | The loop **maintains**; it does not build | 44 unattended commits in 3 days, one of them an `Added` (§4.1). A human builds every milestone |
+| D19 | The suite is **not** optional | SKILL.md step 4 reverts a pass on a failing suite; a thin suite makes that gate vacuous and the loop ships noise to `master` by `merge --ff-only` |
 
 **Not adopted from Hermes Agent / OpenClaw:** conversation hooks (`before_tool_call`,
 `message_received`, `before_compaction`), plugin sandboxing, marketplace/dynamic loading,
@@ -43,17 +56,27 @@ kernel/                   the framework. imports no plugin, ever.
   plugin.ts               the manifest — one integration, every contribution
   boot.ts                 validation over the whole graph
   ports/
-    source.ts   route.ts   relay.ts   job.ts   schedule.ts   lane.ts   runner.ts
+    job.ts  schedule.ts  runner.ts            v0
+    source.ts  route.ts  relay.ts  lane.ts    v1 — NOT designed until a plugin needs one
   runtime/
-    gate.ts     lease.ts   queue.ts   log.ts   db.ts   quota.ts   shed.ts   pool.ts
+    gate.ts  lease.ts  log.ts  db.ts  pool.ts v0
+    queue.ts  quota.ts  shed.ts               v1
   contracts/              drift-gate suite factory a host repo calls
 plugins/
-  jira/ slack/ github/ notion/ tracker/ pr-review/ corpus/ ops/
+  git/  ops/  nightly/                        v0 builtins
+    <name>/plugin.ts                          the manifest
+    <name>/skills/<job>/SKILL.md              the prompt, owned by the plugin (SKL-03)
+  jira/ slack/ github/ notion/ tracker/ pr-review/ corpus/   v1
 host/
   supervisor.ts  config.ts  schedule.ts  jobs/            the app
-fleet/
+.claude/skills/<job>/     RENDERED from the manifests — never hand-edited (SKL-04)
+fleet/                                        v1
   Dockerfile  compose.yml  fleet.sh                        workers
 ```
+
+**The v0 manifest ships FIVE members** — `name`, `kill`, `jobs`, `schedule`, `env`. `sources`,
+`routes`, `relays` and `lanes` arrive with the plugin that needs them: a port designed against no
+consumer gets designed wrong, which is the failure §4 already warns about.
 
 ---
 
@@ -76,8 +99,9 @@ fleet/
 - **KRN-08** `boot(plugins)` collects ALL problems then throws once, each line attributed to a plugin.
 - **KRN-09** boot checks: route has watcher **or** an `unwatched` reason · watcher names a
   registered job · schedule entry names a registered job · relay gates a target it cannot receive ·
-  job declares a model · required env unset with no default · duplicate names across registries ·
-  writer names an unknown gate resource.
+  job declares a model · **job names a `skill` that resolves to a directory on disk** · **every
+  skill directory on disk is named by a registered job** (SKL-06) · required env unset with no
+  default · duplicate names across registries · writer names an unknown gate resource.
 - **KRN-10** `Route` becomes an **open** set; `boot()` replaces the closed union's exhaustiveness.
   One-way: decide before the first plugin ships a route.
 - **KRN-11** `boot()` runs in `npm test`, not only in the supervisor.
@@ -92,9 +116,10 @@ fleet/
 - **PRT-03** `Relay { name, strip, targeted, admit?, send }` — `strip` = personal-tracker strip-pass
   policy per relay; `targeted:false` pins the destination inside `send`; `admit` refuses host-side.
 - **PRT-04** `RouteDef { name, watcher?, unwatched? }`; `Watcher { job, leases?, holdsUnsettled? }`.
-- **PRT-05** `Job` shape: `name`, `description`, `prompt` | `promptFile`, `exec?`, `model`, `effort`,
+- **PRT-05** `Job` shape: `name`, `description`, **`skill`** | `exec?`, `model`, `effort`,
   `permissionMode`, `maxIterations`, `completionSignal`, `promptArgs`, `env`, `worktree`,
-  `taskClass`, `session`, `local`.
+  `taskClass`, `session`, `local`. `prompt`/`promptFile` are GONE (D10): a job names a skill or it
+  is deterministic, and there is no third shape.
 - **PRT-06** `ScheduleEntry`: `name`, `cron`, `log`, `env?`, `gateWait?`, `clearsRefreshWindow?`,
   `maxRunMin?`, `job` | `script`, `supervised?`, `why` (required).
 - **PRT-07** `Lane { id, title, jobKeys, leaseScopes, wrong }` — what BEING WRONG means in that lane.
@@ -104,7 +129,8 @@ fleet/
 
 - **GAT-01** In-memory reader/writer gate over named resources (reference: `factory`, `plugin`,
   `services`). Replaces `flock` + 17 wrapper scripts; possible because one supervisor process owns
-  every tick.
+  every tick — which also bounds it: the gate is per-PROCESS, so it excludes nothing between two
+  instances on one host (INS-05).
 - **GAT-02** Reader takes `shared` on ALL resources; writer takes `excl` on **only what it moves**;
   a writer naming nothing takes all (safe default).
 - **GAT-03** Two writers on disjoint resources run concurrently — the reason the split exists.
@@ -129,7 +155,7 @@ fleet/
 - **LSE-04** Versioned keys (`todo:<n>@<updatedAt>`, `repo#n@<sha>`) vs constant keys (serial groups)
   and the opposite release rules each needs.
 - **LSE-05** `maxAttempts` crash-loop brake; `capped` return distinct from `held`.
-- **LSE-06** Owner = `<host>:<pidns>:<pid>:<uuid8>`.
+- **LSE-06** Owner = `<instance>:<host>:<pidns>:<pid>:<uuid8>` (INS-04).
 - **LSE-07** `reapDead` guard table, every guard failing toward NOT reaping: pid-namespace ≠ ours ·
   host ≠ ours · claimed <30s ago · `/proc/<pid>` present · already expired · `done`/`failed`.
 - **LSE-08** Owners written before the namespace was recorded are skipped, never guessed.
@@ -198,7 +224,8 @@ fleet/
 - **SUP-06** A boot refusal is loud: restart loop + watchdog reports within 15 min.
 - **SUP-07** Croner-vs-POSIX parity test over every expression across a fixed 14-day window.
 - **SUP-08** Bootstrap crontab block: `render` / `sync` / `check` / `sync --adopt`; managed markers;
-  foreign lines untouched; duplicate detection refuses a plain splice.
+  foreign lines untouched; duplicate detection refuses a plain splice. Markers are per-INSTANCE
+  (INS-03) — the crontab is the one host-global surface two checkouts cannot avoid sharing.
 - **SUP-09** `supervised: false` — exactly one entry (the watchdog), because a liveness probe
   scheduled by the process it probes reports nothing in the case that matters.
 - **SUP-10** Refresh window stated ONCE (`inRefreshWindow`); `clearsRefreshWindow: true` drops a
@@ -333,9 +360,11 @@ fleet/
 - **HRN-14** `job.local` pins a shared-master writer to one node.
 - **HRN-15** `OPUS_GUIDANCE` — shared agent-discipline preamble (delegate only for wide independent
   sweeps; never spawn a subagent to check your own work; count a skill's fan-out).
-- **HRN-16** A worker RUNS a skill **by name** (`<plugin>:<skill>`); its payload stays in code. Never
-  a path into a skill's files; a prompt naming a skill should be short.
-- **HRN-17** `plugin-names.test` holds the skill/agent name list to the prompts.
+- **HRN-16** Every run — worker or host — names a skill **by name**; its payload stays in code.
+  Never a path into a skill's files; the prompt around a skill stays short. Promoted from a worker
+  detail to the only prompt mechanism there is (D10, SKL).
+- **HRN-17** `plugin-names.test` holds the skill/agent name list to the prompts (SKL-06 is the
+  registry half of the same gate).
 - **HRN-18** `pool.ts` — bounded concurrency + spawn stagger (`*_SPAWN_STAGGER_MS`, 2000) for the
   `~/.gitconfig` start-up race.
 - **HRN-19** `exec.ts` — `gh` / `ghIn` / `git` wrappers with a wall-clock timeout (an unbounded
@@ -885,7 +914,17 @@ The convention: *a claim derivable from the source is checked against the source
   with fixtures lifted from REAL data, never invented.
 - **TST-20** Suites share one database — settle what you seed (two documented traps).
 - **TST-21** `typecheck` as `pretest`; tests remain the type check for what typecheck excludes.
-- **TST-22** No linter, no bundler, no build step — TS runs directly.
+- **TST-22** No linter, no bundler, no build step **in a host repo** — TS runs directly. Whether the
+  published package needs one is §5 Q5; the answer never reaches a consumer either way.
+- **TST-23** `skills check` — the rendered `.claude/skills/` matches its plugin-owned source under
+  the managed markers, byte for byte. Drift FAILS the build; it is never silently re-rendered.
+- **TST-24** SKL-06 both ways (no job without a skill, no skill without a job) plus SKL-07: no
+  `SKILL.md` carries a guard matrix, an eligibility rule, or a verdict token that code owns.
+- **TST-25** **No phantom dependencies** — every PACKAGE specifier in a workspace resolves to a
+  declared dependency OF THAT WORKSPACE. TST-05 pins relative specifiers and cannot see this one:
+  hoisting makes an undeclared import resolve locally and fail only for a consumer, which is the
+  monorepo failure that reaches users first and the repo last. Its sibling: no workspace names
+  another workspace's `dist/` or `src/` by path (ADO-03 is the only door).
 
 ### 2.27 Ops knobs (`KNB`)
 
@@ -992,39 +1031,247 @@ every step counts its own attempts and every step has a cap · the DLQ is report
 
 ---
 
-## 3. Milestones
+### 2.30 Skills as the prompt mechanism (`SKL`)
 
-Each step is green on its own and none needs the next.
+A prompt is not a string in a job file. It is a **skill**: a directory the plugin owns, run by an
+unattended pass and by a human at a terminal, under ONE name.
 
-### M0 — Skeleton & decisions
-Repo layout (§1) · `package.json` (no bundler, no linter, direct-TS run, `typecheck` as `pretest`) ·
-`tsconfig` `noEmit` · CI running `npm test` · this file kept current.
-**Ships:** D1–D8, TST-21, TST-22.
+- **SKL-01** `defineJob({ skill })` — the skill name IS the job name, so the schedule entry, the
+  unattended run and the human's `/<name>` are one identifier. SUP-20 already fixes the vocabulary
+  and TST-09 already gates it, so skills inherit the stage prefixes for free.
+- **SKL-02** ONE skill per JOB, never per plugin. `corpus` contributes `corpus-refresh`,
+  `corpus-checklist` and `corpus-lint` — not one `/corpus` with a mode argument. D7: the unit of
+  extension is a unit of WORK, and a mode argument is a conversation loop wearing a hat.
+- **SKL-03** The plugin owns the file: `plugins/<x>/skills/<job>/SKILL.md`. A manifest that declares
+  a job whose prompt lives somewhere else is exactly the KRN-04 lie TST-02 exists to catch.
+- **SKL-04** `.claude/skills/` is RENDERED from the manifests, never hand-edited — the same
+  managed-block contract as the crontab (SUP-08): `skills render` · `sync` · `check`, managed
+  markers, foreign entries untouched, duplicate detection refuses a plain splice. The scope is
+  PROJECT-level and nothing else: never `~/.claude/skills/`, which is shared across checkouts and
+  contradicts INS-02, and never an agent-CLI plugin namespace, whose `plugin:skill` prefix would
+  break SKL-01's one identifier. `plugins/<x>/` is the ENGINE's plugin concept, not the CLI's — it
+  owns the source file (SKL-03) and contributes nothing the CLI discovers on its own.
+- **SKL-05** Code declares; the filesystem is only ever CHECKED against it. A directory scan never
+  determines what EXISTS — that is how KRN-02 survives contact with a tool whose native discovery
+  mechanism is a directory scan.
+- **SKL-06** The gate runs both ways: every `job.skill` resolves to a real directory, and every
+  skill directory is named by a registered job. An orphan skill is a prompt nothing runs.
+- **SKL-07** What may NOT move into a skill: guard matrices, verdict parsing, eligibility, and every
+  authorization decision. JOB-T03 states the rule already — `agent` is reachable only from a literal
+  token, *enforced in `parseVerdict`, not asked for in the prompt*. A skill is markdown a human
+  edits; a grant that lives in markdown is a grant anyone can widen in a text editor.
+- **SKL-08** A skill's only inputs are `promptArgs` (PRT-05). `SKILL.md` never reads the
+  environment, and never names a path into its own directory (HRN-16) — a skill that can be
+  refactored by moving a file is not a unit.
+- **SKL-09** The free safe-run surface: the file a job runs unattended is the file a human runs at
+  `/<name>` to see what it would do. It does NOT replace `*_DRY_RUN` (SAF-01) — the env gate governs
+  the WRITE, the skill governs the PROCEDURE, and only the pair is a safe run.
+- **SKL-10** `sync` PRUNES, and the crontab precedent does not survive the port: SUP-08's "foreign
+  lines untouched" works because a crontab is ONE file with a delimited block, and `.claude/skills/`
+  is a directory TREE with nowhere to put a marker. So ownership must be decidable from the
+  filesystem alone — a symlink into `plugins/*/skills/` is self-evidently ours; a rendered copy needs
+  a ledger of what the last render wrote (§5 Q0 decides which). Given that: an entry that is ours and
+  is not named by a registered job is REMOVED; an entry that is not ours is never touched, never
+  overwritten, and never counted as drift. SKL-06 only DETECTS the orphan — without this row,
+  deleting a job leaves a red build and a manual `rm`, which is housekeeping the tool declined to do.
 
-### M1 — Kernel primitive + runtime core
-`registry.ts` · `db.ts` · `log/` · `gate.ts` · `lease.ts` · `proc` · `pool` · `time` · `exec`.
-**Ships:** KRN-01…03, DBS-*, LOG-*, GAT-01…09, LSE-01…12, HRN-18, HRN-19.
-**Gate:** gate contract, lease primitive, reaper guards, log round-trip, tail cursor, DB busy-context.
+---
 
-### M2 — Manifest, boot, ports, contracts suite
-`plugin.ts` · `boot.ts` · every port · `kernel/contracts`.
-**Ships:** KRN-04…11, PRT-01…08, TST-01…05.
-**Fork to settle before M5:** KRN-10 (open the route set) — one-way in practice.
+### 2.31 Instance identity (`INS`)
 
-### M3 — Host supervisor & schedule
-`host/supervisor.ts` · schedule-as-data · `PROGRAMS` · `validate()` · bootstrap block CLI ·
-refresh window · heartbeat · boot lease sweep · `--list`.
-**Ships:** SUP-01…21, GAT-10.
-**Gate:** validate list ↔ docs, croner parity, gate-wait derivation, ordering, window walk,
-crontab block.
+Nothing stops a second checkout of a host app from running the same engine on the same box, and most
+of what the engine writes is already project-relative. These rows name the few things that are not.
 
-### M4 — Agent harness over sandcastle
+- **INS-01** ONE `INSTANCE` name per checkout, defaulting to the project directory's basename,
+  validated at boot as a bare identifier — it is interpolated into crontab text, an owner string and
+  container names, so KRN-09 checks it for the same reason DBS-03 guards `ns`. It is the only thing
+  that distinguishes two copies of the engine on one host.
+- **INS-02** Every write is either **project-relative** or **`INSTANCE`-discriminated**, and there is
+  no third category. Project-relative: `<NAME>_DB` defaults resolve inside the checkout (DBS-01),
+  `.claude/skills/` is repo-relative (SKL-04, and therefore SKL-10 can never prune another
+  instance's skills). Discriminated: crontab markers (INS-03), lease owner (INS-04), queue rows
+  (QUE), container and volume names (DKR-05/06). A new write path states which it is.
+- **INS-03** The crontab is the one unavoidably shared resource — one file, one user, no way to make
+  it project-relative. Markers carry the instance; a `sync` never reads or writes another instance's
+  block, and SUP-08's duplicate detection is scoped per instance so two checkouts splice side by side
+  instead of clobbering. An unnamed marker pair is an unmigrated block: `check` fails on it,
+  `sync --adopt` claims it.
+- **INS-04** Lease owner (LSE-06) leads with the instance. Without it, `lease-clear` (LSE-10) shows a
+  `held` claim with no way to tell which checkout owns it, while LSE-07's reap guards correctly
+  refuse to touch it — a stuck key no operator can safely attribute.
+- **INS-05** **Non-goal, declared so it is declined rather than discovered:** two instances never
+  coordinate. The gate is in-memory and per-process (GAT-01), so two supervisors hold two gates with
+  NO mutual exclusion between them, and the silence is the hazard — you learn it from corruption,
+  not from an error. This is sound only while every named gate resource lives inside its own
+  checkout. A resource genuinely shared across instances is not a gate problem, it is a lease
+  (LSE-01), and moving it is a design change and not a config change. §5 Q1 must not answer with a
+  machine-wide resource.
+- **INS-06** Corollary, free: `INSTANCE` is the cheapest isolation for a real smoke test. A second
+  checkout under its own name gets its own DB files, its own crontab block and its own leases, so
+  SAF's env gates can be exercised end to end without a path into the live instance's state.
+
+---
+
+### 2.32 Distribution & adoption (`ADO`)
+
+D12: the engine is published, a host is a separate repo that depends on it. Four deployments exist
+so that four sets of rules can differ (that is the reason for N hosts, not an accident of them), and
+they all take an engine fix from one version bump.
+
+- **ADO-01** One repository, many packages, **ONE version number** — `@doppelganger/kernel` and
+  every `@doppelganger/plugin-*` release as a set. There is no supported combination in which two
+  of them differ.
+- **ADO-02** `boot()` refuses a plugin whose version is not EQUAL to the kernel's; `dev` is
+  unenforced. This is QUE-08's `hello` handshake pointed at plugins instead of workers, and it is
+  what keeps §0's rejected *plugin↔kernel compatibility surface* rejected: separate packages make
+  skew expressible, so an equality check refuses it. A matrix is the thing being avoided; a scalar
+  is not a matrix.
+- **ADO-03** The published surface: **`ports` · `db` · `log` public; `gate` · `queue` · `shed` ·
+  `registry` internal.** A plugin owns its own SQLite file and migrations (DBS-01/02) and emits log
+  lines (LOG-01), so `ports` alone cannot express one — §0's real rule is *published entry points,
+  never core internals*, and the `exports` map is now the mechanism. TST-03 stays as the backstop
+  for IN-TREE plugins, where there is no package boundary to do it for you.
+- **ADO-04** `init` — scaffolds a host repo: `package.json` with the set pinned at one version,
+  `host/plugins.ts` carrying real imports and a real `boot([...])`, the rendered `.claude/skills/`,
+  and `.env.example` derived from the `EnvSpec` rows (KRN-06).
+- **ADO-05** `add <plugin>` — installs it at the kernel's EXACT version and appends the import plus
+  the registration line. The version is never chosen by a human, which is how ADO-01 stays true in
+  practice rather than only in policy.
+- **ADO-06** `new plugin <name>` — scaffolds an in-tree plugin under `plugins/`, byte-identical in
+  shape to a published one.
+- **ADO-07** `update` — bumps the whole set or nothing.
+- **ADO-08** Every generator discovers at **scaffold** time and writes CODE; nothing scans at boot.
+  KRN-02 and D8 survive intact because the scan happens when a human runs a command, and its output
+  is a diff in git rather than a fact known only at runtime.
+- **ADO-09** FOUR render targets, ONE verb family — crontab (SUP-08) · skills (SKL-04) ·
+  registration (ADO-04/05) · `.env.example` (KRN-06), each `render` / `sync` / `check` with managed
+  ownership and drift failing the build. A fifth target adopts this contract or it does not ship.
+- **ADO-10** A custom plugin is identical in-tree and published; only the import specifier differs.
+  Nothing in the manifest, the skills layout or the boot checks knows which it is.
+- **ADO-11** `init` is the only supported install path. A hand-written `package.json` can express a
+  skew, and ADO-02 will refuse it at boot — documented, not prevented, because preventing it means
+  the compatibility surface again.
+- **ADO-12** Per-deployment isolation is INS's problem, not this section's: N hosts on one box are
+  N instances (INS-01), and every ADO generator writes through the instance discriminator rather
+  than beside it.
+- **ADO-13** Each plugin is its OWN package (§5 Q6, decided). The kernel package therefore contains
+  zero plugins — D1 restated as a publish artifact rather than only as a test.
+- **ADO-14** **npm workspaces, no orchestrator.** `{"private": true, "workspaces": ["kernel",
+  "plugins/*", "cli"]}` — globs take §1's layout as it stands, so nothing moves into a `packages/`
+  directory. Turbo/Nx/Lerna are each a dependency plus a build graph this repo has no use for; the
+  argument is the same one that picked `node --test` over a framework and `node:sqlite` over a
+  driver. `host/` is deliberately NOT a workspace — it is the reference host and is never published.
+- **ADO-15** Build and publish: per package `tsc -p tsconfig.build.json` → `dist/` with
+  `declaration: true`, `files: ["dist"]`, `exports` pointing at `dist` (ADO-03 decides the shape of
+  that map). Internal deps are pinned EXACT. `npm version <x> --workspaces` then
+  `npm publish --workspaces` IS ADO-01's lockstep — there is no release tool and no changeset file.
+- **ADO-16** The build lands in the **dev loop**, not only at publish: a workspace link resolves
+  through `node_modules`, so whatever §5 Q5 answers for a consumer it answers for this repo's own
+  test run. `pretest` is `typecheck && build`. TST-22's narrowing to "no build step in a HOST repo"
+  is therefore load-bearing for the engine repo too, not a publishing detail.
+- **ADO-17** The contract suite has TWO homes: shipped in `kernel/contracts` for a consumer to call
+  (TST-01), and invoked at the repo ROOT across every workspace for the engine itself — because
+  `assertNoDeepImports` and "boot the whole graph" are repo-wide by nature and cannot be run from
+  inside one package.
+
+---
+
+## 3. Build order
+
+**v0 is N0–N5.** The order changed on 2026-08-25: build the **self-running loop first**, the plugin
+seam second. The evidence is §4.1. Nothing is dropped and every ID is kept — §3.2 maps the old
+M-numbers so a commit or comment citing `M2` still resolves.
+
+### 3.0 The loop's measured surface
+
+Traced transitively from `supervisor.ts`, `sandcastle.ts`, `jobs/nightly-sandcastle.ts` and
+`cron/schedule.ts` in the reference: **19 files, 4,517 lines — 8% of the engine's 56,645.**
+
+| Lines | Reference file | IDs |
+|---|---|---|
+| 1207 | `cron/schedule.ts` | SUP-01…21 — 69% prose (178 comment + ~657 `why:` lines); MVP needs ~1 entry, so **~120 lines** |
+| 660 | `src/jobs/nightly-sandcastle.ts` | JOB-C15 |
+| 543 | `src/supervisor.ts` | SUP |
+| 343 | `cron/lib.ts` | SUP-08, refresh window, gate wait |
+| 290 | `src/sandcastle.ts` | HRN-01…02, HRN-10…11 |
+| 221 | `src/lib/rwlock.ts` | GAT-01…09 — **required**, §4.2 |
+| 211 | `src/lib/quota.ts` | QTA — **required**, §4.2 |
+| 206 | `src/lib/db.ts` | DBS |
+| 442 | `src/lib/log/*` (4 files) | LOG |
+| 97 | `src/lib/shed.ts` | QTA — **required**, §4.2 |
+| 74 · 68 · 68 · 65 · 59 · 31 | `config` · `exec` · `log/parse` · `pool` · `stages` · `time` | KRN-06, HRN-18/19, SUP-20 |
+
+Tests for the same closure are ~3,400 lines, near 1:1 with the code. 475 of those are doc-gates that
+D17 drops. **MVP ≈ 3,100 lines of code + ~2,900 lines of test, ported and re-layered — not invented.**
+
+There is no `supervisor.test.ts` in the reference; the supervisor is covered by `cron/*.test.ts`
+(order, croner parity, gate-wait, validate). Copy that shape, minus the three `docs-*` files.
+
+### N0 — Ground truth · **2 days**
+Repo layout (§1) · `package.json` (no bundler, no linter, direct-TS run) · `tsconfig` `noEmit` ·
+`typecheck` as `pretest` · CI on `npm test` · this file kept current ·
+`plugins/nightly/skills/nightly-sandcastle/` + its rendered `.claude/skills/` entry as the worked
+example of SKL-03/04 · settle §5 Q0 with the `ln -s` test **before** N3 hand-writes a renderer.
+**Ships:** D1–D19, TST-21, TST-22.
+
+### N1 — The kernel the loop needs · **1.5–2 weeks**
+`db.ts` · `log/` (emit, parse, tail, cause) · `config.ts` · `time.ts` · `exec.ts` · `pool.ts` ·
+`stages.ts`.
+**Ships:** DBS-*, LOG-*, KRN-06, SUP-20, HRN-18, HRN-19, INS-01…02, TST-18, TST-20.
+**Gate:** log round-trip · both emitters agree · tail cursor · dead-child fixture · DB busy-context ·
+the shared-database trap (TST-20).
+**Not shipped, deliberately:** `registry.ts`, `plugin.ts`, `boot.ts`. The loop does not need the
+plugin seam, and the seam is designed better once a second consumer exists to argue with it (D9).
+
+### N2 — Supervisor, one schedule entry · **1 week**
+`host/supervisor.ts` · schedule-as-data · `PROGRAMS` · `validate()` on every boot · one croner timer
+per entry · refresh window · heartbeat · `gate.ts` · `--list` · the crontab bootstrap block.
+**Ships:** SUP-01…21, GAT-01…10, INS-03, INS-05, TST-15, TST-16, TST-17 (gate half).
+**Gate:** croner-vs-POSIX parity · gate-wait derivation · ordering between jobs · minute-for-minute
+window walk · crontab managed-block mechanics.
+**Cut by D17:** TST-06 (docs↔code counts), the `docs-counts` / `docs-nightly` / `validate-docs` suites.
+
+### N3 — The harness and the pass · **1.5–2 weeks**
 `ports/runner` + a sandcastle adapter · `DEFAULTS` · `defineJob`/`runJob` · `runLocal` · worktree
-realization · payload parsing · model-declaration gate · `OPUS_GUIDANCE`.
-**Ships:** HRN-01…02, HRN-07, HRN-10…17, PRT-05, PRT-08.
-**Deliberately deferred:** HRN-03…06 (session runner) → M8; dispatch → M9.
+realization · `parseVerdict` for the `<<<SANDCASTLE` block · **the ship gate** (full suite + import
+smoke + a dry run of every changed file with the DB redirected to a scratch dir) · `merge --ff-only`
+with ff-miss rebase-retry recovery · goal rotation state · `OPUS_GUIDANCE` · the SKL mechanism with
+its `render`/`sync`/`check` verbs.
+**Ships:** HRN-01…02, HRN-07, HRN-10…19, SKL-01…10, JOB-C15, SAF-01…08, INS-06,
+TST-08, TST-09, TST-19, TST-23, TST-24.
+**Gate:** `npm test` green · `skills check` clean · every agent run names its model (TST-08) ·
+one pass at `*_DRY_RUN` and one at `*_MAX=1`.
+**Deferred:** HRN-03…06 (session runner) and dispatch → M9/M11, unchanged.
 
-### M5 — Pipeline core + first plugin
+### N4 — Safe to leave alone · **1 week**
+`quota.ts` breaker + classes · `shed.ts` value tiers · leases · watchdog + delivery stamp · log report.
+**Ships:** QTA-01…10, LSE-01…12, INS-04, JOB-O09…12, TST-17 (lease + breaker half).
+**Gate:** a walled account parks and recovers inside one window · a killed pass does not wedge the
+next one · every reaper guard fails toward **not** reaping.
+
+> **The loop is live and unattended here. N0–N4 ≈ 4.5–6 weeks.**
+
+### N5 — The rest of v0: the framework claim · **3.5–4.5 weeks**
+`registry.ts` · `plugin.ts` · `boot.ts` · `ports/job` · `ports/schedule` · `kernel/contracts` ·
+then `plugins/git` (JOB-G01…14, deterministic, no model) · `plugins/ops` (JOB-O01…06) ·
+`plugins/nightly` proper (JOB-C14 polish, JOB-C16 concurrency).
+**Ships:** KRN-01…09, KRN-11, PRT-05, PRT-06, PRT-08, TST-01, TST-03, TST-04, TST-05, TST-25,
+JOB-G01…14, JOB-O01…06, JOB-C14, JOB-C16.
+**Not shipped, deliberately:** KRN-10 — with no routes there is no union to open. TST-02
+(`assertDocumented`) has no subject under D17; see §4.3, this is the one cut with a real cost.
+From N4 on the loop is running, so it maintains N1–N4's code while you build this.
+
+**v0 stops here.** What it is: an unattended job runner with a plugin-shaped seam, three builtins,
+and one name per unit of work. What it is NOT: a framework — that claim is unproven until a plugin
+contributes a source and a route (§3.1). Name it the first thing, not the second.
+
+## 3.1 Deferred to v1 — unchanged, every ID kept
+
+Nothing below is dropped and nothing is re-scoped; these blocks are the v0 backlog. The only change
+is that M5's reference plugin is now the SECOND plugin — `plugins/git` proved the seam, `jira` is
+what proves the *pipeline* seam.
+
+### M5 — Pipeline core + first source plugin
 `backlog/` (store, states, attempts, stats) · steps + DLQ + operator surface · watchers · watcher
 contract (`drain`/`revive`/`reroute`) · entry registry · intent classifier · `held` · `prlink` ·
 `render` · `clone-detect` · `resolve`.
@@ -1044,8 +1291,9 @@ slack · github · notion · tracker (+ each one's manual runner and dry run).
 ### M8 — Job families
 brief/health/weekly/add/dlq · PR family (review, status, feedback, fix, bug-digest) · todo loop
 (triage, exec, human-close, relevance, decision-watch, claim-reap, spawner, reaper, ls/attach,
-space-backfill) · corpus (refresh, checklist, lint) · nightlies · git ops · session runner.
-**Ships:** JOB-B*, JOB-P*, JOB-T*, JOB-C*, JOB-G*, HRN-03…06, INT-18, TST-19.
+space-backfill) · corpus (refresh, checklist, lint) · session runner.
+**Ships:** JOB-B*, JOB-P*, JOB-T*, JOB-C01…13, HRN-03…06, INT-18, TST-19.
+**Already shipped in v0:** JOB-G* (git ops) and JOB-C14…16 (the nightlies).
 
 ### M9 — Docker fleet
 broker (protocol, server, client, handshake) · distributed queue · worker loop + generic handler ·
@@ -1067,10 +1315,94 @@ preserved, the full suite green with the adapter swapped.
 
 ---
 
-## 4. Known cost (carried from the draft, still true)
+### 3.2 Old milestone map
 
-- **KRN-10 is one-way in practice.** Once a plugin ships a route, restoring a closed union means
-  un-plugging it. Decide before M5 lands.
+Commits, comments and older notes cite `M0`–`M4`. They resolve as:
+
+| Old | Now | Why it moved |
+|---|---|---|
+| M0 | N0 | unchanged |
+| M1 | N1 · N2 · N4 | split — kernel-the-loop-needs / gate+supervisor / leases |
+| M2 | N5 | the plugin seam is not on the loop's path (D16) |
+| M3 | N2 | pulled forward — the loop IS a supervisor |
+| M4 | N3 · N5 | harness + JOB-C15 forward; `git`/`ops` builtins back |
+| M10 (part) | N4 | QTA pulled forward — a cadence without a breaker is §4.2 |
+## 4. Known cost and measured evidence
+
+### 4.1 What the self-running loop actually does — measured 2026-08-23 … 2026-08-25
+
+52 commits landed in the reference between this repo's first commit (2026-08-23 02:19 +0700) and
+2026-08-25 18:11. **44 — 85% — were written unattended** by `nightly-sandcastle` / `nightly-polish`.
+The loop works. What it does with that autonomy:
+
+| Verb group | Count | What it is |
+|---|---|---|
+| Gated · Covered · Pinned | 20 | new tests and drift gates on code that already existed |
+| Collapsed · Folded · Flattened · Split · Extracted · Replaced | 12 | refactor, behaviour unchanged |
+| Corrected · Deleted · Dropped · Renamed · Moved | 13 | remove stale code, stale docs, dead paths |
+| **Added** | **1** | a missing status row in a README table |
+
+**One `Added` in three days, and it was a table row.** By design: `nightly-sandcastle/SKILL.md` says
+*"prefer the one that removes a thing over the one that adds a thing"*, and a pass that cannot finish
+reports `too-large` and changes nothing.
+
+So *"it runs itself until the roadmap is done"* is two different asks. **Runs 24/7 with nobody
+watching** — yes, that is N0–N4. **Builds the remaining roadmap by itself** — no; 44 commits of
+evidence say it will not. A human builds every milestone; the loop keeps what exists honest, and that
+compounds over every later one. Under D17 it loses its 9 doc-gating commits and keeps the other ~35.
+
+### 4.2 24/7 — the reference tried denser and walked it back
+
+The two nightlies run `0,30 15-22 * * *` and `1,31 15-22 * * *`: **16 Opus passes a night in a 7-hour
+window (22:00–05:30 WIB), not round the clock.** The entry's own `why` records the history — `*/10`
+(~45 passes/day) until 2026-08-08 → hourly while that spend rate was reassessed → `0,30` since
+2026-08-17, *"walked down and back up rather than guessed"*.
+
+Continuous at a 30-minute cadence is ~48 passes/day — about the rate already tried and abandoned on
+cost. **Build for continuous operation, schedule a window.** It is one cron field and nothing else
+moves with it.
+
+Three modules that look deferrable are inside the loop's import closure (§3.0), because running on a
+*cadence* is what makes them load-bearing:
+
+- **`quota.ts`** — *"an exhausted plan quota fails EVERY invocation identically until it resets, so a
+  1-minute cadence turns one outage into ~780 pointless spawns a day."* Without the breaker the loop
+  does not merely stop at the wall; it burns process starts against it until a human notices. The
+  pause is a **window**, not a park until the reported reset, so a mid-outage plan upgrade recovers —
+  the next real run IS the probe. There is no separate prober and there should not be.
+- **`shed.ts`** — the breaker pauses but never *degrades*: a nightly chore and a PR review burn the
+  same wall and it cannot tell them apart. A job's value class decides whether it runs at all, and at
+  which tier. `decideShed` is pure; the supervisor's per-tick skip and sandcastle's per-run model
+  choice do the impure half.
+- **`rwlock.ts`** — two nightlies run concurrently, offset one minute, on **disjoint** resources
+  (`plugin` vs `factory`), JOB-C16. `engine.lock` used to be one lock, so `-x` self-excluded and made
+  every writer pair mutually exclusive whether or not they touched the same tree.
+
+Plus two outside the closure that are what "leave it alone" means: a **lease** (a pass killed mid-run
+must not wedge the next one — `.sandcastle/nightly-sandcastle.lock` is the reference's) and a
+**watchdog** (nothing tells you the loop stopped except its own silence, and silence is
+indistinguishable from a quiet night).
+
+### 4.3 The cost of D17
+
+Cutting prose docs also cuts **TST-02 `assertDocumented`** — and §4.4 below calls TST-02 *the piece
+most likely to be skipped and most costly to skip*, because nothing else forces a plugin to list
+every schedule entry it owns. With no prose there is no list to assert against. The surviving half is
+TST-01 (*every scheduled entry's gate resources exist*), which catches a bad row but not a missing
+one. Accepted at MVP scale — one person, one plugin, one entry — and it is the first thing to
+reconsider at N5 when `git` and `ops` add real manifests.
+
+The other named risk survives D17 intact: **`boot()` must run in the test suite**, and N1–N4 do not
+have `boot()` at all. See §5 Q6.
+
+### 4.4 Carried from the draft, still true
+
+- **KRN-10 is one-way in practice** — but v0 dissolves it rather than deciding it. No builtin emits
+  a route, so there is no union to open; the decision returns, intact, on the first v1 plugin that
+  ships one. Do not open the set speculatively in M2.
+- **The skills mechanism has one consumer in v0** (`nightly`, plus `ops-hello`). That is thin, and
+  it is the same "designed against no consumer" trap as the ports — SKL-02 and SKL-07 are the two
+  rows most likely to be got wrong before a second plugin arrives to argue with them.
 - **`boot()` must run in the test suite.** A validation that only runs in the supervisor has moved
   the failure from compile time to 3am.
 - **A manifest can lie.** Nothing forces a plugin to list every schedule entry it owns; a row left in
@@ -1084,9 +1416,19 @@ preserved, the full suite green with the adapter swapped.
 
 ## 5. Open questions
 
+0. **`.claude/skills/` render vs symlink.** SKL-04 renders a managed copy, on the crontab precedent
+   (SUP-08/TST-16). A symlink per skill would be zero-drift and delete TST-23 outright — if the
+   agent CLI's scan follows symlinked skill directories. Verify before M4 hand-writes a renderer.
+   It decides SKL-10 too, and that is the heavier half: pruning needs a filesystem-decidable answer
+   to "did we create this?", which a symlink into `plugins/*/skills/` answers for free and a rendered
+   copy can only answer by keeping a ledger of the last render. Symlink is one mechanism replacing
+   three (renderer, drift gate, ledger); render keeps all three. Cheapest test: `ln -s` one skill,
+   restart the CLI, see if it lists.
 1. **Name the resources.** The gate's three resources are workspace-specific (`factory`, `plugin`,
    `services`). Does the kernel take them as config (`resources: string[]`) or does each host declare
    its own set? Leaning: host config, validated at boot (KRN-09 already checks unknown resources).
+   Constrained by INS-05: whatever the answer, no named resource may be machine-wide, because the
+   gate cannot exclude across instances.
 2. **Tracker abstraction.** The reference hard-codes GitHub issues. Is "tracker" a port (so a plugin
    could back it with something else), or does the host own it? Leaning: a port, because TRK-05's
    claim model is the interesting part and it is store-agnostic.
@@ -1094,3 +1436,19 @@ preserved, the full suite green with the adapter swapped.
    reference already accepts host-level `bypassPermissions` runs deliberately.
 4. **Session runner** — keep the external session server, or fold the warm-session runner into the
    own-runner library at M11?
+5. **Does the published package need a build step?** Assumed YES and designed for (ADO-15/16):
+   Node's type-stripping does not apply under `node_modules`, which catches a consumer AND this
+   repo's own workspace links. Still worth the two-minute check on the target Node before M2 freezes
+   `exports` — if it turns out unnecessary, the build drops out of ADO-15/16 and nothing else moves,
+   because no host repo has a build step under either answer.
+
+6. **Does deferring `boot()` past N4 cost more than it saves?** §4.4 is blunt: *a validation that only
+   runs in the supervisor has moved the failure from compile time to 3am.* N1–N4 carry one plugin's
+   worth of wiring, so the manifest buys little — but the loop runs unattended from N3, which is
+   exactly when a 3am failure costs the most. Revisit at the end of N2, not at N5.
+7. **Which repo do the first passes improve?** doppelganger has almost no code until N5, so
+   `nightly-sandcastle` pointed at itself has nothing to do and the ship gate passes vacuously. A repo
+   with real code — or `nightly-polish` against docs elsewhere — is the better proving ground for N3.
+8. **Does D17 need a re-entry point?** If a second person ever joins, the cut docs were the onboarding
+   path. Cheapest hedge: keep the one-line `why`s religiously, so prose can be regenerated from
+   decisions rather than reconstructed from memory.
