@@ -26,7 +26,7 @@ Advance only when VERIFY comes back with nothing blocking.
 
 | Phase | Items | Est. | Plan | Gap | Build | Verify |
 |-------|-------|------|------|-----|-------|--------|
-| N0 — Ground truth | 9 | 2 d | — | — | — | — |
+| N0 — Ground truth | 11 | 2 d | ✅ | ✅ | ✅ | — |
 | N1 — Kernel the loop needs | 26 | 1.5–2 wk | — | — | — | — |
 | N2 — Supervisor + gate | 32 | 1 wk | — | — | — | — |
 | N3 — Harness + skills + the pass | 34 | 1.5–2 wk | — | — | — | — |
@@ -55,8 +55,17 @@ Legend: `—` not started · `▶` running · `✅` done · `⚠` done with open
 
 ## Open items the loop must not silently skip
 
-- **SKL-10 ownership** — the heavier half of §5 Q0, still live. `skills sync` must prune
-  what it owns and never touch a foreign entry. A symlink's inode would have answered
-  "is this mine?"; a copy cannot. So the rendered file must carry a managed marker, and
-  N0 must decide where that marker lives, how `sync` reads it, how `check` sees drift,
-  and what the error says when a human hand-edits a rendered file.
+- **SKL-10 ownership — settled at N0 (J0.9).** The rendered file itself carries a managed
+  marker in its body (two HTML comment lines, right after the frontmatter), so `sync` can
+  decide ownership from the filesystem alone, no ledger. `check` reports five findings:
+  missing, drift, orphan, collision, stray. A hand-edited rendered file fails the build and
+  is never silently re-rendered. See `roadmap.md` §5 Q0 and §2.30 SKL-10.
+- **§5 Q5 — settled at N0 (J0.7).** Measured on the target Node: this repo's own dev loop
+  needs no build (a workspace link is a symlink, and Node strips types through it), but a
+  real install still does (ADO-15 stays). This corrects ADO-16's old premise. See
+  `roadmap.md` §5 Q5 and §2.32 ADO-16.
+- **SKL-07 output-vocabulary boundary — drawn at N0 (J0.9).** A skill may emit an output
+  vocabulary (a report format, like `nightly-sandcastle`'s `outcome=`) but never an
+  authorization token (a value that widens what the run may do, like JOB-T03's `agent`).
+  TST-24's third clause is reworded around this line. N3's real `parseVerdict` must
+  reproduce the pinned vocabulary in `test/skills-example.test.ts`.

@@ -3,18 +3,29 @@
 Generated from `roadmap.md` §3. Every item is a feature ID from §2 — cite it in the commit.
 Rows marked **moved** are listed once, where they were dropped, so nothing goes missing silently.
 
-## N0 — Ground truth · 2 days · **9 items**
+## N0 — Ground truth · 2 days · **11 items**
 
-- [ ] Repo layout per §1 — `kernel/` `plugins/` `host/` `.claude/skills/`
-- [ ] `package.json` — workspaces `["kernel","plugins/*","cli"]`, no linter, no bundler, direct-TS run
-- [ ] `tsconfig.json` — `noEmit`; `npm run typecheck` wired as `pretest`
-- [ ] CI running `npm test` and nothing else
-- [ ] `plugins/nightly/skills/nightly-sandcastle/SKILL.md` + its rendered `.claude/skills/` entry (already landed)
-- [ ] §5 Q0 settled — render, never symlink (2026-08-25). Confirms SKL-04, fixes SKL-10, kills the
-      symlink branch of TST-23
-- [ ] Fix the two `roadmap.md` claims this repo can already check: corpus path, engine file counts (done 2026-08-25)
-- [ ] **TST-21** `typecheck` as `pretest`
-- [ ] **TST-22** No linter, no bundler, no build step **in a host repo**
+- [x] (J0.3, J0.4, J0.5) Repo layout per §1 — `kernel/` `plugins/` `host/` `.claude/skills/`. J0.3
+      created the stubs, J0.4 named `cli/` and `test/` in §1, J0.5 gates the whole shape.
+- [x] (J0.2, J0.3, J0.8) `package.json` — workspaces `["kernel","plugins/*","cli"]`, no linter, no
+      bundler, direct-TS run. J0.2 wrote it, J0.3 added the workspace stubs, J0.8 gates no
+      linter/no bundler.
+- [x] (J0.2, J0.5, J0.6) `tsconfig.json` — `noEmit`; `npm run typecheck` wired as `pretest`. J0.2
+      wrote it, J0.5 and J0.6 gate the shape.
+- [x] (J0.13) CI running `npm test` and nothing else.
+- [x] (J0.10) `plugins/nightly/skills/nightly-sandcastle/SKILL.md` + its rendered
+      `.claude/skills/` entry (already landed before N0; J0.10 gates it).
+- [x] (J0.9) §5 Q0 settled — render, never symlink (2026-08-25). Confirms SKL-04, fixes SKL-10,
+      kills the symlink branch of TST-23.
+- [x] (J0.11, J0.12) The two `roadmap.md` claims this repo can check: the corpus path and the
+      engine file counts. This line used to claim the counts were already fixed on 2026-08-25 —
+      that claim was wrong, the counts were still stale. J0.11 actually refreshed all four; J0.12
+      gates the path always and the counts' provenance, dropping a ±2% band that could not have
+      caught the staleness it was written for.
+- [x] (J0.2, J0.6) **TST-21** `typecheck` as `pretest`. J0.2 wired it, J0.6 gates it.
+- [x] (J0.8) **TST-22** No linter, no bundler, no build step **in a host repo**.
+- [x] (J0.2) Node floor — `.nvmrc`, `engines`, capability test (DBS-01).
+- [x] (J0.7) Settle §5 Q5 — the build answer, measured; corrects ADO-16 (ADO-15/16).
 
 ## N1 — The kernel the loop needs · 1.5–2 wk · **26 items**
 
