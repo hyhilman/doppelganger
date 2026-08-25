@@ -1,0 +1,21 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2023"],
+    "module": "nodenext",
+    "moduleResolution": "nodenext",
+    "strict": true,
+    // An unused import in a job file is not tidiness — it is the shape of a phase that was
+    // described, wired at the top of the file, and never called. Carried from the reference.
+    "noUnusedLocals": true,
+    "allowImportingTsExtensions": true,
+    "verbatimModuleSyntax": true,
+    // Node strips types; it does not execute enums, namespaces or parameter properties.
+    // tsc refuses them here so the failure is at typecheck, not at 3am (TST-21).
+    "erasableSyntaxOnly": true,
+    "noEmit": true,
+    "skipLibCheck": true,
+    "types": ["node"]
+  },
+  "include": ["kernel/**/*.ts", "plugins/**/*.ts", "host/**/*.ts", "cli/**/*.ts", "test/**/*.ts"]
+}
