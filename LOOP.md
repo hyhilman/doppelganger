@@ -46,7 +46,17 @@ Legend: `—` not started · `▶` running · `✅` done · `⚠` done with open
 - One small change per commit. Run `npm test` before each commit once a suite exists.
 - Never hand-edit `.claude/skills/` — it is rendered.
 
+## Settled questions
+
+- **§5 Q0 — no symlinks.** Every skill is a **project skill**. `.claude/skills/<job>/SKILL.md`
+  is a real file in the project tree: a rendered copy of `plugins/<x>/skills/<job>/SKILL.md`,
+  not a link, and not delivered through the plugin-skill mechanism. Confirms SKL-04 as
+  written and kills the symlink branch of TST-23. (Decided by the user, 2026-08-25.)
+
 ## Open items the loop must not silently skip
 
-- **§5 Q0** (N0) — symlink vs render for `.claude/skills/`. Needs a human to run `ln -s`
-  and restart the CLI. Decides SKL-04/10 and TST-23. Flag it, do not guess.
+- **SKL-10 ownership** — the heavier half of §5 Q0, still live. `skills sync` must prune
+  what it owns and never touch a foreign entry. A symlink's inode would have answered
+  "is this mine?"; a copy cannot. So the rendered file must carry a managed marker, and
+  N0 must decide where that marker lives, how `sync` reads it, how `check` sees drift,
+  and what the error says when a human hand-edits a rendered file.
