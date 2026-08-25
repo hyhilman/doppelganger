@@ -12,7 +12,7 @@ code that runs it.
 
 The reference corpus is `/home/hyhilman/projects/xenith/` (`engine/**`,
 `compose-data/docker-compose.yml`) — the acceptance criterion for behaviour, not something to copy
-verbatim. **It IS present on this machine** (verified 2026-08-25: 249 TS files / 56,645 lines outside
+verbatim. **It IS present on this machine** (verified 2026-08-25: 251 TS files / 56,922 lines outside
 `node_modules`). Read it
 rather than guessing at reference behaviour. Earlier revisions of this file gave the macOS path
 `/Users/hyhilman/Projects/xenith/` and said it was absent; both were wrong.
