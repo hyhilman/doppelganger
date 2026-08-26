@@ -18,7 +18,7 @@ import { randomUUID } from "node:crypto";
 import { openDb, type Db } from "./db.ts";
 import { dbPath } from "../paths.ts";
 import { INSTANCE } from "../instance.ts";
-import { pidNamespace } from "./proc.ts";
+import { pidNamespace, ownerLiveness, type ProcReaders } from "./proc.ts";
 
 export const NS = "lease";
 
@@ -301,4 +301,88 @@ export function parseOwner(owner: string): OwnerId | null {
   if (!/^\d+$/.test(pidStr)) return null;
   if (uuid === "") return null;
   return { instance, host, pidns, pid: Number(pidStr) };
+}
+
+// ---------------------------------------------------------------------------------------------
+// J4.5 (LSE-07, LSE-08) — reapDead: delete live claims whose owning process is gone, so the key is
+// reusable NOW rather than at expiry. Every guard is a SKIP, and the order is cheapest-and-most-
+// decisive first. Only a row that survives every guard is reaped — and it is reaped with `force`
+// BECAUSE it is `held`: the guards above are what earn the `force`, and this is not the same
+// operation as a hand-typed `lease-clear --force`.
+// ---------------------------------------------------------------------------------------------
+
+export interface Reaped {
+  readonly scope: string;
+  readonly key: string;
+  readonly owner: string;
+  readonly pid: number;
+  readonly claimedAt: string;
+  readonly ttlLeftMin: number;
+}
+
+/** A claim is written before its worker has done anything observable; a sweep landing in that
+ *  window would read a still-forking process as dead. */
+export const REAP_GRACE_MS = 30_000;
+
+/**
+ * The guard table, in order:
+ *   0. pidNamespace() === null           -> liveness is unknowable here (no /proc, hardened, non-
+ *      Linux). Reaping nothing is the correct no-op.
+ *   1. row.status !== "held"             -> "done" is terminal by design (the dedup itself); "failed"
+ *      self-expires. Neither blocks anyone.
+ *   2. expiresAt unparseable or already expired -> an EXPIRED claim is already stealable by
+ *      `acquire`, so deleting it buys no latency and LOSES the crash-loop brake (`attempts` would
+ *      reset). A claim expired AND out of attempts is the `exhausted` poison pill, held for a
+ *      person to look at.
+ *   3. parseOwner(row.owner) === null    -> LSE-08: we were never told enough to judge it. Not
+ *      reapable, never guessed — it ages out on the TTL exactly as it always did.
+ *   4. id.instance !== INSTANCE          -> another checkout on this host owns it (INS-04). Two
+ *      instances never coordinate (INS-05).
+ *   5. id.pidns !== ns                   -> the load-bearing one: a pid only means something inside
+ *      the /proc that issued it.
+ *   6. id.host !== hostname()            -> not ours to judge.
+ *   7. now - claimedAt < REAP_GRACE_MS   -> a claim written moments ago; give the worker time to
+ *      exist.
+ *   8. ownerLiveness(...) !== "dead"     -> J4.2's whole content: "unknown" is not "dead", and
+ *      `ENOENT` is positive evidence ONLY on an unrestricted `/proc` (procIsRestricted downgrades
+ *      the whole arm inside ownerLiveness itself).
+ *   9. clear(scope, key, { force: true }) === 0 -> somebody else got there first.
+ */
+export function reapDead(opts?: { readonly now?: number; readonly readers?: ProcReaders }): Reaped[] {
+  const ns = pidNamespace(opts?.readers); // guard 0
+  if (ns === null) return [];
+
+  const now = opts?.now ?? Date.now();
+  const reaped: Reaped[] = [];
+
+  for (const row of list()) {
+    if (row.status !== "held") continue; // guard 1
+
+    const expiresAtMs = Date.parse(row.expiresAt);
+    if (!Number.isFinite(expiresAtMs) || expiresAtMs <= now) continue; // guard 2
+
+    const id = parseOwner(row.owner);
+    if (id === null) continue; // guard 3
+    if (id.instance !== INSTANCE) continue; // guard 4
+    if (id.pidns !== ns) continue; // guard 5
+    if (id.host !== hostname()) continue; // guard 6
+
+    const claimedAtMs = Date.parse(row.claimedAt);
+    if (!Number.isFinite(claimedAtMs) || now - claimedAtMs < REAP_GRACE_MS) continue; // guard 7
+
+    if (ownerLiveness(id.pid, claimedAtMs, opts?.readers) !== "dead") continue; // guard 8
+
+    const deleted = clear(row.scope, row.key, { force: true });
+    if (deleted === 0) continue; // guard 9
+
+    reaped.push({
+      scope: row.scope,
+      key: row.key,
+      owner: row.owner,
+      pid: id.pid,
+      claimedAt: row.claimedAt,
+      ttlLeftMin: Math.round((expiresAtMs - now) / 60_000),
+    });
+  }
+  return reaped;
 }
