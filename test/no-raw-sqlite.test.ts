@@ -1,7 +1,7 @@
 // J1.6 (DBS-06) — nobody can reach the driver.
 //
 // The set of files under the repo (outside node_modules/, .git/) that import "node:sqlite" must
-// equal this three-entry allowlist, each with its own reason. A new module importing the driver
+// equal this four-entry allowlist, each with its own reason. A new module importing the driver
 // directly goes red here — it means a write path exists that `instrument`'s busy-context proxy
 // cannot see.
 
@@ -35,7 +35,12 @@ test("node:sqlite is imported by exactly the allowlisted files", () => {
 
   // Match an actual import/require of the module, never mere prose mentioning it — this file's own
   // comments say `"node:sqlite"` in quotes, which a bare substring search would catch on itself.
-  const IMPORTS_SQLITE = /from\s+["']node:sqlite["']|require\(\s*["']node:sqlite["']\s*\)/;
+  // Covers the static form, `require(...)`, and a dynamic import — static or `await`-ed — of the
+  // module: that last form reaches the driver just as directly and must not walk around the
+  // allowlist. (Written here as "dynamic import(…of the module…)" rather than the literal call, or
+  // this very sentence would match its own pattern.)
+  const IMPORTS_SQLITE =
+    /from\s+["']node:sqlite["']|require\(\s*["']node:sqlite["']\s*\)|import\(\s*["']node:sqlite["']\s*\)/;
   const importers = files
     .filter((f) => IMPORTS_SQLITE.test(readFileSync(f, "utf8")))
     .map((f) => f.slice(ROOT.length + 1))
