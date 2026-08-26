@@ -77,9 +77,16 @@ plugins/
     <name>/plugin.ts                          the manifest
     <name>/skills/<job>/SKILL.md              the prompt, owned by the plugin (SKL-03)
   jira/ slack/ github/ notion/ tracker/ pr-review/ corpus/   v1
-host/
-  supervisor.ts  config.ts  schedule.ts  jobs/            the app
-cli/                      operator surfaces — supervisor --list, skills, lease-clear, cron
+host/                     the app. owns its own schedule, its own resources.
+  config.ts               the gate's named resources + the refresh window     N2
+  cron.ts                 the croner seam — parseFive, tickSeconds, gateWait  N2
+  schedule.ts             ScheduleEntry, Program, SCHEDULE, validate()        N2
+  supervisor.ts           runEntry, main, --list — one timer per entry        N2
+  jobs/                   one file per job                                    N3
+cli/                      operator surfaces
+  crontab.ts              render | sync | check | sync --adopt (SUP-08)       N2
+  skills.ts               render | sync | check (SKL-04)                      N3
+  lease-clear.ts          list scope | delete key | --force (LSE-10)          N4
 .claude/skills/<job>/     RENDERED from the manifests — never hand-edited (SKL-04)
 fleet/                                        v1
   Dockerfile  compose.yml  fleet.sh                        workers
@@ -98,6 +105,12 @@ consumer gets designed wrong, which is the failure §4 already warns about.
 `kernel/config.ts` is the `EnvSpec` reader and is not `host/config.ts`, which is the host app's own
 settings. The two never merge — one is the framework's knob mechanism, the other is one app's
 configuration.
+
+`supervisor --list` is deliberately NOT a `cli/` file: SUP-17 is a flag on the supervisor, which is
+where the resolved schedule already lives, and the reference's own entry point takes the same flag.
+
+`host/cron.ts` reads cron EXPRESSIONS; `cli/crontab.ts` writes the user's CRONTAB. They share four
+letters and nothing else.
 
 ---
 
