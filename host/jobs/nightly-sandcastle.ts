@@ -4,7 +4,7 @@
 // `skill` only until then, which is valid (D10: `exec` is optional, and the literal has `skill`).
 import { spawnSync } from "node:child_process";
 import { extractBlock, extractFields } from "../../kernel/runtime/payload.ts";
-import { defineJob, type Job } from "../../kernel/ports/job.ts";
+import { DEFAULTS, defineJob, type Job } from "../../kernel/ports/job.ts";
 
 // ---------------------------------------------------------------------------------------------
 // The verdict — reproduces plugins/nightly/skills/nightly-sandcastle/SKILL.md's report block and
@@ -207,8 +207,10 @@ export default defineJob({
   description: "Make one small, verified improvement to the engine repo in a single unattended pass (JOB-C15).",
   plugin: "nightly",
   skill: "nightly-sandcastle",
-  model: "claude-opus-5",
-  permissionMode: "bypassPermissions",
+  // Inheriting DEFAULTS.model is spelled DEFAULTS.model (HRN-11) — never a re-typed literal, which
+  // is what keeps the model version a one-line bump (test/model.test.ts test 6).
+  model: DEFAULTS.model,
+  permissionMode: DEFAULTS.permissionMode,
   local: true,
   taskClass: "impl",
 }) satisfies Job;

@@ -72,7 +72,7 @@ export async function runJob(job: Job, deps: RunJobDeps): Promise<RunResult> {
   const hasExec = job.exec !== undefined;
   if (hasSkill === hasExec) {
     throw new Error(
-      `runJob(${job.name}): exactly one of job.skill or job.exec must be set (D10: there is no third shape) — skill=${hasSkill}, exec=${hasExec}`,
+      `runJob for ${job.name}: exactly one of job.skill or job.exec must be set (D10: there is no third shape) — skill=${hasSkill}, exec=${hasExec}`,
     );
   }
 
@@ -80,7 +80,7 @@ export async function runJob(job: Job, deps: RunJobDeps): Promise<RunResult> {
   const prompt = buildPrompt(job, args);
   const { out, missing } = substitute(prompt, args);
   if (missing.length > 0) {
-    throw new Error(`runJob(${job.name}): unresolved prompt placeholder(s): ${missing.join(", ")}`);
+    throw new Error(`runJob for ${job.name}: unresolved prompt placeholder(s): ${missing.join(", ")}`);
   }
 
   const model = job.model ?? DEFAULTS.model;
