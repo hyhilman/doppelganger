@@ -637,6 +637,15 @@ const nightlySandcastleJob: Job = defineJob({
   permissionMode: DEFAULTS.permissionMode,
   local: true,
   taskClass: "impl",
+  // R1 (HRN-16, JOB-C15) — the SKILL.md contract is "one pass, one improvement, report ONCE";
+  // `runJob`'s default completionSignal is sandcastle's own `<promise>COMPLETE</promise>`, a string
+  // this skill never emits (it emits `<<<SANDCASTLE ... SANDCASTLE>>>` instead). Without this line
+  // the mismatch is invisible to sandcastle's own `run()`, which just keeps iterating: the real
+  // 2026-08-26 paid pass burned 6 Opus iterations against the (then-default) 20-iteration cap,
+  // emitting a fresh valid verdict every time. maxIterations: 1 makes ONE verdict end the run,
+  // regardless of whether the signal string happens to match — in a dry run and in a real run
+  // alike. See host/runner.test.ts test 13 for the gate.
+  maxIterations: 1,
   exec: execPass,
 });
 

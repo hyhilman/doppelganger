@@ -3,10 +3,20 @@
 // Layer A (tests 1-4): the pure seam — buildAgent(req).buildPrintCommand(...) is a pure function on
 // a real provider object, asserted with zero spawn cost.
 //
-// Layer B (tests 5-12): the whole run() path against a FAKE `claude` earlier on PATH, spawned as a
+// Layer B (tests 5-13): the whole run() path against a FAKE `claude` earlier on PATH, spawned as a
 // real child process (test/knobs.test.ts's scrubbedChild shape) so a real ~/.gitconfig can never be
 // reached even if a mutation under test tries to reach it — the child's own HOME is a fresh
 // mkdtempSync directory, never the developer's.
+//
+// Test 13 is R1's gate (the 2026-08-26 paid run's headline finding, HRN-16/JOB-C15): sandcastle's
+// own `run()` only stops early when the agent's OUTPUT contains the literal `completionSignal`
+// string, and `nightly-sandcastle`'s skill never emits sandcastle's default
+// `<promise>COMPLETE</promise>` — it emits `<<<SANDCASTLE ... SANDCASTLE>>>`. Left uncapped, that
+// mismatch is invisible until a real run burns iterations against the 20-iteration default (which
+// is exactly what happened: 6 real Opus passes for one intended one). The fix is
+// `nightlySandcastleJob.maxIterations = 1`; this test proves ONE verdict ends the run even though
+// the completion signal never matches, by reading the job's OWN configured value rather than
+// hardcoding it — so a regression that removes the field is caught here, not just re-asserted.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync, execFileSync } from "node:child_process";
@@ -15,6 +25,7 @@ import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { pathToFileURL } from "node:url";
 import { buildAgent } from "./runner.ts";
+import nightlySandcastleJob from "./jobs/nightly-sandcastle.ts";
 import type { RunRequest } from "../kernel/ports/runner.ts";
 
 const ROOT = new URL("..", import.meta.url).pathname.replace(/\/$/, "");
@@ -338,4 +349,45 @@ test("12. .sandcastle/ is not created in the repo — the measured consequence o
   const out = runProbe({ bin, repo, gitConfigGlobal, gitSshCommand: "/bin/false" });
   assert.ok(out.ok, JSON.stringify(out));
   assert.ok(!readdirSync(repo).includes(".sandcastle"), `repo entries: ${readdirSync(repo).join(", ")}`);
+});
+
+// A real `<<<SANDCASTLE ... SANDCASTLE>>>` verdict, exactly what the skill emits — and, crucially,
+// NOT sandcastle's own default completion signal (`<promise>COMPLETE</promise>`). A `claude` that
+// says this, left uncapped, is precisely the shape that "would iterate again": sandcastle's
+// `run()` only stops early on a literal signal match, and this output never produces one.
+const CLAUDE_VERDICT_NO_SIGNAL = [
+  'process.stdin.resume();',
+  'let data = "";',
+  'process.stdin.on("data", (c) => { data += c; });',
+  'process.stdin.on("end", () => {',
+  '  console.log("<<<SANDCASTLE");',
+  '  console.log("goal=probe");',
+  '  console.log("outcome=none");',
+  '  console.log("files=-");',
+  '  console.log("ids=-");',
+  '  console.log("summary=nothing to do");',
+  '  console.log("verified=none");',
+  '  console.log("SANDCASTLE>>>");',
+  "  process.exit(0);",
+  "});",
+].join("\n");
+
+test("13. R1 (HRN-16, JOB-C15) — a fake claude that emits a verdict but never sandcastle's own completion signal stops after ONE iteration, reading nightlySandcastleJob's OWN configured maxIterations", () => {
+  const bin = makeFakeBin("claude", CLAUDE_VERDICT_NO_SIGNAL);
+  const repo = makeRepo();
+  const home = mkdtempSync(join(tmpdir(), "runner-gc-"));
+  const gitConfigGlobal = join(home, ".doppelganger", "gitconfig");
+  // Read from the real job, not a literal `1` here — a mutation that deletes
+  // `nightlySandcastleJob.maxIterations` must be caught by THIS test, not silently absorbed by a
+  // hardcoded override. Absent the field, `runJob`'s own default (20) is what a real run would use.
+  const maxIterations = nightlySandcastleJob.maxIterations ?? 20;
+  const out = runProbe({ bin, repo, gitConfigGlobal, gitSshCommand: "/bin/false", maxIterations });
+  assert.ok(out.ok, `expected success, got: ${JSON.stringify(out)}`);
+  if (!out.ok) return;
+  // The signal never matched — completionSignal is null, so a pass of 1 can ONLY be explained by
+  // the maxIterations cap, never by a lucky string match. This is what rules out the wrong fix
+  // ("it just happened to stop").
+  assert.equal(out.result.completionSignal, null, `expected no signal match, got: ${JSON.stringify(out.result)}`);
+  assert.equal(out.result.iterations, 1, `expected exactly one iteration (the 2026-08-26 paid run's headline bug: R1), got: ${JSON.stringify(out.result)}`);
+  assert.ok(out.result.stdout.includes("<<<SANDCASTLE"), out.result.stdout);
 });
