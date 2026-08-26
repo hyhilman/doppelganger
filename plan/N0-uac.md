@@ -65,9 +65,14 @@ gates it; it does not pre-create empty directories for milestones that have not 
 written to allow that: a §1 directory is either absent or non-empty, never an empty placeholder.
 
 **Acceptance criteria:**
-- [ ] AC1 — `git check-ignore -q node_modules` exits 0 from the repo root.
-- [ ] AC2 — `git check-ignore -q lease.db && git check-ignore -q dist && git check-ignore -q .env`
-  exits 0.
+- [ ] AC1 — `git check-ignore -q node_modules/` exits 0 from the repo root. (Trailing slash on the
+  queried path, not just in `.gitignore`: a directory-only pattern only matches a path given as, or
+  already existing as, a directory, and `node_modules/` does not exist until J0.2's `npm install`
+  runs. Without the trailing slash the command exits 1 on a clean checkout — measured, git 2.43.0.)
+- [ ] AC2 — `git check-ignore -q lease.db && git check-ignore -q dist/ && git check-ignore -q .env`
+  exits 0. (Same reasoning as AC1, for `dist/`, which never exists in this repo at N0 — there is no
+  build step, J0.8 — so the bare `dist` form exits 1 forever, not just before J0.2. This is the
+  problem AC1 already names for `node_modules`, missed here for `dist` in the first draft.)
 - [ ] AC3 — `find . -not -path './.git/*' -name '.gitkeep' | wc -l` prints `0`.
 - [ ] AC4 — `git status --porcelain` shows no `node_modules` entry after an `npm install`.
 
