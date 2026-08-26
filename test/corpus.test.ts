@@ -125,13 +125,25 @@ test("5. provenance: the four counts share one date stamp, and §3.0's percentag
     `roadmap.md's engine/** line count (${roadmapLineCount}) must equal CLAUDE.md's mirror (${claudeLineCount})`,
   );
 
+  // The numerator comes from the SAME regex match as the denominator (loopSurface[2]), never a
+  // literal copied into this file — a literal here would be a second place to update every time
+  // §3.0's "19 files, 4,517 lines" changes, and the two copies could disagree exactly like the
+  // provenance bug above.
+  //
+  // Read this check for what it is, not more: rounding to a whole percent tolerates a WIDE band
+  // on the denominator before it can fire. At the figures on 2026-08-25 (numerator 4,517,
+  // denominator 56,922, stated 8%), the denominator can drift from about -6.6% to about +5.8%
+  // before the rounded percentage moves off 8%. That is not a tight gate — it is a gate against
+  // the numerator and the percentage disagreeing with EACH OTHER, not a precise cross-check of
+  // the engine's total size.
+  const numeratorLines = Number(loopSurface![2].replace(/,/g, ""));
   const totalLines = Number(loopSurface![4].replace(/,/g, ""));
   const statedPercent = Number(loopSurface![3]);
-  const computedPercent = Math.round((4517 / totalLines) * 100);
+  const computedPercent = Math.round((numeratorLines / totalLines) * 100);
   assert.equal(
     computedPercent,
     statedPercent,
-    `§3.0's stated ${statedPercent}% must equal round(4517 / ${totalLines} * 100) = ${computedPercent}%`,
+    `§3.0's stated ${statedPercent}% must equal round(${numeratorLines} / ${totalLines} * 100) = ${computedPercent}%`,
   );
 });
 
