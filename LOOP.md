@@ -29,7 +29,7 @@ Advance only when VERIFY comes back with nothing blocking.
 | N0 — Ground truth | 11 | 2 d | ✅ | ✅ | ✅ | ⚠ |
 | N1 — Kernel the loop needs | 26 | 1.5–2 wk | ✅ | ✅ | ✅ | ✅ |
 | N2 — Supervisor and gate, no entry yet | 32 | 1 wk | ✅ | ✅ | ✅ | ✅ |
-| N3 — Harness + skills + the pass | 34 | 1.5–2 wk | ▶ | — | — | — |
+| N3 — Harness + skills + the pass | 34 | 1.5–2 wk | ✅ | ✅ | ⚠ | ✅ |
 | N4 — Safe to leave alone | 22 | 1 wk | — | — | — | — |
 
 Legend: `—` not started · `▶` running · `✅` done · `⚠` done with open follow-ups.
@@ -105,6 +105,17 @@ Legend: `—` not started · `▶` running · `✅` done · `⚠` done with open
   lookup unreachable, and therefore makes the destructive mutation in AC3 performable at all.
 
 ## Open items the loop must not silently skip
+
+- **J3.17 — the one real paid agent run. WAITING ON THE USER.** Everything else in N3 is built,
+  verified, and follow-up-fixed (16 jobs + 9 fix commits). The fake-claude pyramid proves the
+  plumbing; only a real run proves the pass. The two commands are in plan/N3-uac.md J3.17 and in
+  the conversation. A failing first pass is still a result — its stdout becomes the TST-19
+  fixture either way. J3.18 (ticking WORK.md, the phase close) runs after it.
+- **CI stopped triggering on push (2026-08-26 ~15:00).** Pushes bfef2cb, 71f6f12 and the empty
+  retrigger eec52f7 produced NO workflow runs; Actions is enabled and 4 earlier runs exist, the
+  last a real failure at 14:32 (the identity bug, fixed in 71f6f12). Likely a GitHub-side delay
+  or incident. The identity fix is PROVEN locally by reproducing CI's condition (empty HOME, no
+  git config: 9 fail → 0). Check `gh run list --branch dev` before trusting the badge.
 
 - **A "guard" that checks the wrong property is not a guard (N2 F1).** The crontab command was
   gated on `isAbsolute`, which stops a PATH lookup — while the knob's own default was
