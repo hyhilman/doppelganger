@@ -45,7 +45,7 @@ import { spawnSlot } from "../kernel/runtime/pool.ts";
 import { logger, type Fields } from "../kernel/runtime/log/emit.ts";
 import { stderrTail } from "../kernel/runtime/log/cause.ts";
 import { createGate, type Gate, type Mode } from "../kernel/runtime/gate.ts";
-import { programOf, validate, supervisedEntries, bootstrapEntries, type ScheduleEntry, type Program } from "./schedule.ts";
+import { programOf, validate, supervisedEntries, bootstrapEntries, JOB_ENTRYPOINT, type ScheduleEntry, type Program } from "./schedule.ts";
 import { byStage } from "../kernel/stages.ts";
 import { RESOURCE_NAMES, REFRESH_WINDOW, inRefreshWindow, type RefreshWindow } from "./config.ts";
 import { gateWait, newTimer as realNewTimer } from "./cron.ts";
@@ -520,6 +520,14 @@ export async function main(schedule: readonly ScheduleEntry[], deps: BootDeps): 
  *  SUP-06 — a restart loop and a watchdog report within 15 minutes — are DECLINED: the restart
  *  policy is SUP-19 (moved to M9 with the fleet) and the watchdog is JOB-O10 (N4). N2 ships the
  *  exit code and the message; this comment names which phase owns the rest. */
+/** The REAL argv pair a scheduled `job:` entry spawns (SUP-03, N3 F1). Exported and top-level so a
+ *  test can pin it — the argv block in main() below is untestable by construction, and the first
+ *  N3 review proved that an inline literal there can regress to `host/jobs/<job>.ts` (the silent
+ *  no-op) with the whole suite green. `JOB_ENTRYPOINT` is the same constant `commandOf` renders,
+ *  so the crontab line and the spawned command cannot name two different targets. */
+export const realJobRunner = (job: string): readonly [string, readonly string[]] =>
+  [process.execPath, [projectPath(JOB_ENTRYPOINT), job]];
+
 export async function bootOrDie(schedule: readonly ScheduleEntry[], deps: BootDeps): Promise<Supervisor> {
   try {
     return await main(schedule, deps);
@@ -664,7 +672,7 @@ if (import.meta.filename === process.argv[1]) {
     maxRunMin: () => SUPERVISOR_MAX_RUN_MIN,
     killGraceMs: SUPERVISOR_KILL_GRACE_MS,
     spawnStaggerMs: SUPERVISOR_SPAWN_STAGGER_MS,
-    jobRunner: (job: string) => [process.execPath, [projectPath("host/run.ts"), job]],
+    jobRunner: realJobRunner,
     newTimer: realNewTimer,
     heartbeatPath: projectPath(".doppelganger/supervisor.heartbeat"),
     statusPath: projectPath(".doppelganger/supervisor.status.json"),

@@ -132,11 +132,18 @@ export const bootstrapEntries = (s: readonly ScheduleEntry[] = SCHEDULE): readon
  * never spell it twice. Deterministic and pure: no path is resolved here beyond the already-
  * computed `ROOT` constant.
  */
+/**
+ * Ruling 3 (plan/N3-uac.md, J3.14): the ONE argv block a scheduled job reaches is host/run.ts —
+ * never the job file directly. The first N3 draft rendered `host/jobs/<job>.ts` here, which has
+ * no argv block of its own and would have exited 0 having done nothing, every night, silently.
+ * ONE constant serves both consumers (`commandOf` here, `realJobRunner` in host/supervisor.ts),
+ * so the two spellings cannot drift apart — N3 F1's fix, after a review regressed the supervisor
+ * copy and the suite stayed green.
+ */
+export const JOB_ENTRYPOINT = "host/run.ts";
+
 export function commandOf(e: ScheduleEntry): string {
-  // Ruling 3 (plan/N3-uac.md, J3.14): the ONE argv block a scheduled job reaches is host/run.ts —
-  // never the job file directly. The first N3 draft rendered `host/jobs/<job>.ts` here, which has
-  // no argv block of its own and would have exited 0 having done nothing, every night, silently.
-  const target = e.job !== undefined ? `host/run.ts ${e.job}` : (e.script ?? "");
+  const target = e.job !== undefined ? `${JOB_ENTRYPOINT} ${e.job}` : (e.script ?? "");
   return `cd ${ROOT} && node ${target} >> ${e.log} 2>&1`;
 }
 

@@ -1245,3 +1245,23 @@ test("41. SUP-06: onUnhandled logs unhandled-rejection at error level and does n
   assert.match(unhandled[0]!.msg, /boom/);
   assert.deepEqual(h.exitCalls, [0], "only stop()'s own exit fires — the rejection itself never exits");
 });
+
+test("42. N3 F1: the real jobRunner spawns host/run.ts, and main() uses it (SUP-03)", async () => {
+  const { realJobRunner } = await import("./supervisor.ts");
+  const { projectPath } = await import("../kernel/paths.ts");
+  // The value, pinned with the path spelled HERE — not read from JOB_ENTRYPOINT — so pointing the
+  // constant (or realJobRunner) at the job file goes red. This is the silent-no-op regression the
+  // first N3 review performed with the whole suite staying green.
+  const [cmd, args] = realJobRunner("probe");
+  assert.equal(cmd, process.execPath);
+  assert.deepEqual([...args], [projectPath("host/run.ts"), "probe"]);
+  // And the untestable argv block in main() must READ realJobRunner, not carry its own literal —
+  // a source scan, doors-5/6 shape, because the deps literal itself can never run under the suite.
+  const src = readFileSync(projectPath("host/supervisor.ts"), "utf8");
+  const assignments = src.split("\n")
+    .filter((l) => l.includes("jobRunner:"))
+    .filter((l) => !l.trimStart().startsWith("readonly ")) // the SupervisorDeps interface member
+    .map((l) => l.trim());
+  assert.deepEqual(assignments, ["jobRunner: realJobRunner,"],
+    "main()'s deps must use the exported realJobRunner — an inline argv literal there is ungated by construction");
+});
