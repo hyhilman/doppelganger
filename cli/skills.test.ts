@@ -3,7 +3,7 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, readdirSync, rmSync, existsSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, readdirSync, rmSync, existsSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Job } from "../kernel/ports/job.ts";
@@ -407,4 +407,21 @@ test("25. every verb refuses an unsafe tree, reached through run(argv, deps)", (
     assert.equal(result.code, 1);
     assert.match(result.err, /basename/);
   }
+});
+
+test("F4. ownerOf — a symlinked skill directory is FOREIGN even when the target carries our marker (SKL-10)", () => {
+  const { tree } = makeTree();
+  // A real rendered dir OUTSIDE the rendered root, carrying a genuine marker...
+  const sourceDir = writeSource(tree, "nightly", "nightly-probe");
+  const outside = renderInto(tree, sourceDir, "nightly-probe", "plugins/nightly/skills/nightly-probe");
+  // ...reached from inside the rendered root through a symlink. ownerOf used to follow the link,
+  // see the marker, call it "ours" — and sync then wrote THROUGH the link, outside the checkout.
+  const linked = join(tree.renderedRoot, "linked-skill");
+  symlinkSync(outside, linked, "dir");
+  assert.equal(ownerOf(linked), "foreign");
+  // A regular dir whose SKILL.md is itself a symlink is foreign too.
+  const fileLink = join(tree.renderedRoot, "file-link");
+  mkdirSync(fileLink, { recursive: true });
+  symlinkSync(join(outside, "SKILL.md"), join(fileLink, "SKILL.md"), "file");
+  assert.equal(ownerOf(fileLink), "foreign");
 });

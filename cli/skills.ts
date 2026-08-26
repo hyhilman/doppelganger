@@ -5,7 +5,7 @@
 //
 // `cli/` is `private: true` — this is an app-internal path, not a published import (ADO-01 stays
 // open; that decision belongs there, not here).
-import { existsSync, readFileSync, readdirSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { existsSync, lstatSync, readFileSync, readdirSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, relative, sep } from "node:path";
 import type { Job } from "../kernel/ports/job.ts";
 import { skillOf } from "../kernel/ports/job.ts";
@@ -99,7 +99,22 @@ export type Owner = "ours" | "foreign" | "absent";
  * the point: it is reported as `drift` and refused, not reclassified as someone else's.
  */
 export function ownerOf(dir: string): Owner {
+  // N3 F4: a symlinked skill directory (or SKILL.md) is FOREIGN, whatever marker sits behind it.
+  // ownerOf used to follow the link, read our marker on the far side, call the entry "ours", and
+  // sync then wrote THROUGH the link — landing bytes outside the checkout. §5 Q0 settled that a
+  // rendered skill is a regular file; a symlink is by definition not ours, so it is never
+  // written, pruned or renamed. lstat (not stat) is the whole point: it sees the link itself.
+  try {
+    if (lstatSync(dir).isSymbolicLink()) return "foreign";
+  } catch {
+    return "absent";
+  }
   const skillFile = join(dir, "SKILL.md");
+  try {
+    if (lstatSync(skillFile).isSymbolicLink()) return "foreign";
+  } catch {
+    // fall through — existsSync below reports absent/foreign as before
+  }
   if (!existsSync(skillFile)) {
     return existsSync(dir) ? "foreign" : "absent";
   }
