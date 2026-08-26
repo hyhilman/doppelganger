@@ -187,7 +187,11 @@ export function stripAllBlocks(crontab: string): string {
  * unused here — kept anyway rather than dropped, so a caller never has to special-case this one
  * function's arity.
  */
-export function collisions(crontab: string, block: readonly string[], instance: string): string[] {
+export function collisions(
+  crontab: string,
+  block: readonly string[],
+  instance: string, // UNUSED on purpose — signature parity with blockRange/splice/adopt; see the doc comment above
+): string[] {
   void instance;
   const stripped = toLines(stripAllBlocks(crontab));
   const commands = new Set(block.filter(isCommand).map((l) => l.trim()));
