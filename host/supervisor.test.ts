@@ -387,6 +387,23 @@ test("5. GAT-06 / GAT-09", async () => {
     await pA;
     other();
   }
+  // c. F3 (N2 VERIFY): step 5's failure path — gate.acquire refuses — releases the self-lock it
+  // already holds from step 4. The `finally` in runEntry does this today, but nothing asserted it:
+  // the verifier deleted the `releaseSelf()` call and the suite stayed green. Without the release,
+  // this program's self-lock is held for the life of the process and no later tick of it ever runs
+  // again — worse than the tick just failing once.
+  {
+    const h = makeHarness(undefined, () => {});
+    const held = await h.deps.gate.acquire("excl", ["a"], 0); // takes what "probe" wants, no wait
+    assert.ok(held);
+    await runEntry(entry(), { ...h.deps, programs: { probe: program({ gate: "excl", resources: ["a"] }) } });
+    assert.equal(
+      h.deps.gate.selfHeld("probe"),
+      false,
+      "GAT-06: the self-lock must release when step 5's gate.acquire refuses",
+    );
+    held.release();
+  }
 });
 
 test("6. GAT-08: the derived wait", async () => {
