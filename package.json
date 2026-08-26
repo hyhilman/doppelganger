@@ -22,6 +22,7 @@
     "typescript": "5.9.3"
   },
   "dependencies": {
+    "@ai-hero/sandcastle": "0.12.0",
     "croner": "10.0.1"
   }
 }
