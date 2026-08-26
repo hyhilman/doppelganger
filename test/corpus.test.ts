@@ -106,6 +106,25 @@ test("5. provenance: the four counts share one date stamp, and §3.0's percentag
       dated.map(([name, date]) => `${name}=${date}`).join(", "),
   );
 
+  // Tying the DATES together (above) does not tie the NUMBERS together. Two files can carry the
+  // same date stamp and still state different values for the one measurement they both claim to
+  // report — that gap is what let roadmap.md and CLAUDE.md disagree on the line count while this
+  // test stayed green. Compare the file count and the line count across the two files directly.
+  const roadmapFileCount = Number(engineAll![1]);
+  const roadmapLineCount = Number(engineAll![2].replace(/,/g, ""));
+  const claudeFileCount = Number(claudeMirror![2]);
+  const claudeLineCount = Number(claudeMirror![3].replace(/,/g, ""));
+  assert.equal(
+    roadmapFileCount,
+    claudeFileCount,
+    `roadmap.md's engine/** file count (${roadmapFileCount}) must equal CLAUDE.md's mirror (${claudeFileCount})`,
+  );
+  assert.equal(
+    roadmapLineCount,
+    claudeLineCount,
+    `roadmap.md's engine/** line count (${roadmapLineCount}) must equal CLAUDE.md's mirror (${claudeLineCount})`,
+  );
+
   const totalLines = Number(loopSurface![4].replace(/,/g, ""));
   const statedPercent = Number(loopSurface![3]);
   const computedPercent = Math.round((4517 / totalLines) * 100);
