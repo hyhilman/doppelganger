@@ -81,40 +81,50 @@ Rows marked **moved** are listed once, where they were dropped, so nothing goes 
       real dead-child fixture.
 - [x] (J1.17) **TST-20** Suites share one database — settle what you seed (two documented traps).
 
-## N2 — Supervisor, one schedule entry · 1 wk · **32 items**
+## N2 — Supervisor and gate, no entry yet · 1 wk · **32 items**
 
-- [ ] **SUP-01** The schedule is DATA, read live
-- [ ] **SUP-02** `PROGRAMS` registry: `self`, `gate`, `resources?`, `dotenv`
-- [ ] **SUP-03** Supervisor: one croner timer per entry → take gate → spawn child with `cwd = ROOT` → app
-- [ ] **SUP-04** `dotenv: false` is load-bearing: a knob reachable only from an `env:` prefix on the entr
-- [ ] **SUP-05** `validate()` on **every boot** and every render, over every entry incl
-- [ ] **SUP-06** A boot refusal is loud: restart loop + watchdog reports within 15 min.
-- [ ] **SUP-07** Croner-vs-POSIX parity test over every expression across a fixed 14-day window.
-- [ ] **SUP-08** Bootstrap crontab block: `render` / `sync` / `check` / `sync --adopt`
-- [ ] **SUP-09** `supervised: false`
-- [ ] **SUP-10** Refresh window stated ONCE
-- [ ] **SUP-11** The flag bounds where a pass may **start**, never how long it **runs**
-- [ ] **SUP-12** `order.test` allowlist for what may legally fire inside the window, plus a companion ass
-- [ ] **SUP-13** `maxRunMin`
-- [ ] **SUP-14** Supervisor heartbeat stamp
-- [ ] **SUP-15** Boot-time lease reap
-- [ ] **SUP-16** Quota-shed skip at `runEntry`, before the gate, logged `event=quota-shed`.
-- [ ] **SUP-17** `supervisor --list`
-- [ ] **SUP-18** Two log roots, both read
-- [ ] **GAT-01** In-memory reader/writer gate over named resources
-- [ ] **GAT-02** Reader takes `shared` on ALL resources
-- [ ] **GAT-03** Two writers on disjoint resources run concurrently
-- [ ] **GAT-04** Fixed global acquisition order
-- [ ] **GAT-05** FIFO queue with writer priority: a queued writer blocks readers arriving after it.
-- [ ] **GAT-06** Per-**program** self-exclusion
-- [ ] **GAT-07** `gate: "none"` exemptions, each stating why
-- [ ] **GAT-08** `gateWait: true` blocks for one of the entry's own ticks, **derived** by `gateWait(cron)
-- [ ] **GAT-09** Never hand-pick a wait: a blocked pass holds its self-lock, so the ticks it waits throug
-- [ ] **GAT-10** Lock-starve visibility: `lockloss:<job>` counters, `BACKLOG_LOCK_STARVE_N`, plus a per-j
-- [ ] **INS-03** The crontab is the one unavoidably shared resource
-- [ ] **INS-05** **Non-goal, declared so it is declined rather than discovered:** two instances never coo
-- [ ] **TST-15** Croner-vs-POSIX parity
-- [ ] **TST-16** Crontab managed-block mechanics
+> Every mechanism the supervisor needs exists, each is exercised over its whole input space, and
+> they are wired together in a six-line block that nothing tests. **No job has ever run.** The
+> first entry, the first spawned child and the first real gate contention all arrive at N3.
+
+- [x] (J2.7, J2.9) **SUP-01** The schedule is DATA, read live
+- [x] (J2.7) **SUP-02** `PROGRAMS` registry: `self`, `gate`, `resources?`, `dotenv`
+- [x] (J2.11) **SUP-03** Supervisor: one croner timer per entry → take gate → spawn child with `cwd = ROOT` → app
+- [x] (J2.7, J2.11) **SUP-04** `dotenv: false` is load-bearing: a knob reachable only from an `env:` prefix on the entry
+- [x] (J2.9) **SUP-05** `validate()` on **every boot** and every render, over every entry incl. bootstrap-only ones
+- [x] (J2.13) **SUP-06** the loud refusal ships (`bootOrDie`: every problem line to stderr, `process.exitCode = 1`); the
+      restart loop is SUP-19 (M9) and the watchdog report is JOB-O10 (N4)
+- [x] (J2.8, J2.10) **SUP-07** Croner-vs-POSIX parity test over every expression across a fixed 14-day window.
+- [x] (J2.15, J2.16) **SUP-08** Bootstrap crontab block: `render` / `sync` / `check` / `sync --adopt`
+- [x] (J2.9) **SUP-09** `supervised: false` — enforceable form is "at most one" (an empty schedule has zero)
+- [x] (J2.6) **SUP-10** Refresh window stated ONCE
+- [x] (J2.11) **SUP-11** The flag bounds where a pass may **start**, never how long it **runs**
+- [x] (J2.17) **SUP-12** the walk is live and the allowlist machinery has fixture tests; **the live allowlist
+      assertion is N3's**, deliberately not shipped as a vacuous placeholder
+- [x] (J2.11) **SUP-13** `maxRunMin`
+- [x] (J2.13) **SUP-14** Supervisor heartbeat stamp
+- [x] (J2.13) **SUP-15** the ordering and its test ship (`deps.reapOnBoot`, called before the first timer
+      registers); the reap itself is LSE-09 (N4)
+- [x] (J2.11) **SUP-16** the placement and its test ship (quota-shed checked before the self-lock and the
+      gate, logged `event=quota-shed`); `decideShed` is QTA-09 (N4)
+- [x] (J2.14) **SUP-17** `supervisor --list`
+- [x] (J2.9) **SUP-18** Two log roots, both read
+- [x] (J2.4) **GAT-01** In-memory reader/writer gate over named resources
+- [x] (J2.4) **GAT-02** Reader takes `shared` on ALL resources
+- [x] (J2.4) **GAT-03** Two writers on disjoint resources run concurrently
+- [x] (J2.4) **GAT-04** Fixed global acquisition order
+- [x] (J2.5) **GAT-05** FIFO queue with writer priority: a queued writer blocks readers arriving after it.
+- [x] (J2.4) **GAT-06** Per-**program** self-exclusion
+- [x] (J2.9) **GAT-07** `gate: "none"` exemptions, each stating why
+- [x] (J2.5, J2.11) **GAT-08** `gateWait: true` blocks for one of the entry's own ticks, **derived** by `gateWait(cron)`
+- [x] (J2.11) **GAT-09** Never hand-pick a wait: a blocked pass holds its self-lock, so the ticks it waits through
+      are the ticks it forces to skip
+- [x] (J2.12) **GAT-10** the line shape and the threshold ship (`lock-held` names the mode and the program,
+      `LOCK_STARVE_N`/`LOCK_STARVE_N_<JOB>`); the `lockloss:` counter is JOB-O02 (N5)
+- [x] (J2.15) **INS-03** The crontab is the one unavoidably shared resource
+- [x] (J2.4, J2.6) **INS-05** **Non-goal, declared so it is declined rather than discovered:** two instances never coordinate
+- [x] (J2.8, J2.10) **TST-15** Croner-vs-POSIX parity
+- [x] (J2.15) **TST-16** Crontab managed-block mechanics
 
 <details><summary>moved out of this milestone</summary>
 

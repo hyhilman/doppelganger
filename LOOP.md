@@ -28,7 +28,7 @@ Advance only when VERIFY comes back with nothing blocking.
 |-------|-------|------|------|-----|-------|--------|
 | N0 — Ground truth | 11 | 2 d | ✅ | ✅ | ✅ | ⚠ |
 | N1 — Kernel the loop needs | 26 | 1.5–2 wk | ✅ | ✅ | ✅ | ✅ |
-| N2 — Supervisor + gate | 32 | 1 wk | ▶ | — | — | — |
+| N2 — Supervisor + gate | 32 | 1 wk | ✅ | ✅ | ✅ | ⚠ |
 | N3 — Harness + skills + the pass | 34 | 1.5–2 wk | — | — | — | — |
 | N4 — Safe to leave alone | 22 | 1 wk | — | — | — | — |
 
@@ -78,6 +78,31 @@ Legend: `—` not started · `▶` running · `✅` done · `⚠` done with open
   published package. One-way; the reference does it the other way and the reason is written down.
 - **INS-02's second category has no member until N2** (J1.19); N1 ships the register instead of a
   speculative builder.
+- **§5 Q1 settled (J2.6)** — the host names the gate's resources as `{ name, path, why }` rows;
+  `path` is ROOT-relative, which is INS-05's constraint made mechanical. Two names at N2: `repo`,
+  `skills`.
+- **croner is a dependency (J2.8)** — exact `10.0.1`, root `dependencies`, zero transitive deps,
+  imported by exactly one file. Writing the parser instead would have made SUP-07 circular.
+- **The cron grammar is the intersection of croner and POSIX (J2.9/J2.10)** — measured divergence:
+  one of `dom`/`dow` restricted, 320/320 agree; both restricted, `nextRun()` misses 20
+  (expression, date) pairs over 14 dates, swept 2024–2032, all in March; `croner.match(date)`
+  agrees with the POSIX oracle 30,660/30,660 day-slots including every missed date, so the fault is
+  in `nextRun`'s iterator, not croner's semantics. Measured 2026-08-26, croner 10.0.1 / Node
+  22.23.1.
+- **The schedule is empty at N2 by decision (J2.7)** — the first entry is N3's.
+- **Impure defaults are resolved in the argv block (rulings 2)** — the structural answer to N1's
+  F4 leak.
+- **Enqueue is synchronous, so FIFO needs no sleeps (J2.5)** — and the reference's own tests did
+  not need theirs.
+- **The gate's deadlock argument has one unchecked premise (J2.4)** — no holder ever acquires
+  while already holding. `runEntry` satisfies it; the gate does not enforce it; N3's first job is
+  the first chance to get it wrong.
+- **`spawnSlot` goes AFTER the gate (J2.11)** — challenged as a regression, checked, upheld. The
+  reference's line 209 is definition order, not execution order, and staggering before the gate
+  buys nothing because two entries released by one `drain()` spawn in the same instant anyway.
+  The cost — a gate held for up to `N × stagger` — is stated and asserted.
+- **`isAbsolute` on the crontab command (J2.16)** — the one line that makes a bare-name PATH
+  lookup unreachable, and therefore makes the destructive mutation in AC3 performable at all.
 
 ## Open items the loop must not silently skip
 
@@ -113,8 +138,11 @@ Legend: `—` not started · `▶` running · `✅` done · `⚠` done with open
 - **KRN-06 cannot express a knob FAMILY (N1 Gaps item 4).** `<NAME>_DB` and `*_SPAWN_STAGGER_MS`
   are both families, not keys, and `EnvSpec { key, required?, default?, why }` has no `pattern?`
   field to say so. N1 works around it per-family (a literal `<NAME>_DB` row plus one allowlisted
-  dynamic read; `pool.ts` takes `staggerMs` as an argument with no row at all). Gets worse at N3
-  when jobs start declaring their own families — decide before then.
+  dynamic read; `pool.ts` takes `staggerMs` as an argument with no row at all). **Got worse at N2,
+  not N3 (plan/N2-uac.md's Gaps item 10):** `LOCK_STARVE_N_<JOB>` is a second family, worked around
+  the same way (`kernel/config.ts`'s `assertSpecShape` generalized from one hardcoded
+  `"<NAME>_DB"` exception to any single-`<PLACEHOLDER>` key, J2.12). Decide before N3, where jobs
+  start declaring their own.
 - **`kernel/config.ts` vs `host/config.ts` (N1 Gaps item 6).** Two different things with one name;
   J1.1 added a distinguishing sentence to §1, but a rename of one would be better and is not a
   build-phase's call to make.
@@ -131,3 +159,34 @@ Legend: `—` not started · `▶` running · `✅` done · `⚠` done with open
   `writeFileSync` reached `pool.ts` through a default import, through a named binding used as a
   namespace, and through a dynamic `import()` — green every time. All three are fixed. Any future
   gate that reads source text must cover every spelling, or say in a comment which it cannot.
+
+- **N2's VERIFY step has not run as a separate pass.** LOOP.md's own four-step cycle calls for one
+  Opus verifier to check the finished phase against `plan/N2-uac.md` and the roadmap, independent
+  of BUILD. That step has not happened in this session — BUILD self-checked every job's own
+  acceptance criteria by literally running the command each one names (including all 24 RED
+  mutations across the 18 jobs) and recorded the results in each commit body, which is a real check
+  but not the same guarantee as an independent pass. The phase table marks Verify `⚠` for this
+  reason, not `✅`.
+- **ADO-01's open question now has a real consumer (plan/N2-uac.md Gaps item 14).** `cli/` is a
+  declared workspace (`private: true`), and `cli/crontab.ts` imports `../host/schedule.ts` — `host/`
+  is deliberately not a workspace, so nothing is phantom today, but TST-25's sibling clause ("no
+  workspace names another workspace's `src/` by path") will have to rule on this at N5. Whether
+  `cli` publishes at all decides it; still undecided.
+- **§3's N2 line and `WORK.md` still disagree on the shipped ID range (plan/N2-uac.md Gaps item
+  11), left as is by this job's own scope.** §3 says N2 ships `SUP-01…21` and `TST-17 (gate half)`;
+  `WORK.md`'s N2 section (this job) lists `SUP-01…18` only, with `SUP-19`/`SUP-21` under "moved out
+  of this milestone", and does not mention TST-17 at all (N4 claims it, per plan/N2-uac.md Gaps
+  item 11's own finding). J2.18's instruction was "§3's N2 body already describes only mechanisms,
+  so nothing else in it moves" — the retitle happened, the `Ships:` line did not. Whoever edits §3
+  next should reconcile it with `WORK.md`, which is the source of truth for what actually shipped.
+- **SUP-07 does not bound the parity corpus, and the walk is O(firings) (plan/N2-uac.md Gaps item
+  6).** Measured: one `* * * * *` expression costs ~3.4s of croner time over 14 days, and the
+  22-form corpus in `host/parity.test.ts` costs ~7-8s total were it not gated behind
+  `CRON_PARITY_RECHECK=1` (opt-in, not run by default `npm test`). The row's natural reading —
+  "every expression" — would put a multi-second test on every commit's critical path if the corpus
+  ever grew unbounded or the recheck became default-on. No row says so.
+- **`CRONTAB_DRY_RUN` has no `SAF-` row of its own (J2.16's own Risks note, plan/N2-uac.md Gaps
+  item 9).** SAF-01 is defined per-JOB (`*_DRY_RUN`), and the crontab tool is not a job — it is an
+  operator CLI. The safe-run surface (§2.28) has no category that covers a CLI tool's own dry-run
+  flag. `CRONTAB_DRY_RUN` behaves exactly like a SAF-01 knob and is documented as satisfying its
+  intent, but nothing in §2.28 says an operator CLI gets one.

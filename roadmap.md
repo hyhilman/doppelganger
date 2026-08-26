@@ -1289,7 +1289,7 @@ the shared-database trap (TST-20).
 **Not shipped, deliberately:** `registry.ts`, `plugin.ts`, `boot.ts`. The loop does not need the
 plugin seam, and the seam is designed better once a second consumer exists to argue with it (D9).
 
-### N2 — Supervisor, one schedule entry · **1 week**
+### N2 — Supervisor and gate, no entry yet · **1 week**
 `host/supervisor.ts` · schedule-as-data · `PROGRAMS` · `validate()` on every boot · one croner timer
 per entry · refresh window · heartbeat · `gate.ts` · `--list` · the crontab bootstrap block.
 **Ships:** SUP-01…21, GAT-01…10, INS-03, INS-05, TST-15, TST-16, TST-17 (gate half).
