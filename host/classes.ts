@@ -16,10 +16,12 @@ export const CHORE: readonly string[] = ["nightly-sandcastle"];
  *  explicit choice here, the same call host/config.ts made for `REFRESH_WINDOW = null`. */
 export const REVIEW: readonly string[] = [];
 
-/** Everything else — downshifted under a recent spend wall, never skipped. Empty at N4; filled in
- *  by J4.12 (`ops-cron-check`) and J4.14 (`watchdog.sh`) — pinned here first, before either entry
- *  exists, so the three-way split's SHAPE (host/classes.test.ts test 9) is fixed in advance. */
-export const WATCH: readonly string[] = [];
+/** Everything else — downshifted under a recent spend wall, never skipped. `ops-cron-check`
+ *  (J4.12) is the first entry; `watchdog.sh` (J4.14) is the second — pinned here first, before
+ *  either entry existed, so the three-way split's SHAPE (host/classes.test.ts test 9) was fixed
+ *  in advance. Neither runs an agent, so "downshifted" is inert for both — they simply are not
+ *  CHORE (skippable) or REVIEW (a human is waiting), the safe default for a deterministic job. */
+export const WATCH: readonly string[] = ["ops-cron-check"];
 
 /** An unlisted name defaults to `"watch"` — the safe default: never skipped, downshifted like
  *  every other job not explicitly waiting on a human. Called from two places that must agree only

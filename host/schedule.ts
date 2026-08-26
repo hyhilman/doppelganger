@@ -79,6 +79,16 @@ export interface Program {
  *  and no program exists to register until N3, which is when the first row (below) lands. */
 export const PROGRAMS: Readonly<Record<string, Program>> = {
   "nightly-sandcastle": { self: true, gate: "excl", resources: ["repo"], dotenv: true },
+  // J4.12 (JOB-O09) — the first gate: "none" row this repo has (validate rule 17's first live
+  // subject): the check reads `crontab -l` and renders, racing nothing the gate protects, and it
+  // is most useful precisely when a writer is holding the gate and jobs are backing up behind it.
+  "ops-cron-check": {
+    self: true,
+    gate: "none",
+    dotenv: true,
+    whyNoGate:
+      "reads `crontab -l` and renders; it races nothing the gate protects, and it is most useful precisely when a writer is holding the gate and jobs are backing up behind it — queueing it would blind the check in the case it exists for",
+  },
 };
 
 /**
@@ -110,6 +120,13 @@ export const SCHEDULE: readonly ScheduleEntry[] = [
     log: projectPath(".doppelganger/logs/nightly-sandcastle.log"),
     maxRunMin: 90,
     why: "hourly overnight (23:38–04:38 WIB): one small, verified improvement to this repo, gated on the full suite, an import smoke of every changed file and a dry run of every changed job (JOB-C15). :38 leaves the :08s free for nightly-polish (JOB-C16, N5) so the pair fires every 30 minutes without sharing a minute — both take the gate exclusively, non-blocking, so a shared minute would mean one silently skipping every night.",
+  },
+  {
+    name: "ops-cron-check",
+    cron: "15 22 * * *",
+    job: "ops-cron-check",
+    log: projectPath(".doppelganger/logs/ops-cron-check.log"),
+    why: "Crontab drift, once a day at 22:15 UTC (05:15 WIB) — after the nightly window closes and clear of :00/:30, so a report is waiting before the workday. Diffs the installed managed block against a fresh render of host/schedule.ts: one info line every run, an error line only on drift. Declared here deliberately, so the checker is covered by the config it verifies. Needs CRONTAB_CMD set in .env (required, no default — N2 F1) or it fails loudly.",
   },
 ];
 

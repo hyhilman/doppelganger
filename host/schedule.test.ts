@@ -44,19 +44,22 @@ export function program(over: Partial<Program> = {}): Program {
   };
 }
 
-test("1. the schedule carries one entry: nightly-sandcastle (J3.15) — the first non-vacuous validate(SCHEDULE) in the repo's life", () => {
-  assert.equal(SCHEDULE.length, 1);
+test("1. the schedule carries two entries, nightly-sandcastle first (J3.15's the first non-vacuous validate(SCHEDULE); J4.12 adds ops-cron-check)", () => {
+  assert.equal(SCHEDULE.length, 2);
   assert.equal(SCHEDULE[0]!.name, "nightly-sandcastle");
+  assert.equal(SCHEDULE[1]!.name, "ops-cron-check");
   assert.doesNotThrow(() => validate());
 
-  const program = PROGRAMS[programOf(SCHEDULE[0]!)];
-  assert.ok(program, "nightly-sandcastle must have a PROGRAMS row");
+  for (const e of SCHEDULE) {
+    const program = PROGRAMS[programOf(e)];
+    assert.ok(program, `${e.name} must have a PROGRAMS row`);
 
-  const log = SCHEDULE[0]!.log;
-  assert.ok(
-    LOG_ROOTS.some((r) => log === r || log.startsWith(`${r}/`)),
-    `${log} must be under a known log root: [${LOG_ROOTS.join(", ")}]`,
-  );
+    const log = e.log;
+    assert.ok(
+      LOG_ROOTS.some((r) => log === r || log.startsWith(`${r}/`)),
+      `${log} must be under a known log root: [${LOG_ROOTS.join(", ")}]`,
+    );
+  }
 });
 
 // N2 F1's exact shape, restated here so it cannot recur: the first draft asserted a WEAKER

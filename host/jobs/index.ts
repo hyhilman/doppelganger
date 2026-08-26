@@ -3,6 +3,7 @@
 // exists; the directory (test/jobs.test.ts, J3.16) is only ever CHECKED against it.
 import type { Job } from "../../kernel/ports/job.ts";
 import nightlySandcastle from "./nightly-sandcastle.ts";
+import opsCronCheck from "./ops-cron-check.ts";
 
 /** KRN-01's shape, one phase early and one file wide: duplicate-throws, at import time. Exported so
  *  it is testable directly against a fabricated list, not only against the one real job. */
@@ -16,6 +17,6 @@ export function assertNoDuplicateNames(jobs: readonly Job[]): void {
   }
 }
 
-export const JOBS: readonly Job[] = [nightlySandcastle];
+export const JOBS: readonly Job[] = [nightlySandcastle, opsCronCheck];
 
 assertNoDuplicateNames(JOBS);

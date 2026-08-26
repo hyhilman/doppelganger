@@ -183,15 +183,28 @@ const sourceDirFor = (tree: SkillsTree, job: Job): string => join(tree.sourceRoo
 const srcDirPosixFor = (tree: SkillsTree, sourceDir: string): string => toPosix(relative(dirname(tree.sourceRoot), sourceDir));
 
 /**
- * Every registered job, checked against the tree, plus every `ours` directory found under
- * `tree.renderedRoot` (for `orphan`/`stray`, which have no registered job to anchor the per-job
- * loop). Deterministically sorted (kind, then name) so two reports diff meaningfully.
+ * Every job that DECLARES a skill (`job.skill !== undefined`), checked against the tree, plus
+ * every `ours` directory found under `tree.renderedRoot` (for `orphan`/`stray`, which have no
+ * registered job to anchor the per-job loop). Deterministically sorted (kind, then name) so two
+ * reports diff meaningfully.
+ *
+ * J4.12 (ops-cron-check) is the first `exec:`-only job with no `skill` field at all —
+ * `skillOf(job)` (kernel/ports/job.ts) FALLS BACK to `job.name` for a job that names none, which
+ * is exactly right for a skill job (SKL-01: the skill name IS the job name unless overridden) and
+ * exactly wrong here: it would make this function ask for a SKILL.md a deterministic job never
+ * has. SKL-06's gate is meant to run "both ways" (roadmap.md) and exempt an `exec` job BY
+ * CONSTRUCTION — this is the fix that makes that claim actually true, rather than merely stated;
+ * nothing before this job's own registration exercised `job.skill === undefined` at all.
+ * `registeredNames` is built from the SAME filtered set, so a stray rendered directory that
+ * happens to share an exec-only job's name is correctly reported as an orphan, not silently
+ * treated as that job's own (nonexistent) skill.
  */
 export function check(jobs: readonly Job[], tree: SkillsTree): readonly Finding[] {
   const findings: Finding[] = [];
-  const registeredNames = new Set(jobs.map((j) => skillOf(j)));
+  const skillJobs = jobs.filter((j) => j.skill !== undefined);
+  const registeredNames = new Set(skillJobs.map((j) => skillOf(j)));
 
-  for (const job of jobs) {
+  for (const job of skillJobs) {
     const name = skillOf(job);
     const sourceDir = sourceDirFor(tree, job);
     const sourceFile = join(sourceDir, "SKILL.md");
@@ -301,6 +314,7 @@ function cmdRender(deps: SkillsDeps): VerbResult {
   assertSafeTree(deps.tree, deps.root);
   const parts: string[] = [];
   for (const job of deps.jobs) {
+    if (job.skill === undefined) continue; // an exec: job names no skill, by construction (SKL-06)
     const sourceFile = join(sourceDirFor(deps.tree, job), "SKILL.md");
     if (!existsSync(sourceFile)) continue; // check reports source-missing; render has nothing to show
     parts.push(`--- ${skillOf(job)} ---\n${renderedFor(job, deps.tree)}`);

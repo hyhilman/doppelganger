@@ -266,18 +266,28 @@ test("1. every defineJob/runJob object literal names model unless the literal ha
   const { checked, sites } = walk();
 
   // J3.10 shipped this as `checked >= 1` — a floor loose enough to survive a registry that did
-  // not exist yet. J3.16 (TST-09) makes the registry the source of truth for the exact count:
-  // every registered job that must name `model` (no `exec`, or `exec` with `model` set anyway,
-  // as J3.10 already required for nightly-sandcastle) contributes one checked site — its own
-  // `defineJob({...})` call. `runJobLiteralSites` names the OTHER shape this file's scan can
-  // find: a `runJob(...)` call in non-test source whose FIRST argument is an object literal
-  // (rather than a `Job` variable). Both of today's non-test `runJob(...)` call sites
-  // (host/run.ts's `runJob(job, {...})` and host/jobs/nightly-sandcastle.ts's
-  // `runJob(jobForRun, {...})`) pass a variable first, so neither is extracted — 0 today, named
-  // so the day one appears this floor visibly moves instead of silently drifting (AC6 proves the
-  // registry side of that with a fixture job).
+  // not exist yet. J3.16 (TST-09) makes the registry the source of truth for the exact count.
+  //
+  // CORRECTED at J4.12: every registered job's OWN `defineJob({...})` call is exactly one
+  // scanned site, regardless of whether that job needs to NAME model — `walk()` counts a site
+  // the moment it finds a well-formed object literal, before it ever looks at the literal's own
+  // keys. The floor was originally written as `JOBS.filter((j) => j.exec === undefined ||
+  // j.model !== undefined).length` on the (until now untested) assumption that an `exec` job
+  // with no `model` would somehow not be scanned at all — true only by accident, because
+  // nightly-sandcastle (J3.10's one exec job) also happens to set `model` for HRN-11 reasons
+  // unrelated to being scanned. `ops-cron-check` (J4.12) is the first exec job that genuinely
+  // carries no model, and it IS scanned (checked=2, the old floor stayed at 1) — proving the
+  // filter answered "must this job name model", not "does this job's own site get counted".
+  // The "must name model unless exec" rule is enforced separately, correctly, by `offenders`
+  // below, which already exempts a literal naming `exec`.
+  //
+  // `runJobLiteralSites` names the OTHER shape this file's scan can find: a `runJob(...)` call
+  // in non-test source whose FIRST argument is an object literal (rather than a `Job` variable).
+  // Every non-test `runJob(...)` call site today passes a variable first, so none is extracted —
+  // 0 today, named so the day one appears this floor visibly moves instead of silently drifting
+  // (AC6 proves the registry side of that with a fixture job).
   const runJobLiteralSites = 0;
-  const floor = JOBS.filter((j) => j.exec === undefined || j.model !== undefined).length + runJobLiteralSites;
+  const floor = JOBS.length + runJobLiteralSites;
   assert.equal(checked, floor, `checked=${checked}, expected the registry-derived floor ${floor}`);
 
   const offenders = sites.filter((s) => !s.keys.includes("exec") && !s.keys.includes("model"));

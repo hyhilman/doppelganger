@@ -28,6 +28,11 @@ function job(overrides: Partial<Job> = {}): Job {
     name: "nightly-probe",
     description: "d",
     plugin: "nightly",
+    // J4.12: check()/render() now skip a job with no `skill` at all (an `exec:` job is exempt by
+    // construction, SKL-06) — every fixture here is exercising the SKILL-dispatch checking logic,
+    // so it must declare one. SKL-01: the skill name IS the job name unless overridden — mirrored
+    // here too, so a fixture overriding only `name` still resolves skillOf() to that same name.
+    skill: overrides.skill ?? overrides.name ?? "nightly-probe",
     permissionMode: "bypassPermissions",
     local: true,
     ...overrides,

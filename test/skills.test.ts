@@ -28,7 +28,11 @@ test("1. TST-23 live — check(JOBS, the real tree) returns []", () => {
 });
 
 test("2. SKL-06 direction one — every job's skill resolves to a real source directory holding a SKILL.md", () => {
+  // An exec: job (job.skill === undefined) names no skill by construction (D10, SKL-06) — it is
+  // exempt from every check in this file, the same exemption cli/skills.ts's own check() applies
+  // (J4.12, ops-cron-check is the first such job).
   for (const job of JOBS) {
+    if (job.skill === undefined) continue;
     const sourceFile = join(TREE.sourceRoot, job.plugin, "skills", skillOf(job), "SKILL.md");
     assert.ok(statSync(sourceFile, { throwIfNoEntry: false })?.isFile(), `${job.name}: expected a source skill file at ${sourceFile}`);
   }
@@ -60,7 +64,9 @@ test("4. SKL-02 — no two jobs share a skill name, and no plugin contributes a 
 });
 
 test("5. the rendered set equals the source set equals the registry set", () => {
-  const registrySet = new Set(JOBS.map((j) => skillOf(j)));
+  // An exec: job contributes no skill at all — excluded from the registry SET here, the same
+  // exemption test 2's own header comment explains.
+  const registrySet = new Set(JOBS.filter((j) => j.skill !== undefined).map((j) => skillOf(j)));
   const renderedSet = new Set(readdirSync(TREE.renderedRoot).filter((name) => ownerOf(join(TREE.renderedRoot, name)) === "ours"));
   const sourceSet = new Set<string>();
   for (const plugin of readdirSync(TREE.sourceRoot, { withFileTypes: true }).filter((d) => d.isDirectory())) {
@@ -77,6 +83,7 @@ test("5. the rendered set equals the source set equals the registry set", () => 
 
 test("6. SKL-09 — the file a human invokes at /<name> and the file the unattended pass uses are the same bytes", () => {
   for (const job of JOBS) {
+    if (job.skill === undefined) continue; // an exec: job has no skill file to compare (SKL-06)
     const name = skillOf(job);
     const sourceFile = join(TREE.sourceRoot, job.plugin, "skills", name, "SKILL.md");
     const renderedFile = join(TREE.renderedRoot, name, "SKILL.md");
@@ -101,6 +108,7 @@ test("7. SKL-07 the output vocabulary — the markdown and the code cannot drift
 
 test("8. SKL-07 the authorization-token ban — the report block only, scanned in BOTH copies", () => {
   for (const job of JOBS) {
+    if (job.skill === undefined) continue; // an exec: job has no skill file to scan (SKL-06)
     const name = skillOf(job);
     const sourceFile = join(TREE.sourceRoot, job.plugin, "skills", name, "SKILL.md");
     const renderedFile = join(TREE.renderedRoot, name, "SKILL.md");
@@ -117,6 +125,7 @@ test("8. SKL-07 the authorization-token ban — the report block only, scanned i
 
 test("9. no skill reads the environment or names a path into its own files (SKL-08, HRN-16)", () => {
   for (const job of JOBS) {
+    if (job.skill === undefined) continue; // an exec: job has no skill file to scan (SKL-06)
     const name = skillOf(job);
     const sourceFile = join(TREE.sourceRoot, job.plugin, "skills", name, "SKILL.md");
     const source = readFileSync(sourceFile, "utf8");
@@ -128,6 +137,7 @@ test("9. no skill reads the environment or names a path into its own files (SKL-
 
 test("10. every skill directory name carries a known SUP-20 stage prefix", () => {
   for (const job of JOBS) {
+    if (job.skill === undefined) continue; // an exec: job has no skill directory (SKL-06)
     const name = skillOf(job);
     assert.ok(STAGES.some((s) => name === s || name.startsWith(`${s}-`)), `${name} does not start with a known SUP-20 stage prefix`);
   }
