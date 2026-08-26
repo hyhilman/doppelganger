@@ -12,6 +12,7 @@ import {
   programOf,
   supervisedEntries,
   bootstrapEntries,
+  commandOf,
   type ScheduleEntry,
   type Program,
 } from "./schedule.ts";
@@ -68,4 +69,16 @@ test("3. supervisedEntries / bootstrapEntries partition a five-entry fixture", (
 test("4. the fixture builders are deterministic", () => {
   assert.deepEqual(entry(), entry());
   assert.deepEqual(program(), program());
+});
+
+test("5. commandOf for a job: entry names host/run.ts, not host/jobs/<job>.ts (J3.14 ruling 3)", () => {
+  const cmd = commandOf(entry({ job: "probe", script: undefined }));
+  assert.match(cmd, /\bhost\/run\.ts probe\b/);
+  assert.ok(!cmd.includes("host/jobs/probe.ts"));
+});
+
+test("6. commandOf for a script: entry is unchanged", () => {
+  const cmd = commandOf(entry({ job: undefined, script: "host/ops-probe.sh" }));
+  assert.match(cmd, /\bhost\/ops-probe\.sh\b/);
+  assert.ok(!cmd.includes("host/run.ts"));
 });

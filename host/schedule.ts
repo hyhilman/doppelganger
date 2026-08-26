@@ -102,7 +102,10 @@ export const bootstrapEntries = (s: readonly ScheduleEntry[] = SCHEDULE): readon
  * computed `ROOT` constant.
  */
 export function commandOf(e: ScheduleEntry): string {
-  const target = e.job !== undefined ? `host/jobs/${e.job}.ts` : (e.script ?? "");
+  // Ruling 3 (plan/N3-uac.md, J3.14): the ONE argv block a scheduled job reaches is host/run.ts —
+  // never the job file directly. The first N3 draft rendered `host/jobs/<job>.ts` here, which has
+  // no argv block of its own and would have exited 0 having done nothing, every night, silently.
+  const target = e.job !== undefined ? `host/run.ts ${e.job}` : (e.script ?? "");
   return `cd ${ROOT} && node ${target} >> ${e.log} 2>&1`;
 }
 

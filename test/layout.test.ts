@@ -476,3 +476,26 @@ test("14. roadmap.md §3's Ships list agrees with WORK.md, for every SHIPPED pha
     );
   }
 });
+
+// J3.14 — N1 F4's blind spot, one directory over. Assertion 13 explicitly EXCLUDES
+// `.doppelganger/`, and `.gitignore` covers it — the exact pair that let `./leak.db` survive a
+// whole phase unnoticed (N1 F4). N3 starts writing real things there, so the rule becomes an
+// ALLOWLIST of what may exist. A directory that does not exist passes trivially, so a fresh clone
+// is green; nothing here reads an mtime, so nothing here is flaky.
+const DOPPELGANGER_ALLOWLIST = new Set([
+  "state",
+  "logs",
+  "runs",
+  "worktrees",
+  "scratch",
+  "gitconfig",
+  "supervisor.heartbeat",
+  "supervisor.status.json",
+]);
+
+test("15. .doppelganger/ holds only allowlisted entries", () => {
+  const dir = join(ROOT, ".doppelganger");
+  if (!existsSync(dir)) return;
+  const offenders = readdirSync(dir).filter((entry) => !DOPPELGANGER_ALLOWLIST.has(entry));
+  assert.deepEqual(offenders, [], `.doppelganger/ holds an entry the allowlist does not cover: ${offenders.join(", ")}`);
+});

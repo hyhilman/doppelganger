@@ -102,9 +102,11 @@ export type SpawnFn = (cmd: string, args: readonly string[], opts: SpawnOptions)
 
 /**
  * Everything impure `runEntry` needs, as a required `deps` argument — ruling 2. `jobRunner` is how
- * `job:` entries become a command without this file knowing what a job is: at N3 it becomes
- * `(job) => [process.execPath, [\`${root}/host/jobs/${job}.ts\`]]`. At N2 the real one is
- * assembled in `main()`'s argv block (J2.13) and nothing calls it, because `SCHEDULE` is empty.
+ * `job:` entries become a command without this file knowing what a job is: at N3 (ruling 3,
+ * plan/N3-uac.md) it spawns `host/run.ts <job>` — the ONE argv block a scheduled job reaches — and
+ * NEVER the job file directly, which the first N3 draft got wrong and which is why the spawned
+ * command is driven end to end rather than merely assumed (J3.14 AC4). The real one is assembled
+ * in `main()`'s argv block (J2.13).
  *
  * `shouldShed` (SUP-16, QTA-08/09) and boot-time lease reap (SUP-15) are the two N4 seams. Both
  * are honest here: SUP-16 is a PLACEMENT row — before the gate — and the placement is checked now;
@@ -662,7 +664,7 @@ if (import.meta.filename === process.argv[1]) {
     maxRunMin: () => SUPERVISOR_MAX_RUN_MIN,
     killGraceMs: SUPERVISOR_KILL_GRACE_MS,
     spawnStaggerMs: SUPERVISOR_SPAWN_STAGGER_MS,
-    jobRunner: (job: string) => [process.execPath, [projectPath(`host/jobs/${job}.ts`)]],
+    jobRunner: (job: string) => [process.execPath, [projectPath("host/run.ts"), job]],
     newTimer: realNewTimer,
     heartbeatPath: projectPath(".doppelganger/supervisor.heartbeat"),
     statusPath: projectPath(".doppelganger/supervisor.status.json"),

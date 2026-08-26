@@ -16,7 +16,8 @@
     "pretest": "npm run typecheck",
     "test": "node --test \"kernel/**/*.test.ts\" \"plugins/**/*.test.ts\" \"host/**/*.test.ts\" \"cli/**/*.test.ts\" \"test/**/*.test.ts\"",
     "crontab": "node cli/crontab.ts",
-    "skills": "node cli/skills.ts"
+    "skills": "node cli/skills.ts",
+    "job": "node host/run.ts"
   },
   "devDependencies": {
     "@types/node": "22.20.1",
