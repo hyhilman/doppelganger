@@ -94,3 +94,14 @@ export function assertSpecShape(rows: readonly EnvSpec[]): void {
     }
   }
 }
+
+/**
+ * J2.11 (SUP-04) — a copy of the whole process environment, so `host/` (and `cli/`) never name
+ * `process.env` themselves. `childEnv`'s inherited-env layer calls this instead of spreading
+ * `process.env` inline, which is what keeps `test/knobs.test.ts` assertion 3's one-file rule true
+ * as it now covers `host/` and `cli/` too (J2.3) — a real improvement over the reference, which
+ * spreads `process.env` inline in the supervisor.
+ */
+export function parentEnv(): Readonly<Record<string, string | undefined>> {
+  return { ...process.env };
+}

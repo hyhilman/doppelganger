@@ -29,9 +29,15 @@ export interface ScheduleEntry {
   readonly cron: string;
   /** Where this entry's child stdout/stderr is appended (SUP-03, SUP-18). */
   readonly log: string;
-  /** Extra env var NAMES this entry needs passed through — the only way past a program's
-   *  `dotenv: false` (SUP-04). Never the values themselves; those come from the real environment. */
-  readonly env?: readonly string[];
+  /**
+   * Entry-declared overrides, applied LAST (`inherited < .env < env:`, SUP-04) — the only knob
+   * reachable regardless of a program's `dotenv: false`. CORRECTION (J2.11): J2.7 originally typed
+   * this as a NAME list to pass through from the parent; childEnv's real formula spreads it as
+   * key-value pairs (`{ ...parentEnv(), ...dotenvVars, ...e.env }`), which is what SUP-04's own
+   * three-layer precedence needs — an entry's own literal values, not a request to inherit named
+   * ones. Fixed here rather than in a new commit that would touch nothing else.
+   */
+  readonly env?: Readonly<Record<string, string>>;
   /** Block for one of THIS entry's own ticks (GAT-08), derived by `gateWait(cron)` — never a
    *  hand-picked number. */
   readonly gateWait?: boolean;

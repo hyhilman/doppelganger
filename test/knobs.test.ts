@@ -21,6 +21,11 @@ import { LOG_LEVEL_ENV } from "../kernel/runtime/log/emit.ts";
 import { LOG_MAX_BYTES_ENV, LOG_MAX_READ_BYTES_ENV } from "../kernel/runtime/log/tail.ts";
 import { EXEC_TIMEOUT_MS_ENV } from "../kernel/runtime/exec.ts";
 import { GATE_WAIT_CAP_S_ENV } from "../host/cron.ts";
+import {
+  SUPERVISOR_MAX_RUN_MIN_ENV,
+  SUPERVISOR_KILL_GRACE_MS_ENV,
+  SUPERVISOR_SPAWN_STAGGER_MS_ENV,
+} from "../host/supervisor.ts";
 
 const ROOT = new URL("..", import.meta.url).pathname.replace(/\/$/, "");
 
@@ -80,6 +85,24 @@ const ROWS: readonly RowMeta[] = [
     spec: GATE_WAIT_CAP_S_ENV,
     file: "host/cron.ts",
     constName: "GATE_WAIT_CAP_S_ENV",
+    readers: ["envNum"],
+  },
+  {
+    spec: SUPERVISOR_MAX_RUN_MIN_ENV,
+    file: "host/supervisor.ts",
+    constName: "SUPERVISOR_MAX_RUN_MIN_ENV",
+    readers: ["envNum"],
+  },
+  {
+    spec: SUPERVISOR_KILL_GRACE_MS_ENV,
+    file: "host/supervisor.ts",
+    constName: "SUPERVISOR_KILL_GRACE_MS_ENV",
+    readers: ["envNum"],
+  },
+  {
+    spec: SUPERVISOR_SPAWN_STAGGER_MS_ENV,
+    file: "host/supervisor.ts",
+    constName: "SUPERVISOR_SPAWN_STAGGER_MS_ENV",
     readers: ["envNum"],
   },
   {
@@ -211,6 +234,18 @@ test("5. every defaulted row's default is the value you get, resolved in a scrub
   assert.equal(
     scrubbedChild("import('./host/cron.ts').then(m=>console.log(m.GATE_WAIT_CAP_S))"),
     "1800",
+  );
+  assert.equal(
+    scrubbedChild("import('./host/supervisor.ts').then(m=>console.log(m.SUPERVISOR_MAX_RUN_MIN))"),
+    "180",
+  );
+  assert.equal(
+    scrubbedChild("import('./host/supervisor.ts').then(m=>console.log(m.SUPERVISOR_KILL_GRACE_MS))"),
+    "10000",
+  );
+  assert.equal(
+    scrubbedChild("import('./host/supervisor.ts').then(m=>console.log(m.SUPERVISOR_SPAWN_STAGGER_MS))"),
+    "2000",
   );
   // INSTANCE, ENGINE_ROOT and <NAME>_DB carry no `default` — two have computed fallbacks (a
   // basename, cwd), one is a family with no single value — so they are skipped here by name.
