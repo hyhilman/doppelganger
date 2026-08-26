@@ -27,7 +27,7 @@ Advance only when VERIFY comes back with nothing blocking.
 | Phase | Items | Est. | Plan | Gap | Build | Verify |
 |-------|-------|------|------|-----|-------|--------|
 | N0 — Ground truth | 11 | 2 d | ✅ | ✅ | ✅ | ⚠ |
-| N1 — Kernel the loop needs | 26 | 1.5–2 wk | ▶ | — | — | — |
+| N1 — Kernel the loop needs | 26 | 1.5–2 wk | ✅ | ✅ | ✅ | — |
 | N2 — Supervisor + gate | 32 | 1 wk | — | — | — | — |
 | N3 — Harness + skills + the pass | 34 | 1.5–2 wk | — | — | — | — |
 | N4 — Safe to leave alone | 22 | 1 wk | — | — | — | — |
@@ -60,6 +60,24 @@ Legend: `—` not started · `▶` running · `✅` done · `⚠` done with open
   is a real file in the project tree: a rendered copy of `plugins/<x>/skills/<job>/SKILL.md`,
   not a link, and not delivered through the plugin-skill mechanism. Confirms SKL-04 as
   written and kills the symlink branch of TST-23. (Decided by the user, 2026-08-25.)
+- **TST-18's "byte-identical" is defined** (J1.9): everything from `event=` compared as bytes; `ts`
+  and `src` excluded, each asserted on its own terms; the bare/quoted predicate is enumerated so
+  collation cannot reach it; and the reference's `msg=""` divergence is fixed rather than pinned.
+- **`node:sqlite` warns on import and the warning stays** (J1.13): two stderr lines per process,
+  `parseLine` returns null for both, `causeOf` already filters them, and `emit.ts` must never load
+  `node:sqlite` so a logging-only process pays nothing.
+- **`StatementSync.iterate` is a real DBS-06 blind spot in the reference** (J1.6), and naming it
+  in the executor set does not close it: measured, `iterate()` returns without throwing and the
+  refusal lands on the **first `next()`**, so the wrapper wraps the returned iterator. Its fixture
+  is `INSERT … RETURNING` under WAL, because a plain WAL reader is never blocked. The driver's
+  member list is pinned so a Node upgrade reports the next member.
+- **An unused import is never a valid gate mutation** (standing note, J1.6/J1.18/J1.19).
+  `noUnusedLocals` + `pretest` means TS6133 exits 2 before any test runs, so the AC reads as
+  satisfied while the gate is never reached. Every mutation consumes its binding.
+- **`ROOT` comes from `cwd`, not from self-location** (J1.4), because self-location is wrong for a
+  published package. One-way; the reference does it the other way and the reason is written down.
+- **INS-02's second category has no member until N2** (J1.19); N1 ships the register instead of a
+  speculative builder.
 
 ## Open items the loop must not silently skip
 
@@ -91,3 +109,17 @@ Legend: `—` not started · `▶` running · `✅` done · `⚠` done with open
   authorization token (a value that widens what the run may do, like JOB-T03's `agent`).
   TST-24's third clause is reworded around this line. N3's real `parseVerdict` must
   reproduce the pinned vocabulary in `test/skills-example.test.ts`.
+
+- **KRN-06 cannot express a knob FAMILY (N1 Gaps item 4).** `<NAME>_DB` and `*_SPAWN_STAGGER_MS`
+  are both families, not keys, and `EnvSpec { key, required?, default?, why }` has no `pattern?`
+  field to say so. N1 works around it per-family (a literal `<NAME>_DB` row plus one allowlisted
+  dynamic read; `pool.ts` takes `staggerMs` as an argument with no row at all). Gets worse at N3
+  when jobs start declaring their own families — decide before then.
+- **`kernel/config.ts` vs `host/config.ts` (N1 Gaps item 6).** Two different things with one name;
+  J1.1 added a distinguishing sentence to §1, but a rename of one would be better and is not a
+  build-phase's call to make.
+- **§2.27 becomes a second copy of every plugin's `env` member as plugins arrive (N1 Gaps item
+  12).** J1.18's gate works today because this plan added the two N1 keys §2.27 was missing.
+  Decide whether §2.27 survives KRN-04 (N5) or is generated from it.
+- **No row says a test may leave nothing in the checkout (N1 Gaps item 13).** J1.5, J1.12 and
+  J1.17 each assert it by hand; a `TST-` row would give them something to cite.

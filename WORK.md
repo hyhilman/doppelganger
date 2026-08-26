@@ -29,32 +29,57 @@ Rows marked **moved** are listed once, where they were dropped, so nothing goes 
 
 ## N1 — The kernel the loop needs · 1.5–2 wk · **26 items**
 
-- [ ] **DBS-01** `openDb(path)`
-- [ ] **DBS-02** Namespaced tables
-- [ ] **DBS-03** Namespace identifier guard
-- [ ] **DBS-04** SQLITE_BUSY context: rethrow naming file + one-line SQL + waited-ms
-- [ ] **DBS-05** `tx` begins IMMEDIATE, not DEFERRED.
-- [ ] **DBS-06** Proxy-wrapped `exec`/`prepare` and statement `run`/`get`/`all` so no call site is a blin
-- [ ] **DBS-07** `dbPath(name)` with `<NAME>_DB` override for throwaway runs.
-- [ ] **DBS-08** `closeAll()` at job end.
-- [ ] **LOG-01** ONE line shape, two emitters
-- [ ] **LOG-02** logfmt, not JSONL
-- [ ] **LOG-03** Four levels `debug|info|warn|error`
-- [ ] **LOG-04** Routing is a property of the level, not the caller: `error` → the next report tick, batc
-- [ ] **LOG-05** Severity is SET by the emitter, never inferred from text.
-- [ ] **LOG-06** Writes to STDERR so stdout stays free for the payload.
-- [ ] **LOG-07** `parse.ts` parses a LINE
-- [ ] **LOG-08** `tail.ts`
-- [ ] **LOG-09** `cause.ts`
-- [ ] **LOG-10** `LOG_LEVEL` gates both emitters.
-- [ ] **KRN-06** `EnvSpec { key, required?, default?, why }`
-- [ ] **SUP-20** Stage-prefix vocabulary: every job name and schedule entry carries a known prefix
-- [ ] **HRN-18** `pool.ts`
-- [ ] **HRN-19** `exec.ts`
-- [ ] **INS-01** ONE `INSTANCE` name per checkout, defaulting to the project directory's basename, valida
-- [ ] **INS-02** Every write is either **project-relative** or **`INSTANCE`-discriminated**, and there is
-- [ ] **TST-18** Log: both emitters agree
-- [ ] **TST-20** Suites share one database
+- [x] (J1.5) **DBS-01** `openDb(path)` — handle + `tx` + ordered migrations, one file per
+      integration (`slack.db`, `jira.db`, `backlog.db`, `lease.db`, `quota.db`, `queue.db`, `log.db`).
+- [x] (J1.5) **DBS-02** Namespaced tables (`<ns>_message`, `<ns>_meta`) with
+      `<ns>_meta.schema_version`; migrations are append-only steps owned by the source.
+- [x] (J1.5) **DBS-03** Namespace identifier guard (`ns` is interpolated into DDL).
+- [x] (J1.6) **DBS-04** SQLITE_BUSY context: rethrow naming file + one-line SQL + waited-ms; do NOT
+      retry and do NOT raise the timeout (the wait is the discriminator).
+- [x] (J1.5) **DBS-05** `tx` begins IMMEDIATE, not DEFERRED.
+- [x] (J1.6) **DBS-06** Proxy-wrapped `exec`/`prepare` and statement `run`/`get`/`all` so no call
+      site is a blind spot.
+- [x] (J1.4) **DBS-07** `dbPath(name)` with `<NAME>_DB` override for throwaway runs.
+- [x] (J1.5) **DBS-08** `closeAll()` at job end.
+- [x] (J1.1, J1.7, J1.9) **LOG-01** ONE line shape, two emitters (TS + bash), byte-identical;
+      nothing else formats a line. The `ts=` field comes from ONE clock helper (`kernel/time.ts`,
+      `nowIso()`) so both emitters agree on precision and suffix, not only on layout.
+- [x] (J1.7) **LOG-02** logfmt, not JSONL; `msg=` is the only quoted field.
+- [x] (J1.7) **LOG-03** Four levels `debug|info|warn|error`; no `fatal`.
+- [x] (J1.10) **LOG-04** Routing is a property of the level, not the caller: `error` → the next
+      report tick, batched per `job/event`; `warn` → a bare count on a tick that already had an
+      error; `info`/`debug` → the file only.
+- [x] (J1.7) **LOG-05** Severity is SET by the emitter, never inferred from text.
+- [x] (J1.7) **LOG-06** Writes to STDERR so stdout stays free for the payload.
+- [x] (J1.8) **LOG-07** `parse.ts` parses a LINE; unrecognised lines are not an error (two thirds of
+      a file is agent stdout).
+- [x] (J1.12) **LOG-08** `tail.ts` — incremental read over BOTH roots, `(file, inode, offset)`
+      cursors, rotation and truncation detection, `LOG_MAX_BYTES`, `LOG_MAX_READ_BYTES`.
+- [x] (J1.11) **LOG-09** `cause.ts` — distils a dead child's stderr (which the parser skips) into
+      the one line `job-failed` carries.
+- [x] (J1.7) **LOG-10** `LOG_LEVEL` gates both emitters.
+- [x] (J1.2, J1.18) **KRN-06** `EnvSpec { key, required?, default?, why }` — `why` is one line and
+      IS the knob doc.
+- [x] (J1.16) **SUP-20** Stage-prefix vocabulary: every job name and schedule entry carries a known
+      prefix (`source-`, `triage-`, `backlog-`, `watch-`, `todo-`, `corpus-`, `nightly-`, `retro-`,
+      `ops-`).
+- [x] (J1.14) **HRN-18** `pool.ts` — bounded concurrency + spawn stagger (`*_SPAWN_STAGGER_MS`,
+      2000) for the `~/.gitconfig` start-up race.
+- [x] (J1.15) **HRN-19** `exec.ts` — `gh` / `ghIn` / `git` wrappers with a wall-clock timeout (an
+      unbounded stalled `gh` blocks the event loop, so lease heartbeats stop).
+- [x] (J1.3) **INS-01** ONE `INSTANCE` name per checkout, defaulting to the project directory's
+      basename, validated at boot as a bare identifier — it is interpolated into crontab text, an
+      owner string and container names, so KRN-09 checks it for the same reason DBS-03 guards `ns`.
+      It is the only thing that distinguishes two copies of the engine on one host.
+- [x] (J1.19) **INS-02** Every write is either **project-relative** or **`INSTANCE`-discriminated**,
+      and there is no third category. Project-relative: `<NAME>_DB` defaults resolve inside the
+      checkout (DBS-01), `.claude/skills/` is repo-relative (SKL-04, and therefore SKL-10 can never
+      prune another instance's skills). Discriminated: crontab markers (INS-03), lease owner
+      (INS-04), queue rows (QUE), container and volume names (DKR-05/06). A new write path states
+      which it is.
+- [x] (J1.9) **TST-18** Log: both emitters agree; render↔parse round-trip; the tail cursor; the
+      real dead-child fixture.
+- [x] (J1.17) **TST-20** Suites share one database — settle what you seed (two documented traps).
 
 ## N2 — Supervisor, one schedule entry · 1 wk · **32 items**
 
