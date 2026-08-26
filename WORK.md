@@ -185,28 +185,28 @@ nothing starts the supervisor. That is N4.**
 
 ## N4 — Safe to leave alone · 1 wk · **22 items**
 
-- [ ] **QTA-01** A breaker per **account scope**: host `QUOTA_SCOPE`, each worker `workerScope(container)
-- [ ] **QTA-05** Nothing re-probes: the window expires and the next real task IS the probe.
-- [ ] **QTA-06** Window sized by the limit CLASS the CLI named, never by the reset it stated: 1× session/
-- [ ] **QTA-07** `QUOTA_DARK_GAP_MS`
-- [ ] **QTA-08** `shed.ts`
-- [ ] **QTA-09** `decideShed` is pure
-- [ ] **LSE-01** SQLite lease mutex: `scope` + `key`, TTL, `held|done|failed`, attempts, owner string.
-- [ ] **LSE-02** `done` is **terminal**
-- [ ] **LSE-03** `withLease` settles `done` on any non-throwing return, early returns included
-- [ ] **LSE-04** Versioned keys
-- [ ] **LSE-05** `maxAttempts` crash-loop brake
-- [ ] **LSE-06** Owner = `<instance>:<host>:<pidns>:<pid>:<uuid8>`
-- [ ] **LSE-07** `reapDead` guard table, every guard failing toward NOT reaping: pid-namespace ≠ ours · h
-- [ ] **LSE-08** Owners written before the namespace was recorded are skipped, never guessed.
-- [ ] **LSE-09** Supervisor runs the same sweep **on boot**, before registering any timer.
-- [ ] **LSE-10** `lease-clear` operator surface: list scope · delete key · `--force` a `held` claim.
-- [ ] **LSE-11** `proc.ts`
-- [ ] **INS-04** Lease owner
-- [ ] **JOB-O09** `ops-cron-check`
-- [ ] **JOB-O10** `watchdog`
-- [ ] **JOB-O11** Delivery stamp: written on a failed send, removed on the next good one
-- [ ] **TST-17** Gate contract
+- [x] (J4.8) **QTA-01** A breaker per **account scope**: host `QUOTA_SCOPE`, each worker `workerScope(container)
+- [x] (J4.8) **QTA-05** Nothing re-probes: the window expires and the next real task IS the probe.
+- [x] (J4.8) **QTA-06** Window sized by the limit CLASS the CLI named, never by the reset it stated: 1× session/
+- [x] (J4.8) **QTA-07** `QUOTA_DARK_GAP_MS`
+- [x] (J4.9) **QTA-08** `shed.ts`
+- [x] (J4.9, J4.10) **QTA-09** `decideShed` is pure
+- [x] (J4.3) **LSE-01** SQLite lease mutex: `scope` + `key`, TTL, `held|done|failed`, attempts, owner string.
+- [x] (J4.3) **LSE-02** `done` is **terminal**
+- [x] (J4.4) **LSE-03** `withLease` settles `done` on any non-throwing return, early returns included
+- [x] (J4.4) **LSE-04** Versioned keys
+- [x] (J4.3) **LSE-05** `maxAttempts` crash-loop brake
+- [x] (J4.3) **LSE-06** Owner = `<instance>:<host>:<pidns>:<pid>:<uuid8>`
+- [x] (J4.5) **LSE-07** `reapDead` guard table, every guard failing toward NOT reaping: pid-namespace ≠ ours · h
+- [x] (J4.5) **LSE-08** Owners written before the namespace was recorded are skipped, never guessed.
+- [x] (J4.6) **LSE-09** Supervisor runs the same sweep **on boot**, before registering any timer.
+- [x] (J4.7) **LSE-10** `lease-clear` operator surface: list scope · delete key · `--force` a `held` claim.
+- [x] (J4.2) **LSE-11** `proc.ts`
+- [x] (J4.3) **INS-04** Lease owner
+- [x] (J4.12) **JOB-O09** `ops-cron-check`
+- [x] (J4.14) **JOB-O10** `watchdog`
+- [x] (J4.13) **JOB-O11** Delivery stamp: written on a failed send, removed on the next good one
+- [x] (J4.15) **TST-17** Gate contract
 
 <details><summary>moved out of this milestone</summary>
 
@@ -216,18 +216,37 @@ nothing starts the supervisor. That is N4.**
 - ~~**QTA-10**~~ → M10 · needs the health digest
 - ~~**LSE-12**~~ → M9 · serial-group lease needs the queue
 - ~~**JOB-O12**~~ → M10 · mutual watching needs the health job
+- ~~**JOB-O03**~~ → N5 · the one-minute cadence is a job; the boot sweep is LSE-09 and shipped here
 
 </details>
 
 ---
 
-# ✅ MVP READY — 123 items
+# ✅ MVP READY — 125 items
 
 The loop runs unattended on a nightly window and is safe to walk away from:
 a walled account parks and recovers by itself, a killed pass does not wedge the next one,
 and the watchdog says so when it stops. **~4.5–6 weeks.**
 
-What it is NOT yet: a framework. No manifest, no `boot()`, one plugin. That is N5.
+N4's own close, the three sentences plan/N4-uac.md opened with, each proved by a command:
+
+1. **A walled account parks and recovers by itself.** A run that dies on the CLI's limit message
+   opens a breaker for a window sized by the limit CLASS, every later tick refuses before it spawns
+   anything, and when the window lapses the next real task IS the probe — nothing re-probes, nothing
+   reads the reset the message stated. A recent SPEND-class wall additionally sheds: a `chore` tick
+   is skipped before the gate, an opus request from any non-`review` job is downshifted.
+2. **A killed pass does not wedge the next one.** A `held` lease whose owning process is gone is
+   deleted at the next supervisor boot, before a single timer registers — and every guard on that
+   path fails toward NOT reaping, over an exhaustive table of what `/proc` can refuse to say.
+3. **The watchdog says so when it stops.** One entry, outside the supervisor, on the real crontab,
+   bash and system binaries only — it reports a dead scheduler through a path that shares nothing
+   with the toolchain it watches.
+
+What it is NOT yet: a framework. No manifest, no `boot()`, one plugin — `sources`, `routes`,
+`relays` and `lanes` are still undesigned (D9). One job runs an agent (`nightly-sandcastle`);
+every other job N4 ships is deterministic (`exec:`, no `skill:`). And the lease primitive has
+exactly one PRODUCTION writer — `runNamed`'s own `<job>@<UTC hour>` key (ruling 3) — not a general
+exclusion mechanism a second, different caller has yet exercised. That is N5.
 
 ---
 

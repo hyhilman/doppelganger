@@ -1,6 +1,6 @@
 # MVP loop — state of record
 
-**Goal:** the MVP of `roadmap.md` = **N0 → N4**, 123 items, ending at "safe to leave alone".
+**Goal:** the MVP of `roadmap.md` = **N0 → N4**, 125 items, ending at "safe to leave alone".
 N5 (the framework claim) is out of scope for this loop.
 
 **Branch:** `dev`. Every step is a small, self-contained commit citing its feature ID.
@@ -30,7 +30,7 @@ Advance only when VERIFY comes back with nothing blocking.
 | N1 — Kernel the loop needs | 26 | 1.5–2 wk | ✅ | ✅ | ✅ | ✅ |
 | N2 — Supervisor and gate, no entry yet | 32 | 1 wk | ✅ | ✅ | ✅ | ✅ |
 | N3 — Harness + skills + the pass | 34 | 1.5–2 wk | ✅ | ✅ | ✅ | ✅ |
-| N4 — Safe to leave alone | 22 | 1 wk | — | — | — | — |
+| N4 — Safe to leave alone | 22 | 1 wk | ✅ | ✅ | ✅ | — |
 
 Legend: `—` not started · `▶` running · `✅` done · `⚠` done with open follow-ups.
 
@@ -117,6 +117,27 @@ Legend: `—` not started · `▶` running · `✅` done · `⚠` done with open
   changes · the CLI's advertised permission-mode list, its actually-accepted set, and sandcastle's
   own type union are three different lists, and N3 pins none of them — it owns a two-member
   allowlist and gates every literal against it.
+- **`isOwnerAlive` fails toward DEAD in three branches of the reference; ours splits `unknown` from
+  `dead` (J4.2, ruling 4).** And `ENOENT` is positive evidence only on a `/proc` without
+  `hidepid`/`subset=pid` — this host measured unrestricted, `rw,nosuid,nodev,noexec,relatime`.
+- **`commandOf` rendered `node <script>.sh` while `spawnChild` exec'd it directly (J4.11,
+  ruling 5).** `b48c89f` fixed the `.sh` half and J4.11 the `.ts` half — the N3 F1 precedent
+  applied a second time.
+- **The quota fixture corpus is first-hand from this machine's reference store (J4.8, ruling 1).**
+  Four parks, three dated 2026-08-26, `class: spend` on the three workers only, two nesting
+  depths, 22 `job_queue` rows carrying one distinct string.
+- **`DEFAULTS.shedModel` cannot be a literal outside `kernel/ports/job.ts` (J4.9, ruling 8;
+  precondition P4)** — `test/model.test.ts` test 6 is exact, and `*.fixture.ts` was scanned by it
+  until J4.8.
+- **This host has no MTA of any kind (J4.14, ruling 6).** `/var/mail` is empty and cron
+  `3.0pl1-184ubuntu2` contains `No MTA installed, discarding output` — so a non-zero exit is a
+  status, not a channel.
+- **The hourly key is the writer the first draft missed (J4.4, ruling 3).** The clock versions a
+  key for a reason unrelated to the job's success, so `withLease` keeps four members and loses
+  six.
+- **`beat()` writes the heartbeat and `status.json` in two independent `try` blocks (J4.13,
+  ruling 7).** One block made a failing status write set the heartbeat stamp and probe 4 correct a
+  probe that never fired.
 
 ## Open items the loop must not silently skip
 
