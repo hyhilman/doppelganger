@@ -63,7 +63,8 @@ repo does not ship claims. Walk the commits in order and no job imports a file a
 **Goal:** make §1 name the files N1 actually builds, so every later job's `Files touched` is a path
 the spec already blesses, and J1.19 has a true map to gate against.
 
-**Files touched:** `/home/hyhilman/projects/me/doppelganger/roadmap.md` (§1 layout block, lines ~55–80)
+**Files touched:** `/home/hyhilman/projects/me/doppelganger/roadmap.md` (§1 layout block, and one
+row in §2.22)
 
 **Do:**
 1. In the `kernel/` block, add the four root-level modules N1 builds, under the existing three:
@@ -94,18 +95,33 @@ the spec already blesses, and J1.19 has a true map to gate against.
    `host/config.ts`, which is the host app's own settings. The two never merge — one is the
    framework's knob mechanism, the other is one app's configuration."* §1 lists both and nothing
    said they were different things.
-4. Change nothing else in §1. Do not touch the five-manifest-members paragraph, do not renumber.
+4. **Give `time.ts` an owning ID, in §2.22.** This is *Gaps* item 5, fixed here rather than deferred,
+   because `CLAUDE.md` requires every commit to cite a feature ID and J1.2 creates `time.ts` in the
+   very first code commit of the phase — a file with no ID breaks the rule immediately. **Do not mint
+   a new ID.** Amend LOG-01's row to name the clock it already depends on:
+   > **LOG-01** ONE line shape, two emitters (TS + bash), byte-identical; nothing else formats a
+   > line. The `ts=` field comes from ONE clock helper (`kernel/time.ts`, `nowIso()`) so both
+   > emitters agree on precision and suffix, not only on layout.
+   That is the smallest true change: the clock is part of the line shape, so LOG-01 owns it, and
+   `time.ts` commits now cite `LOG-01`.
+5. Change nothing else in §1 or §2.22. Do not touch the five-manifest-members paragraph, do not
+   renumber, do not reword LOG-02…LOG-10.
 
 **Acceptance criteria:**
 - [ ] AC1 — `sed -n '/^## 1\. Target layout/,/^## 2\./p' roadmap.md | grep -c 'log\.sh'` prints `1`.
 - [ ] AC2 — the same range contains no line matching `log\.ts` (the file that never existed).
 - [ ] AC3 — the same range names `config.ts`, `instance.ts`, `paths.ts`, `time.ts`, `stages.ts` and
   `exec.ts`, one line each: for each name, `grep -c` over the §1 range prints at least `1`.
-- [ ] AC4 — `git diff --stat roadmap.md` shows `roadmap.md` only, and `git diff -U0 roadmap.md` shows
-  no hunk with a line number outside 53–92.
+- [ ] AC4 — `git diff --stat` names `roadmap.md` and nothing else, and the §1 block still closes
+  before `## 2.`: `sed -n '/^## 1\. Target layout/,/^## 2\./p' roadmap.md | tail -1` prints
+  `## 2. Feature inventory`. (The first draft asserted "no hunk outside lines 53–92", which its own
+  steps 1–3 make false — they add about a dozen lines, so every later line number moves.)
 - [ ] AC5 — `npm test` exits 0 (nothing regressed; `test/layout.test.ts` assertions 1–11 still pass).
 
-**Commit:** `Name the N1 kernel modules and the log/ directory in §1 (LOG-01, HRN-19)`
+- [ ] AC6 — `sed -n '/^### 2\.22/,/^### 2\.23/p' roadmap.md | grep -c 'time.ts'` prints `1`, so
+  every later `time.ts` commit has an ID to cite.
+
+**Commit:** `Name the N1 kernel modules, the log/ directory, and time.ts's owning row (LOG-01, HRN-19)`
 
 **Depends on:** nothing.
 
@@ -326,7 +342,14 @@ landed in J1.2 so `config.ts` is written once and stays a leaf.
    - `projectPath(...segs: string[]): string` — `resolve(ROOT, ...segs)`, and **throws if the result
      escapes `ROOT`** (a `..` segment). Without that check `projectPath("../../etc/x")` is a
      third-category write wearing the first category's name.
-   - `STATE_DIR_ENV: EnvSpec` / `STATE_DIR: string` — default `projectPath(".doppelganger/state")`.
+   - `STATE_DIR_ENV: EnvSpec` = `{ key: "ENGINE_STATE_DIR", default: ".doppelganger/state", why: "where every integration's database lives, resolved inside the checkout (DBS-01, INS-02)" }`
+     and `STATE_DIR: string` = `projectPath(envStr(STATE_DIR_ENV))`.
+     **The row carries a `default`, and it is a ROOT-RELATIVE string, not an absolute path.** This is
+     pinned because the first draft left it ambiguous: the value is a plain `default` (so J1.18's
+     defaulted-row check covers it and the count is **five**), while `projectPath` is what makes it
+     absolute — which is precisely INS-02's project-relative category, expressed once. An operator
+     setting `ENGINE_STATE_DIR=/var/lib/x` gets a `projectPath` throw, not a silent third-category
+     write, and that is the intended behaviour.
    - `NAME_DB_ENV: EnvSpec` = `{ key: "<NAME>_DB", why: "redirect one integration's database to a throwaway file for a safe run (DBS-07, SAF-05)" }`
      — the row for the family, so J1.18's doc gate has something to match against §2.27's `<NAME>_DB`.
    - `dbPath(name: string): string` — `envDynamic(\`${name.toUpperCase()}_DB\`) ?? join(STATE_DIR, \`${name}.db\`)`
@@ -425,8 +448,14 @@ their version in the same transaction as the step, `tx` that begins IMMEDIATE, a
    5. A step that throws leaves the version at the last GOOD step, and the retry re-runs it.
    6. `tx` rolls every write back when the body throws.
    7. `tx` holds the write lock from `BEGIN`: inside the body, a second `DatabaseSync` connection's
-      insert is refused, and the body's own later write succeeds. This is the DBS-05 assertion, and
-      it is deterministic — the second connection is opened with `PRAGMA busy_timeout = 50`.
+      insert is refused with `database is locked`, and the body's own later write succeeds. This is
+      the DBS-05 assertion, and it is deterministic — the second connection is opened with
+      `PRAGMA busy_timeout = 50`.
+      **The body MUST read before it writes.** A `SELECT COUNT(*)` first, then the insert. Without
+      the read, a DEFERRED `BEGIN` takes no lock at all until the write, and the mutation in AC2
+      would not fire — the test would pass under both `BEGIN` and `BEGIN IMMEDIATE` and prove
+      nothing. Read-then-write is also the real shape DBS-05 exists for: it is the body that loses
+      the upgrade.
    8. `tx` returns the body's value once committed.
    9. The cache hands one path back as the same handle; `close()` evicts it and the next `openDb` is
       a live handle over the same file's surviving state (DBS-08).
@@ -437,7 +466,10 @@ their version in the same transaction as the step, `tx` that begins IMMEDIATE, a
 **Acceptance criteria:**
 - [ ] AC1 — `npm test` exits 0 and `kernel/runtime/db.test.ts` reports 11 passing tests.
 - [ ] AC2 — the gate fires: change `BEGIN IMMEDIATE` to `BEGIN` and `npm test` exits non-zero on
-  assertion 7 with `nothing may commit under a transaction that has already read`. Revert.
+  assertion 7 — the intervening insert now **succeeds** where the test requires it to be refused.
+  Revert. (The first draft quoted an expected error string SQLite never produces. The driver's
+  message is `database is locked`; the refused-upgrade case carries `errcode 517`, measured. Assert
+  on `/database is locked|SQLITE_BUSY/`, never on prose.)
 - [ ] AC3 — the gate fires: move the `schema_version` write out of the step's `tx` into its own `tx`
   and `npm test` exits non-zero on assertion 5, because the failed step now reads as applied. Revert.
 - [ ] AC4 — the gate fires: relax `assertNs` to `^[a-zA-Z][a-zA-Z0-9_]*$` and `npm test` exits
@@ -487,11 +519,49 @@ StatementSync  all columns get iterate run setAllowBareNamedParameters
 ```
 
 **The reference wraps `run`, `get`, `all` — and `StatementSync.iterate` exists and is not in that
-set.** A caller writing `for (const row of stmt.iterate(...))` executes SQL through an unwrapped
-path. That is a live blind spot in the acceptance corpus, and N1 must not inherit it. The N1 executor
-set is `{ run, get, all, iterate }` on statements and `{ exec, prepare }` on the handle.
-`applyChangeset` also writes; nothing uses it, so it is banned by name rather than wrapped (a wrapper
-with no caller gets its edge cases wrong in private).
+set** (`xenith/engine/src/lib/db.ts:79`). A caller writing `for (const row of stmt.iterate(...))`
+executes SQL through an unwrapped path. That is a live blind spot in the acceptance corpus, and N1
+must not inherit it.
+
+**But adding `"iterate"` to the executor set fixes nothing, and this is the part the first draft of
+this plan got wrong.** Measured on Node 22.23.1: `iterate()` builds the iterator and returns it
+**without throwing**. The lock refusal surfaces on the **first `next()`**, inside the `for…of`:
+
+```
+B iterate() returned WITHOUT throwing
+B threw on first next(): database is locked errcode= 5
+```
+
+So wrapping the *call* wraps the moment nothing happens. **The wrapper must wrap the returned
+iterator's `next`.** `instrument`'s statement proxy therefore has two shapes, not one:
+
+- `run` / `get` / `all` — wrap the call itself; that is where they execute.
+- `iterate` — call it inside `withBusyContext` (a refusal at build time is still possible), then wrap
+  the returned iterator so that **`next()` runs inside `withBusyContext` too**, carrying the same
+  `path` and `sql`. Return a proxy over the iterator, and keep `[Symbol.iterator]` returning the
+  proxy so `for…of` goes through it rather than around it.
+
+The N1 executor set is `{ run, get, all, iterate }` on statements — with `iterate` handled by the
+second shape — and `{ exec, prepare }` on the handle. `applyChangeset` also writes; nothing uses it,
+so it is banned by name rather than wrapped (a wrapper with no caller gets its edge cases wrong in
+private).
+
+### The fixture that can actually contend an `iterate`
+
+**Under WAL a reader is never blocked.** Measured: with a second connection holding `BEGIN IMMEDIATE`,
+a `SELECT … ` driven through `iterate()` completes normally — `A WAL select-iterate: NO ERROR`. So the
+hog that works for `run`, `get` and `all` produces *no error at all* for a plain select, and a test
+built on it would pass while proving nothing.
+
+Two fixtures were measured and both work. **This plan uses the first**, because it keeps every busy
+test on one journal mode and one hog:
+
+- **`INSERT … RETURNING` under WAL** — a statement that WRITES and yields rows, so it is refused like
+  any other write while still being consumed through `iterate()`. Measured above: returns from
+  `iterate()`, throws `database is locked` (errcode 5) on the first `next()`.
+- *(Rejected, kept for the record)* a rollback-journal `SELECT` under `BEGIN EXCLUSIVE`. It works, but
+  it needs a second journal mode inside a file whose whole point is WAL behaviour, and a reader who
+  later changes the pragma would silently disarm the test.
 
 ### How a NEW call site is proved unable to bypass
 
@@ -523,17 +593,36 @@ mocked throw would pass against a wrapper that has never seen a real error, so b
 real hog proves the wrapper sees the driver's actual shape, and a synthetic throw proves the
 arithmetic.
 
+**This hog refuses a WRITE, and that is its whole reach.** It covers `run`, `get`, `all`, `exec` and
+`tx` because each of those executes a write or takes the write lock. It does **not** contend a plain
+`SELECT` — under WAL a reader is never blocked — which is why `iterate` needs the
+`INSERT … RETURNING` fixture named above rather than this one. Two fixtures, one hog.
+
 ### How `waited=` is measured with no fake clock
 
-`Date.now()` before the call, `Date.now()` after the catch. The test asserts **bounds in one
-direction only**, because a loaded host makes a wait longer and never shorter:
+`Date.now()` before the call, `Date.now()` after the catch. Measured five times on this machine:
+`busy_timeout=200 → waited=201ms`, `busy_timeout=5000 → waited=5005ms`. Two assertions, one per end
+of the discriminator:
 
-- With `PRAGMA busy_timeout = 200` on the instrumented handle, `waited` is `>= 180`. No upper bound
-  is asserted — an upper bound is the flaky half, and it protects nothing.
-- With `PRAGMA busy_timeout = 0`, `waited` is `< 50`. This is the other end of the discriminator the
-  roadmap calls for: a near-zero wait means the lock was refused outright and no timeout would have
-  helped, while a full wait means a genuinely long writer. Both are produced deterministically and
-  the two assertions together prove the number is measured rather than printed.
+- **The full wait.** With `PRAGMA busy_timeout = 200` on the instrumented handle, `waited` is
+  `>= 180`. A **lower bound only** — a loaded host makes a wait longer and never shorter, so an
+  upper bound is the flaky half and it protects nothing.
+- **The refusal.** A DEFERRED `BEGIN`, a `SELECT` that takes a read snapshot, another connection's
+  commit in between, then the upgrade. Measured: `waited=0ms errcode=517`, **with `busy_timeout`
+  left at its 5000 default**. `waited` is asserted `< 50`.
+
+**Why the 517 fixture rather than `busy_timeout = 0`.** Both produce a near-zero wait, but only one
+of them means anything: DBS-04's claim is that a small number tells you *no timeout would ever have
+helped*. Zeroing the timeout makes that trivially true and proves nothing about the fault. The
+deferred-upgrade refusal shows the near-zero wait **while the real timeout is in force**, which is
+the fault the roadmap's file header was actually hunting — and it is the shape DBS-05's
+`BEGIN IMMEDIATE` exists to move off the reader and onto a writer where the timeout applies. The two
+numbers land two orders of magnitude apart, and the test asserts that gap as well as each bound.
+
+**On the `< 50` upper bound.** It is one of exactly two upper bounds in N1 (the other is J1.14's
+"the first spawn starts at once"), and both are named in the summary table rather than hidden behind
+a blanket "one direction only" claim. Neither measures elapsed work: the refusal involves no waiting
+at all — `0ms` on every measured run — so 50 ms is headroom around a shape, not a race.
 
 ### How "does NOT retry" is proved
 
@@ -571,12 +660,25 @@ it is unchanged. A wrapper that escalates on failure goes red.
    1. A contended prepared `run` names the file and `INSERT INTO t_busy`.
    2. A contended `get` reports the same way.
    3. A contended `all` reports the same way.
-   4. A contended `iterate` reports the same way. **This is the assertion the reference does not
+   4. A contended `iterate` reports the same way — driven through
+      `INSERT INTO t_busy (v) VALUES ('i') RETURNING id`, consumed with `for (const r of stmt.iterate())`,
+      and the throw is expected **from the loop**, not from `iterate()`. Assert the message names the
+      file, `INSERT INTO t_busy`, and `waited=`. **This is the assertion the reference does not
       have.**
+   4b. A plain `SELECT … ` through `iterate()` under the same hog completes with **no error** — the
+      measured fact that makes 4's fixture necessary. Pinned so nobody "simplifies" 4 back to a
+      select and gets a green test that exercises nothing.
    5. A contended `exec` reports.
    6. A contended `tx` reports and names `BEGIN IMMEDIATE` — the body never runs.
    7. `waited=` is `>= 180` with `busy_timeout = 200`.
-   8. `waited=` is `< 50` with `busy_timeout = 0`.
+   8. `waited=` is `< 50` **at the DEFAULT `busy_timeout` of 5000**, for the refused-outright shape.
+      The fixture is the one DBS-04's own text describes: a DEFERRED `BEGIN`, a `SELECT` that takes a
+      read snapshot, another connection's commit in between, then the upgrade. Measured:
+      `waited=0ms errcode=517 busy_timeout=5000`. This is strictly better than forcing
+      `busy_timeout = 0`, because it shows the near-zero wait **with the real timeout in force** —
+      which is exactly what "no timeout would ever have helped" means, and it is unarguable in a way
+      that a zeroed timeout is not. Assert `waited` is `< 50` and that the two shapes (this one and
+      assertion 7's) produce numbers two orders of magnitude apart.
    9. `withBusyContext` calls its function exactly once.
    10. `PRAGMA busy_timeout` reads back unchanged after a busy throw.
    11. `sql=` is one line and at most 160 characters, given a 400-character multi-line statement.
@@ -586,22 +688,30 @@ it is unchanged. A wrapper that escalates on failure goes red.
        proxy must PRESERVE that rather than normalise it away.
    14. `StatementSync`'s member list equals the pinned literal list (see above).
    15. `DatabaseSync`'s member list equals the pinned literal list, and `applyChangeset` is not named
-       anywhere under `kernel/`.
+       in any **non-test** file under `kernel/`. The scope matters: the pinned literal in assertion
+       15 lives in `kernel/runtime/db.test.ts` and contains the word `applyChangeset`, so an
+       unscoped search would make this assertion fail on its own text.
 6. **`test/no-raw-sqlite.test.ts`**: one `test()` — the set of files under the repo (outside
    `node_modules`, `.git`) importing `node:sqlite` equals the three-entry allowlist.
 
 **Acceptance criteria:**
-- [ ] AC1 — `npm test` exits 0; `kernel/runtime/db.test.ts` reports 26 passing tests (11 from J1.5 +
-  15) and `test/no-raw-sqlite.test.ts` reports 1.
-- [ ] AC2 — the gate fires: remove `"iterate"` from `EXECUTES` and `npm test` exits non-zero on
-  assertion 4 with the bare `database is locked` and no `waited=`. Revert.
+- [ ] AC1 — `npm test` exits 0; `kernel/runtime/db.test.ts` reports 27 passing tests (11 from J1.5,
+  plus 15 and the added 4b) and `test/no-raw-sqlite.test.ts` reports 1.
+- [ ] AC2 — the gate fires, and it must be **this** mutation: keep `"iterate"` in `EXECUTES` and
+  return the raw iterator instead of the wrapped one. `npm test` exits non-zero on assertion 4 with
+  the bare `database is locked` and no `waited=`. Revert.
+  **Do not use "remove `iterate` from `EXECUTES`" as the mutation — measured, it is a no-op in both
+  directions**, because the call never throws and the set is only consulted at call time. An AC whose
+  mutation cannot change the outcome is how a gate ships green over an open blind spot.
 - [ ] AC3 — the gate fires: wrap `withBusyContext`'s body in `for (let i=0;i<2;i++) try { return fn() } catch {}`
   and `npm test` exits non-zero on assertion 9 with `calls` of `2`. Revert.
 - [ ] AC4 — the gate fires: add `raw.exec("PRAGMA busy_timeout = 30000")` to the catch path and
   `npm test` exits non-zero on assertion 10. Revert.
-- [ ] AC5 — the gate fires: add `import { DatabaseSync } from "node:sqlite";` to `kernel/paths.ts`
-  (the only other kernel module that exists at this commit) and `npm test` exits non-zero from
-  `test/no-raw-sqlite.test.ts` naming the file. Revert.
+- [ ] AC5 — the gate fires: add **and use** the driver in `kernel/paths.ts` (the only other kernel
+  module at this commit) —
+  `import { DatabaseSync } from "node:sqlite"; export const _probe = () => new DatabaseSync(":memory:");`
+  — and `npm test` exits non-zero from `test/no-raw-sqlite.test.ts` naming the file. Revert.
+  The binding must be **consumed**: see the standing note on mutations at the top of this plan.
 - [ ] AC6 — the gate fires: return `bare` instead of `raw` from `handle()` and `npm test` exits
   non-zero on assertions 1–5 at once. Revert.
 - [ ] AC7 — measure the run time: `npm test` still finishes in under 60 seconds on this machine.
@@ -615,9 +725,15 @@ it is unchanged. A wrapper that escalates on failure goes red.
 **Risks / what could be wrong:**
 - The pinned driver member lists will go red on the first Node bump. That is the feature, but the
   builder must write the comment that says so, or the next reader deletes the assertion.
-- `iterate` returns an iterator; the busy error may surface on the FIRST `next()` rather than on the
-  `iterate()` call. If assertion 4 shows that, the wrapper must wrap the returned iterator's `next`
-  too — and that is a discovery, not a plan change. Note it in the commit body either way.
+- **`iterate` is settled, not open.** The first draft of this plan filed it under Risks as "the error
+  may surface on the first `next()` — a discovery, not a plan change". It is neither a maybe nor a
+  discovery: measured, `iterate()` returns without throwing and the refusal always lands on the first
+  `next()`. The design above wraps the iterator. The residual risk is narrower — the proxy must keep
+  `[Symbol.iterator]` returning the proxy, or `for…of` walks around it and assertion 4 goes red
+  immediately, which is the right way to find out.
+- The `INSERT … RETURNING` fixture writes a row on the runs where it does NOT throw. Each busy test
+  gets its own database file under `mkdtempSync`, so nothing carries between them — but a builder who
+  reuses `seeded()` across assertions must re-read J1.17's trap 1 first.
 
 ---
 
@@ -912,13 +1028,28 @@ warning, and J1.13 turns it into a gate.
 
 ```
 plain · a-b_c.d/e:f@g#h+i · "" · "has space" · 'has "quote"' · back\slash · comma,list ·
-star* · tilde~ · 50% · a=b · "100%%" · "%s" · café · İ · → · 😀 · 3 · - · _ ·
+star* · tilde~ · 50% · a=b · "100%%" · "%s" · café · İ · ā · ŉ · → · 😀 · 3 · - · _ ·
 "tab\there" · "cr\rhere" · "two\nlines"
 ```
 
-`İ` is in the matrix because it is the character this plan measured diverging under `en_US.UTF-8`.
-`%%` and `%s` are in it because they are what a `console.error(fmt, x)` refactor would break. The
-three- and four-byte UTF-8 cases are there because "non-ASCII" is not one case.
+**The non-ASCII half needs three values, not one, and the reason goes in a comment beside them.** The
+divergence is not a quirk of one character: measured under `LC_ALL=en_US.utf8`, **135 codepoints in
+U+00A1–U+0190 render BARE** under the range predicate — effectively all of Latin Extended-A — while
+the same characters render QUOTED under `C`, `C.utf8` and `POSIX`, and QUOTED on the TypeScript side
+always. So:
+
+- **`İ` (U+0130) and `ā` (U+0101) — both fire.** Two, not one, so a future reader who deletes `İ` as
+  an oddity still has a failing case.
+- **`é` (U+00E9) does NOT fire.** Measured QUOTED under every locale. `café` alone catches nothing,
+  which is exactly what the reference's own matrix relies on — keep it for coverage, but it is not
+  the guard.
+- **`ŉ` (U+0149) does NOT fire either** — measured QUOTED under `en_US.utf8`, despite sitting inside
+  Latin Extended-A. It is in the matrix as a **negative control**: it proves the divergence is a
+  property of the collation table and not of the Unicode block, so nobody "generalises" the fix into
+  a block range and reintroduces the bug from the other side.
+
+`%%` and `%s` are in the matrix because they are what a `console.error(fmt, x)` refactor would break.
+The three- and four-byte UTF-8 cases are there because "non-ASCII" is not one case.
 
 **(c) `msg` hold-back** — `{msg:"…", after:"x"}` on both sides puts `msg=` last and leaves `after` a
 field.
@@ -953,9 +1084,28 @@ fires on the real collation wherever one exists.
    emitters, which is the failure this whole row exists for.
 10. The bash child writes nothing to stdout when stderr is not redirected — run without `exec 2>&1`
     and assert stdout is zero bytes (LOG-06 for the bash half).
+11. **`log_run` succeeds.** `log_run true` emits exactly one line, `level=info event=job-ok`, and the
+    wrapper's own exit code is 0. Untested in the reference, and it is the function every bash job
+    ends with.
+12. **`log_run` fails.** `log_run false` emits exactly one line, `level=error event=job-failed
+    exit=1`, with a non-empty `msg`, and the wrapper returns 1 — the caller's exit code is unchanged,
+    which is why `log_run` goes last in a script. This line is `cause.ts`'s ONLY consumer (LOG-09):
+    `job-failed` is the event a distilled cause is attached to, so an untested `log_run` makes J1.11
+    a module with no reachable caller.
+13. **LOG-02 — logfmt, not JSONL.** For every line both emitters produce in this file:
+    `JSON.parse(line)` throws (it is not a JSON document), and every whitespace-separated token
+    before `msg=` splits on its **first** `=` into a key matching `^[A-Za-z_][\w.-]*$` and a value.
+    LOG-02 had no assertion of its own anywhere in the first draft — it was assumed by the parser
+    rather than stated.
+14. **`raw()` and the deliberate asymmetry.** `logger(j).raw(text)` writes `text` verbatim to stderr
+    with one trailing LF and no `ts=` prefix, and `parseLine` returns `null` for it — it is the one
+    escape hatch, and the reporter must skip it. **`log.sh` defines no `log_raw`**, asserted here.
+    That asymmetry is correct and is written down rather than discovered: a bash job's payload
+    already goes to stdout, which LOG-06 keeps free, so the bash half needs no hatch. Pinning it
+    stops someone "restoring symmetry" with a second bash line shape.
 
 **Acceptance criteria:**
-- [ ] AC1 — `npm test` exits 0 and `kernel/runtime/log/emitters.test.ts` reports 10 passing tests.
+- [ ] AC1 — `npm test` exits 0 and `kernel/runtime/log/emitters.test.ts` reports 14 passing tests.
 - [ ] AC2 — the gate fires, and this is the one that matters: restore `log.sh`'s
   `[!A-Za-z0-9_./:@#+-]` range, run `npm test`, and assertion 4 exits non-zero naming `İ` and the
   locale it diverged under. Revert. (Measured on this machine: `en_US.utf8` is present, so the gate
@@ -966,14 +1116,22 @@ fires on the real collation wherever one exists.
   non-zero on assertion 5. Revert.
 - [ ] AC5 — the gate fires: change `log.sh`'s `_log_rank` so `warn` ranks below `info` and `npm test`
   exits non-zero on assertion 7. Revert.
-- [ ] AC6 — the gate fires: change the test harness to import `../log/index.ts` instead of `emit.ts`
-  in the LOG-10 child and `npm test` exits non-zero on assertion 7 because the
-  `ExperimentalWarning` lines land in the captured bytes. Revert. **This is the proof that the
-  warning is a real hazard and not a theoretical one.**
-- [ ] AC7 — `bash -c 'locale -a' | wc -l` is recorded in the commit body, with the note that the
-  number is a property of the machine and is never asserted.
-- [ ] AC8 — the whole file runs in under 15 seconds: 8 node spawns + (5 + 23×N_locales + 3 + 16)
-  bash spawns. If it is slower, the matrix is being re-spawned per value rather than per case.
+- [ ] AC6 — `bash -c 'locale -a' | wc -l` is recorded in the commit body, with the note that the
+  number is a property of the machine and is never asserted. (Measured here: 4 — `C`, `C.utf8`,
+  `en_US.utf8`, `POSIX` — so the dynamic half really runs more than once on this machine.)
+- [ ] AC7 — the whole file runs in under 15 seconds. Spawn budget, corrected: **4 node children**
+  (one per `LOG_LEVEL` value, each looping the four levels) and **4 bash children** for the same
+  matrix — the first draft said 8 node and 16 bash, which contradicted its own design text. Plus 5
+  for case group (a), 3 for (c)/(d), 2 for `log_run`, and 25 per locale for the value matrix. On
+  this machine (4 locales) that is 8 spawns for LOG-10 and ~110 for everything else. If it is
+  slower, the matrix is being re-spawned per value rather than per case.
+
+**Not an AC here, deliberately — a forward reference.** The obvious mutation for "the LOG-10 child
+must not import the barrel" is to point it at `../log/index.ts`. **`log/index.ts` does not exist
+until J1.13**, four commits later, so that mutation cannot be performed at this commit and an AC
+naming it would be unperformable. The property is gated at **J1.13 AC2**, which is where the barrel
+lives. This is the same rule this plan applied when it declined to build TST-09's job-name gate at
+N1 — and the first draft broke it here.
 
 **Commit:** `Assert the two emitters produce the same bytes, under every locale on the machine (TST-18)`
 
@@ -1255,9 +1413,14 @@ LOG-10 children depend on this being true, and AC6 there shows what breaks when 
       `renderLine`, `logger`, `parseLine`, `isFault`, `routeOf`, `summarise`, `causeOf`,
       `stderrTail`, `tail`, `logFiles`.
    7. LOG-01's "nothing else formats a line": the set of non-test files under `kernel/` containing
-      the literal `ts=` is exactly `{emit.ts, parse.ts, cause.ts}`. Three, not two — `cause.ts`'s
-      `NOISE` list carries `/^ts=/` to skip lines the reporter already has, which is a *reader* of
-      the prefix, not a writer of one. Each of the three is named in the test with which half it is.
+      the literal `ts=` is exactly **four**, each named in the test with its role:
+      - `log/emit.ts` — **writer**, the TypeScript half.
+      - `log/log.sh` — **writer**, the bash half (`line="ts=$(date -u …)"`). The scan runs over
+        `*.ts` **and** `*.sh`. Narrowing the glob to `*.ts` would make the set three and quietly hide
+        the second emitter, and LOG-01's entire claim is that there are two — so having both writers
+        appear in the gate is better than scoping the gate until only one can.
+      - `log/parse.ts` — **reader**, `raw.startsWith("ts=")`.
+      - `log/cause.ts` — **reader**, `NOISE`'s `/^ts=/`, skipping lines the reporter already has.
 
 **Acceptance criteria:**
 - [ ] AC1 — `npm test` exits 0 and `kernel/runtime/log/warning.test.ts` reports 7 passing tests.
@@ -1376,14 +1539,20 @@ tolerance is how a timing test stops testing anything.
 6. **Add `EXEC_TIMEOUT_MS` to `roadmap.md` §2.27's Core/paths list.** It appears nowhere in the
    roadmap today and HRN-19 requires it — see *Gaps*.
 7. **Tests**, one `test()` each, driven through `bash` so no `gh` or `git` binary is needed:
-   1. A timed-out call is relabelled: `run("bash",["-c","sleep 30"], {timeout: 250})` throws with
-      `timed out after 0.25s: bash -c sleep 30`.
+   1. A timed-out call is relabelled: `run("bash", ["-c","sleep 30"], { ...BASE, timeout: 250 })`
+      throws with `timed out after 0.25s: bash -c sleep 30`.
+      **`BASE` must be exported for this to typecheck.** A bare `{ timeout: 250 }` does not satisfy
+      `ExecFileSyncOptionsWithStringEncoding`, which requires `encoding` — so the first draft's call
+      would have failed at `pretest`, not in the test. Spreading `BASE` also keeps the test on the
+      real options (`SIGKILL`, `maxBuffer`, `stdio`) with only the deadline changed, which is what
+      the assertion is about.
    2. A non-timeout failure passes through: `exit 3` throws with `status === 3` and
       `stderr` containing `boom`.
    3. Success returns stdout.
    4. A command longer than 200 characters is clipped and ends with `…`.
-   5. `killSignal` is `SIGKILL` on `BASE` — asserted on the exported constant, because a child that
-      ignores SIGTERM cannot be produced reliably in a unit test and the constant is the contract.
+   5. `killSignal` is `SIGKILL` on the exported `BASE`, and `BASE.encoding` is `"utf8"` — asserted on
+      the constant, because a child that ignores SIGTERM cannot be produced reliably in a unit test
+      and the constant is the contract.
    6. `gh`, `ghIn` and `git` all route through `run`: each is called against a `bash` stand-in via a
       spy on the exported `run`… **no** — `run` is imported by name and cannot be spied without a
       module mock. Instead assert the shape: `git("/tmp", "status")` builds argv
@@ -1541,10 +1710,12 @@ a test-layout fault — a diagnostic message doing its job on the wrong subject.
       to the same path throws the DBS-04 message. The point of the assertion is the message — it
       names the file and the statement, which is exactly what makes the *test-layout* fault
       diagnosable rather than mysterious.
-   5. `node --test` really does isolate by file: assert `process.pid` differs from the pid recorded
-      by a sibling test file. **Do not** do this with a shared temp file (that is trap 2 in the gate
-      itself). Instead assert the property directly: `process.env.NODE_TEST_CONTEXT` is set and the
-      runner's own pid (`process.ppid`) is not this pid.
+   5. **Deleted.** The first draft asserted `process.ppid !== process.pid`, which is true in every
+      process that has ever run — a tautology wearing a gate's clothes. Assertions 3 and 4 already
+      prove the whole of trap 2 by *effect*: the file outlives the process, and a lock held across
+      processes surfaces as DBS-04's message. The measurement that `node --test` forks per file
+      (different pids, measured) stays where it belongs — in this job's prose and in the `CLAUDE.md`
+      bullet, cited as measured, not re-derived by a test that cannot fail.
    6. **The discipline gate.** Walk every `*.test.ts` in the repo. For each file whose source names
       `openDb(`, assert it also names `mkdtempSync(`. For each file, assert no `openDb(` call is
       passed a literal starting with `.`, `/` (other than a `tmpdir()`-derived one) or the word
@@ -1552,7 +1723,8 @@ a test-layout fault — a diagnostic message doing its job on the wrong subject.
       bullet, and this catches the shape that has actually gone wrong.
 
 **Acceptance criteria:**
-- [ ] AC1 — `npm test` exits 0 and `kernel/runtime/db-sharing.test.ts` reports 6 passing tests.
+- [ ] AC1 — `npm test` exits 0 and `kernel/runtime/db-sharing.test.ts` reports 5 passing tests
+  (assertion 5 was deleted; the file has 1, 2, 3, 4 and 6).
 - [ ] AC2 — the gate fires: add a test file `kernel/runtime/leak.test.ts` that calls
   `openDb("./leak.db")` with no `mkdtempSync`, run `npm test`, and assertion 6 exits non-zero naming
   the file. Delete it.
@@ -1624,9 +1796,14 @@ that has to know every module, which is exactly what it is for.
 5. **Every row's default is the value you get.** Each module exports its resolved value beside its
    row — `export const BUSY_TIMEOUT_MS`, `export const MAX_BYTES`, `export const EXEC_TIMEOUT_MS`,
    and so on. For each row with a `default`, run a child process with a scrubbed env and assert the
-   exported value equals the parsed default. Five children, one per defaulted row. This is what makes
-   the spec-taking readers provable rather than merely tidy: the row and the value are one object,
-   so they cannot disagree — this assertion catches the *reader* breaking, not the two drifting.
+   exported value equals the parsed default. **Six children**, one per defaulted row:
+   `ENGINE_STATE_DIR` (`.doppelganger/state`, root-relative — J1.4 pins it as a real string
+   default), `SQLITE_BUSY_TIMEOUT_MS`, `LOG_LEVEL`, `LOG_MAX_BYTES`, `LOG_MAX_READ_BYTES`,
+   `EXEC_TIMEOUT_MS`. The three rows with **no** `default` — `INSTANCE`, `ENGINE_ROOT`, `<NAME>_DB`
+   — are skipped by name, each with its reason in the test (two have computed fallbacks, one is a
+   family with no single value). This is what makes the spec-taking readers provable rather than
+   merely tidy: the row and the value are one object, so they cannot disagree — this assertion
+   catches the *reader* breaking, not the two drifting.
 6. **Every row appears in `roadmap.md` §2.27.** Parse the backticked tokens out of §2.27's Core/paths
    and Log-report bullets and assert all **nine** N1 keys are among them: `INSTANCE`, `ENGINE_ROOT`,
    `ENGINE_STATE_DIR`, `<NAME>_DB`, `SQLITE_BUSY_TIMEOUT_MS`, `LOG_LEVEL`, `LOG_MAX_BYTES`,
@@ -1640,10 +1817,13 @@ that has to know every module, which is exactly what it is for.
 
 **Acceptance criteria:**
 - [ ] AC1 — `npm test` exits 0 and `test/knobs.test.ts` reports 7 passing tests.
-- [ ] AC2 — the gate fires: add `const x = process.env.SNEAKY;` to `kernel/runtime/pool.ts` and
-  `npm test` exits non-zero on assertion 3 naming the file. Revert.
+- [ ] AC2 — the gate fires: add **and export** the read in `kernel/runtime/pool.ts` —
+  `export const SNEAKY = process.env.SNEAKY ?? "";` — and `npm test` exits non-zero on assertion 3
+  naming the file. Revert. A bare `const x = process.env.SNEAKY;` is **not** a valid mutation: it
+  fails at `pretest` with TS6133 and the gate is never reached (standing note at the top of this
+  plan).
 - [ ] AC3 — the gate fires: change `envStr` to return `""` for an unset key instead of falling back
-  to `spec.default`, and `npm test` exits non-zero on assertion 5 for all five defaulted rows at
+  to `spec.default`, and `npm test` exits non-zero on assertion 5 for all six defaulted rows at
   once. Revert. **Note what CANNOT be produced as a mutation: a row whose `default` disagrees with
   the module's value. There is one object, so there is nothing to make disagree — that is the design
   working, and assertion 5 exists to catch the reader breaking, not the two drifting.**
@@ -1694,6 +1874,16 @@ value starts with `/tmp/probe-root`. A default that resolves anywhere else is a 
 by construction, whatever it is called. Firing mutation: change `STATE_DIR`'s default to
 `"/var/lib/doppelganger/state"`.
 
+**Two rows in that key set are skipped, by name and with a reason in the test** — a skip nobody wrote
+down is a hole:
+- **`<NAME>_DB`** ends `_DB` but is the knob **family** row (Gaps item 4). It has no `key` a child can
+  set and no single resolved value, so instead the test resolves the family through its one real
+  entry point: `dbPath("probe")` under `ENGINE_ROOT=/tmp/probe-root` must start with
+  `/tmp/probe-root`. That covers what the row stands for without pretending the row has a value.
+- **`ENGINE_ROOT`** ends `_ROOT` and IS the probe. Asserting it starts with itself is a tautology;
+  the meaningful check is that setting it **moves** `STATE_DIR` and `dbPath` together, which is
+  J1.4's assertion 6.
+
 **Door 3 — a new write path has to sign the register.** The set of non-test files under `kernel/` that
 import a write-capable member of `node:fs` or `node:fs/promises` (`writeFileSync`, `appendFileSync`,
 `mkdirSync`, `truncateSync`, `rmSync`, `renameSync`, `openSync`, `createWriteStream`, and their
@@ -1742,9 +1932,11 @@ category vocabulary. Add assertion 12 to `test/layout.test.ts`.
   `npm test` exits non-zero on door 1 naming the file and the literal. Revert.
 - [ ] AC3 — the gate fires: change `STATE_DIR`'s default to an absolute path and `npm test` exits
   non-zero on door 2 showing the resolved value outside `/tmp/probe-root`. Revert.
-- [ ] AC4 — the gate fires: add `import { writeFileSync } from "node:fs";` to
-  `kernel/runtime/pool.ts` and `npm test` exits non-zero on door 3 naming `pool.ts` and asking which
-  category it is. Revert.
+- [ ] AC4 — the gate fires: add **and use** the write in `kernel/runtime/pool.ts` —
+  `import { writeFileSync } from "node:fs"; export const _w = (p: string) => writeFileSync(p, "");`
+  — and `npm test` exits non-zero on door 3 naming `pool.ts` and asking which category it is.
+  Revert. An unused `import { writeFileSync }` is **not** a valid mutation (TS6133 at `pretest`;
+  standing note at the top of this plan).
 - [ ] AC5 — the gate fires: change a register entry's category word to `machine-global` and
   `npm test` exits non-zero on the vocabulary assertion. Revert.
 - [ ] AC6 — the gate fires: rename `kernel/stages.ts` to `kernel/prefixes.ts` and `npm test` exits
@@ -1787,9 +1979,14 @@ category vocabulary. Add assertion 12 to `test/layout.test.ts`.
    - **`node:sqlite` warns on import and the warning stays** (J1.13): two stderr lines per process,
      `parseLine` returns null for both, `causeOf` already filters them, and `emit.ts` must never load
      `node:sqlite` so a logging-only process pays nothing.
-   - **`StatementSync.iterate` is a real DBS-06 blind spot in the reference** (J1.6). N1's executor
-     set is `{run, get, all, iterate}` and the driver's member list is pinned so a Node upgrade
-     reports the next one.
+   - **`StatementSync.iterate` is a real DBS-06 blind spot in the reference** (J1.6), and naming it
+     in the executor set does not close it: measured, `iterate()` returns without throwing and the
+     refusal lands on the **first `next()`**, so the wrapper wraps the returned iterator. Its fixture
+     is `INSERT … RETURNING` under WAL, because a plain WAL reader is never blocked. The driver's
+     member list is pinned so a Node upgrade reports the next member.
+   - **An unused import is never a valid gate mutation** (standing note, J1.6/J1.18/J1.19).
+     `noUnusedLocals` + `pretest` means TS6133 exits 2 before any test runs, so the AC reads as
+     satisfied while the gate is never reached. Every mutation consumes its binding.
    - **`ROOT` comes from `cwd`, not from self-location** (J1.4), because self-location is wrong for a
      published package. One-way; the reference does it the other way and the reason is written down.
    - **INS-02's second category has no member until N2** (J1.19); N1 ships the register instead of a
@@ -1799,8 +1996,12 @@ category vocabulary. Add assertion 12 to `test/layout.test.ts`.
 
 **Acceptance criteria:**
 - [ ] AC1 — `sed -n '/^## N1/,/^## N2/p' WORK.md | grep -c '^- \[ \]'` prints `0`.
-- [ ] AC2 — `sed -n '/^## N1/,/^## N2/p' WORK.md | grep -c '^- \[x\]'` prints `26`, and every one of
-  those lines matches `J1\.[0-9]+`.
+- [ ] AC2 — the ticked count equals the count `WORK.md`'s own N1 header states, read from the file
+  rather than written twice:
+  `H=$(sed -n '/^## N1/p' WORK.md | grep -o '[0-9]\+ items' | grep -o '[0-9]\+'); X=$(sed -n '/^## N1/,/^## N2/p' WORK.md | grep -c '^- \[x\]'); [ "$H" = "$X" ]`
+  exits 0. And every ticked line matches `J1\.[0-9]+`. (The first draft wrote `26` into the AC, which
+  is the same number the header states — asserting a literal against a literal proves only that the
+  author typed it twice.)
 - [ ] AC3 — `sed -n '/^## N1/,/^## N2/p' WORK.md | grep -c 'blin$\|valida$\|there is$'` prints `0`.
 - [ ] AC4 — `LOOP.md`'s N1 row shows no `—` in Plan or Build, and its Settled questions list names
   TST-18, `node:sqlite`, `iterate`, `ROOT` and INS-02.
@@ -1819,11 +2020,14 @@ category vocabulary. Add assertion 12 to `test/layout.test.ts`.
 | Tension | Resolution |
 |---|---|
 | **TST-18 says "byte-identical" and two processes read two clocks** | Split the line at `" event="`. The head (`ts`, `level`, `job`, `src`) is four fields asserted individually — `ts` by shape, length and freshness; `job` against `renderValue`; `src` as the one intended difference. The tail, from `event=` onward, is compared `Buffer` to `Buffer`, and that region holds every field the escaping rules govern. `encoding: "buffer"`, hex on failure, exactly one trailing `0x0a` and no `0x0d`. **No test-only seam is added to the emitter to make its clock fakeable.** |
-| **The bare/quoted predicate depends on the machine's locale** | Measured, bash 5.2.21 + glibc: `İ` renders BARE under `LC_ALL=en_US.UTF-8` and QUOTED under `C`, while TypeScript always says QUOTED. A bracket-expression **range** is resolved in `LC_COLLATE`. Fixed by **enumerating** all 70 characters instead of using ranges, which is collation-proof by construction. Gated twice: statically (`log.sh` contains no `[a-z]`-style range, so it fires even on a `C`-only machine) and dynamically (the value matrix runs under every locale `locale -a` reports, so it fires on the real collation). Nothing about which locales exist is pinned. |
+| **The bare/quoted predicate depends on the machine's locale** | Measured, bash 5.2.21 + glibc: **135 codepoints in U+00A1–U+0190 render BARE** under `LC_ALL=en_US.utf8` and QUOTED under `C`, `C.utf8` and `POSIX`, while TypeScript always says QUOTED. A bracket-expression **range** is resolved in `LC_COLLATE`. Fixed by **enumerating** all 70 characters instead of using ranges, which is collation-proof by construction. Gated twice: statically (`log.sh` contains no `[a-z]`-style range, so it fires even on a `C`-only machine) and dynamically (the value matrix runs under every locale `locale -a` reports — 4 here, so the dynamic half really runs more than once). Nothing about which locales exist is pinned. **The matrix carries three non-ASCII values, not one:** `İ` and `ā` both fire; `é` does **not**, so `café` alone catches nothing; and `ŉ` does not either despite sitting inside Latin Extended-A — kept as a negative control, so the fix is never over-generalised into a block range. |
 | **The reference's `msg=""` divergence** | The reference drops an empty `msg` in bash and writes `msg=""` in TypeScript, and pins the gap as invisible to the reader. N1 **fixes it** with a `msg_set` flag: a contract with one carve-out grows a second one, and TST-18's whole value is that it has none. |
 | **`console.error` could be a format call** | Measured: with a single argument `util.format` leaves `%s`, `%d` and `%%` untouched, so `console.error(line)` is byte-safe today. It stops being safe the moment someone writes `console.error(fmt, x)`. Use `process.stderr.write(line + "\n")`, and pin `%%`, `%s` and `50% done` in the matrix so the refactor goes red. |
-| **DBS-04: producing a real `SQLITE_BUSY`, and measuring the wait with no fake clock** | A second `DatabaseSync` holding `BEGIN IMMEDIATE` for the whole call, released in a `finally` after the assertion — deterministic, no timing race. The wait is `Date.now()` either side and is asserted with **one-sided bounds**: `>= 180` at `busy_timeout = 200`, `< 50` at `busy_timeout = 0`. That pair is the discriminator the roadmap asks for — a full wait means a long writer, a near-zero one means the lock was refused outright — and it makes the number measured rather than printed. **No retry** is proved exactly, not by wall clock: `withBusyContext` is exported and called with a counting function that must be called once. **No timeout escalation** is proved by reading `PRAGMA busy_timeout` back after a busy throw. |
-| **DBS-06: what "blind" means, and proving a NEW call site cannot bypass** | Blind = a path that executes SQL and reports the driver's bare `database is locked` — no file, no statement, no wait. Measured on the pinned Node, `StatementSync` carries **`iterate`**, which the reference does not wrap: a live blind spot in the acceptance corpus. N1's set is `{run, get, all, iterate}` + `{exec, prepare}`. Three gates: `node:sqlite` is imported by exactly one non-test file (nobody can reach the driver) · every wrapped method reports under real contention · the driver's member list is pinned to a literal so a Node upgrade — which can only arrive with a `.nvmrc` commit in this repo — reports the next member before it becomes a 3am blind spot. |
+| **DBS-04: producing a real `SQLITE_BUSY`, and measuring the wait with no fake clock** | A second `DatabaseSync` holding `BEGIN IMMEDIATE` for the whole call, released in a `finally` after the assertion — deterministic, no timing race, measured five times (`busy_timeout=200 → waited=201ms`; `=5000 → 5005ms`). The wait is `Date.now()` either side. Two ends of the discriminator: `>= 180` at `busy_timeout = 200`, and for "refused outright" the **517 fixture** — a DEFERRED `BEGIN`, a read, an intervening commit, then the upgrade — measuring `waited=0ms errcode=517` **with `busy_timeout = 5000` still in force**. That is strictly better than zeroing the timeout: it shows the near-zero wait with the real timeout applied, which is what "no timeout would ever have helped" actually means. **No retry** is proved exactly, not by wall clock: `withBusyContext` is exported and called with a counting function that must be called once. **No timeout escalation** is proved by reading `PRAGMA busy_timeout` back after a busy throw. |
+| **The plan claimed "bounds in one direction only" and has two upper bounds** | Named rather than hidden, because a blanket rule with two silent exceptions is worse than a stated one. **The rule:** every timing assertion is a lower bound, since a loaded host makes a wait longer and never shorter. **The two exceptions, both deliberate:** J1.6 assertion 8's `waited < 50` — measured `0ms` on every run, because a refusal involves no waiting at all, so the bound is a shape check with 50 ms of headroom, not a race; and J1.14 assertion 6's "the first spawn starts at once" (`waited[0] < STAGGER`) — the same shape, an *empty* chain resolving with no timer, with a full stagger of headroom. Neither measures elapsed work; both assert that a wait did **not** happen. Every other timing assertion in N1 is `>=`. |
+| **DBS-06: what "blind" means, and proving a NEW call site cannot bypass** | Blind = a path that executes SQL and reports the driver's bare `database is locked` — no file, no statement, no wait. Measured on the pinned Node, `StatementSync` carries **`iterate`**, unwrapped in the reference at `db.ts:79`. N1's set is `{run, get, all, iterate}` + `{exec, prepare}`. Three gates: `node:sqlite` is imported by exactly one non-test file (nobody can reach the driver) · every wrapped method reports under real contention · the driver's member list is pinned to a literal so a Node upgrade — which can only arrive with a `.nvmrc` commit in this repo — reports the next member before it becomes a 3am blind spot. |
+| **`iterate` cannot be fixed by adding it to the executor set** | Measured: `iterate()` returns the iterator **without throwing**; the refusal lands on the first `next()`. So adding `"iterate"` to `EXECUTES` changes nothing observable, and "remove it and watch the test go red" is a no-op in both directions — a gate that would ship green over an open blind spot. **The wrapper wraps the returned iterator's `next()`**, keeping `[Symbol.iterator]` on the proxy so `for…of` goes through it. And the fixture cannot be a plain `SELECT`: under WAL a reader is never blocked (measured, `NO ERROR`). N1 uses **`INSERT … RETURNING` under WAL** — a statement that writes and yields rows — and pins the no-error select beside it so nobody simplifies the fixture back into uselessness. Rejected alternative, kept for the record: a rollback-journal `SELECT` under `BEGIN EXCLUSIVE` works, but needs a second journal mode inside a file whose subject is WAL. |
+| **An unused import is not a valid gate mutation** | `noUnusedLocals` + `typecheck`-as-`pretest` means an unused binding fails with `TS6133` and `tsc` exits 2 **before any test runs** — measured. The AC then reads as satisfied ("exits non-zero") while the gate it names was never reached. Three ACs in the first draft did this. Every mutation that adds a binding now consumes it, and a standing note at the top of the plan says so once, so the builder does not reintroduce the shape. |
 | **INS-02's "there is no third category" is prose** | Made testable by closing three doors. No absolute path literal and no `homedir()`/`tmpdir()` in the kernel · every `_DB`/`_DIR`/`_ROOT` default resolves inside a probe `ENGINE_ROOT` · and every non-test kernel file that imports a write-capable `node:fs` member must appear in a two-column register in the test, whose category column accepts exactly two words. A new write path goes red until someone writes which category it is, and a third word fails on the word. |
 | **INS-02's second category has no member at N1** | The crontab is N2, the lease owner N4, queue rows and container names v1. So N1 ships `INSTANCE` (read, validated, gated) and the **register**, and does NOT ship an `instancePath()` builder — a builder with no consumer gets designed wrong (D9). The first `INSTANCE`-discriminated write writes the first line in the second column. |
 | **KRN-06 has no plugin to hang off until N5** | Rows live on the owning **module** and are collected by the test, not by `config.ts` (which must stay a leaf, or `db.ts → config.ts → db.ts` is a cycle). The shape is already KRN-04's `env` member, so at N5 the rows are re-homed and not rewritten. The readers take a **spec, not a key** — `envNum(BUSY_TIMEOUT)`, never `envNum("SQLITE_BUSY_TIMEOUT_MS", 5000)` — so there is exactly one copy of every default and drift is impossible rather than merely detected. The gate that makes this stick: **`process.env` is named in exactly one non-test file under `kernel/`.** |
@@ -1859,10 +2063,11 @@ category vocabulary. Add assertion 12 to `test/layout.test.ts`.
    start declaring their own. Either add a `pattern?` field or state that a family is declared once
    per concrete key by its owning plugin.
 
-5. **`time.ts` has no feature ID.** §3's N1 line names it as a file to ship and §2 has no row for it.
-   The clock is what `ts=` is, so LOG-01 arguably owns it — but nothing says so, and a file with no ID
-   cannot be cited in a commit message, which every rule in `CLAUDE.md` requires. Give it a `LOG-` row
-   or fold it into LOG-01 explicitly.
+5. **`time.ts` has no feature ID — FIXED in J1.1, not deferred.** §3's N1 line names it as a file to
+   ship and §2 had no row for it, so the very first code commit of the phase would have had no ID to
+   cite, breaking `CLAUDE.md`'s own rule immediately. J1.1 folds it into **LOG-01** rather than
+   minting a new ID: the clock is what `ts=` *is*, so the line-shape row owns it. Listed here so the
+   GAP step does not report it as an unaddressed gap.
 
 6. **`kernel/config.ts` and `host/config.ts` are two different things with one name.** §1 lists both.
    One is the framework's `EnvSpec` reader, the other is one app's settings. J1.1 adds a sentence
@@ -1878,11 +2083,15 @@ category vocabulary. Add assertion 12 to `test/layout.test.ts`.
    DBS-02 advisory — because if it is advisory, the first plugin that creates an un-prefixed table is
    the one that finds out.
 
-9. **DBS-06's executor set is under-specified and the reference's is incomplete.**
-   `StatementSync.iterate` exists on the pinned Node and the reference does not wrap it.
-   `DatabaseSync.applyChangeset` also executes writes and is wrapped by nobody. DBS-06 says "so no
-   call site is a blind spot" without naming the members; N1 names them. The row should say which, or
-   say that the set is derived from the driver and pinned.
+9. **DBS-06's executor set is under-specified, and "wrap the method" is not even the right shape.**
+   `StatementSync.iterate` exists on the pinned Node and the reference does not wrap it
+   (`db.ts:79`); `DatabaseSync.applyChangeset` also executes writes and is wrapped by nobody. Worse,
+   measured: `iterate()` does not throw — the refusal lands on the first `next()` — so a row that
+   says "wrap `exec`/`prepare` and statement `run`/`get`/`all`" describes a mechanism that cannot
+   cover a lazy method **even after you add its name to the list**. The row should either name the
+   members and say that a method returning an iterator has its iterator wrapped too, or say the set
+   is derived from the driver and pinned. This is the one gap in this list that hides a live bug
+   rather than a documentation miss.
 
 10. **`log.sh` is a `.sh` file inside a package whose publish build is `tsc`.** ADO-15's build emits
     `.ts` → `dist/*.js`; a `.sh` next to `emit.ts` is not emitted and is not in any `files` list yet.
