@@ -1004,7 +1004,7 @@ Every knob in the reference, to be re-homed as `EnvSpec` rows on the owning plug
   `SQLITE_BUSY_TIMEOUT_MS`, `SUPERVISOR_MAX_RUN_MIN`, `LOG_LEVEL`, `EXEC_TIMEOUT_MS`,
   `GATE_WAIT_CAP_S`, `SUPERVISOR_KILL_GRACE_MS`, `SUPERVISOR_SPAWN_STAGGER_MS`,
   `SUPERVISOR_DRAIN_MS`, `LOCK_STARVE_N`, `LOCK_STARVE_N_<JOB>`, `CRONTAB_CMD`, `CRONTAB_DRY_RUN`,
-  `SKILLS_DRY_RUN`.
+  `SKILLS_DRY_RUN`, `LEASE_CLEAR_DRY_RUN`.
 - **Harness (`kernel/ports/runner.ts`, N3)**: `RUN_TIMEOUT_MS` (unread at N3 — the only job is
   `taskClass: impl`), `RUN_TIMEOUT_IMPL_MS` (HRN-13's one consumer, the abort deadline for an
   impl-shaped run).

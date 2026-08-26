@@ -31,6 +31,7 @@ import {
 } from "../host/supervisor.ts";
 import { CRONTAB_CMD_ENV, CRONTAB_DRY_RUN_ENV } from "../cli/crontab.ts";
 import { SKILLS_DRY_RUN_ENV } from "../cli/skills.ts";
+import { LEASE_CLEAR_DRY_RUN_ENV } from "../cli/lease-clear.ts";
 import {
   NIGHTLY_NO_SANDCASTLE_ENV,
   NIGHTLY_SANDCASTLE_BASE_ENV,
@@ -171,6 +172,12 @@ const ROWS: readonly RowMeta[] = [
     spec: SKILLS_DRY_RUN_ENV,
     file: "cli/skills.ts",
     constName: "SKILLS_DRY_RUN_ENV",
+    readers: ["envStr"],
+  },
+  {
+    spec: LEASE_CLEAR_DRY_RUN_ENV,
+    file: "cli/lease-clear.ts",
+    constName: "LEASE_CLEAR_DRY_RUN_ENV",
     readers: ["envStr"],
   },
   {
@@ -350,6 +357,12 @@ test("5. every defaulted row's default is the value you get, resolved in a scrub
   assert.equal(
     scrubbedChild("import('./host/supervisor.ts').then(m=>console.log(m.SUPERVISOR_SPAWN_STAGGER_MS))"),
     "2000",
+  );
+  assert.equal(
+    scrubbedChild(
+      "Promise.all([import('./kernel/config.ts'), import('./cli/lease-clear.ts')]).then(([c,m])=>console.log(c.envStr(m.LEASE_CLEAR_DRY_RUN_ENV)))",
+    ),
+    "0",
   );
   assert.equal(
     scrubbedChild("import('./host/supervisor.ts').then(m=>console.log(m.SUPERVISOR_DRAIN_MS))"),
