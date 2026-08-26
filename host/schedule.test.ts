@@ -13,10 +13,12 @@ import {
   supervisedEntries,
   bootstrapEntries,
   commandOf,
+  scriptCommandOf,
   validate,
   type ScheduleEntry,
   type Program,
 } from "./schedule.ts";
+import { ROOT } from "../kernel/paths.ts";
 import { LOG_ROOTS } from "../kernel/runtime/log/tail.ts";
 import { RUN_TIMEOUT_IMPL_MS } from "../kernel/ports/runner.ts";
 import { GATE_TIMEOUT_MS } from "./jobs/nightly-sandcastle.ts";
@@ -107,8 +109,20 @@ test("6. commandOf for a job: entry names host/run.ts, not host/jobs/<job>.ts (J
   assert.ok(!cmd.includes("host/jobs/probe.ts"));
 });
 
-test("7. commandOf for a script: entry is unchanged", () => {
+test("7. commandOf for a script: entry names the script directly — no node prefix (R3, SUP-03)", () => {
   const cmd = commandOf(entry({ job: undefined, script: "host/ops-probe.sh" }));
   assert.match(cmd, /\bhost\/ops-probe\.sh\b/);
   assert.ok(!cmd.includes("host/run.ts"));
+  // `node` cannot run a bash script — the exact defect R3 fixes. Word-boundary, so this does not
+  // also fire on a substring like "probe.sh" itself.
+  assert.ok(!/\bnode\b/.test(cmd), `expected no "node" in a script: command, got: ${cmd}`);
+});
+
+test("8. commandOf and scriptCommandOf agree — one spelling, checked (R3, SUP-03, N3 F1's shape)", () => {
+  const e = entry({ job: undefined, script: "host/ops-probe.sh" });
+  const [cmd, args] = scriptCommandOf(ROOT, e.script as string);
+  assert.ok(
+    commandOf(e).includes([cmd, ...args].join(" ")),
+    `commandOf's rendering must contain exactly what scriptCommandOf renders`,
+  );
 });

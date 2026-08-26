@@ -45,7 +45,7 @@ import { spawnSlot } from "../kernel/runtime/pool.ts";
 import { logger, type Fields } from "../kernel/runtime/log/emit.ts";
 import { stderrTail } from "../kernel/runtime/log/cause.ts";
 import { createGate, type Gate, type Mode } from "../kernel/runtime/gate.ts";
-import { programOf, validate, supervisedEntries, bootstrapEntries, JOB_ENTRYPOINT, type ScheduleEntry, type Program } from "./schedule.ts";
+import { programOf, validate, supervisedEntries, bootstrapEntries, JOB_ENTRYPOINT, scriptCommandOf, type ScheduleEntry, type Program } from "./schedule.ts";
 import { byStage } from "../kernel/stages.ts";
 import { RESOURCE_NAMES, REFRESH_WINDOW, inRefreshWindow, type RefreshWindow } from "./config.ts";
 import { gateWait, newTimer as realNewTimer } from "./cron.ts";
@@ -186,7 +186,7 @@ function spawnChild(e: ScheduleEntry, program: Program, deps: SupervisorDeps): P
   return new Promise((resolve) => {
     const log = logger(programOf(e));
     const [cmd, args]: readonly [string, readonly string[]] =
-      e.job !== undefined ? deps.jobRunner(e.job) : [join(deps.root, e.script as string), []];
+      e.job !== undefined ? deps.jobRunner(e.job) : scriptCommandOf(deps.root, e.script as string);
 
     const child = deps.spawn(cmd, args, {
       cwd: deps.root,

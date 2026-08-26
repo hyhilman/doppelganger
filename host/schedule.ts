@@ -142,9 +142,25 @@ export const bootstrapEntries = (s: readonly ScheduleEntry[] = SCHEDULE): readon
  */
 export const JOB_ENTRYPOINT = "host/run.ts";
 
+/**
+ * R3 (SUP-03) — N3 F1's exact fix shape, one row over. `commandOf`'s script branch rendered
+ * `node <script>` unconditionally while `spawnChild` (host/supervisor.ts) execs the script file
+ * DIRECTLY — `[join(root, script), []]`, relying on the script's own shebang. `node` cannot run a
+ * bash script, and nothing caught the disagreement because SCHEDULE has never held a `script:`
+ * entry (N4's watchdog, JOB-O10, is the first). ONE function now serves both consumers, so the two
+ * spellings cannot drift apart. J4.11 grows this further (a `.ts` branch through `node`, a
+ * `validate()` executable-bit rule) — this is N3's minimal fix: the two consumers agree.
+ */
+export function scriptCommandOf(root: string, script: string): readonly [cmd: string, args: readonly string[]] {
+  return [join(root, script), []];
+}
+
 export function commandOf(e: ScheduleEntry): string {
-  const target = e.job !== undefined ? `${JOB_ENTRYPOINT} ${e.job}` : (e.script ?? "");
-  return `cd ${ROOT} && node ${target} >> ${e.log} 2>&1`;
+  if (e.job !== undefined) {
+    return `cd ${ROOT} && node ${JOB_ENTRYPOINT} ${e.job} >> ${e.log} 2>&1`;
+  }
+  const [cmd, args] = scriptCommandOf(ROOT, e.script ?? "");
+  return `cd ${ROOT} && ${[cmd, ...args].join(" ")} >> ${e.log} 2>&1`;
 }
 
 /** A `%` not preceded by `\` — cron reads an unescaped `%` as a newline, and everything after it

@@ -32,7 +32,7 @@ import {
 } from "./supervisor.ts";
 import { createGate, type Gate, type Mode } from "../kernel/runtime/gate.ts";
 import { spawnSlot } from "../kernel/runtime/pool.ts";
-import type { ScheduleEntry, Program } from "./schedule.ts";
+import { scriptCommandOf, type ScheduleEntry, type Program } from "./schedule.ts";
 import { parseLine, type LogLine } from "../kernel/runtime/log/parse.ts";
 
 const ROOT = new URL("..", import.meta.url).pathname.replace(/\/$/, "");
@@ -496,7 +496,9 @@ test("8. SUP-03: the recorded spawn options", async () => {
     assert.deepEqual(call.opts.stdio, ["ignore", "pipe", "pipe"]);
     assert.deepEqual([call.cmd, call.args], h.deps.jobRunner("probe"));
   }
-  // a script: entry uses <root>/<script>.
+  // a script: entry uses <root>/<script> — pinned against scriptCommandOf itself (R3, SUP-03),
+  // the same shape as the job: branch's deepEqual against jobRunner above, so the two consumers
+  // (this spawn and commandOf's crontab line) cannot drift apart silently.
   {
     const h = makeHarness();
     const e = entry({ job: undefined, script: "scripts/probe.sh", log: join(h.root, "s.log") });
@@ -504,6 +506,7 @@ test("8. SUP-03: the recorded spawn options", async () => {
     const call = h.spawnCalls[0]!;
     assert.equal(call.cmd, join(h.root, "scripts/probe.sh"));
     assert.deepEqual(call.args, []);
+    assert.deepEqual([call.cmd, call.args], scriptCommandOf(h.root, "scripts/probe.sh"));
   }
 });
 

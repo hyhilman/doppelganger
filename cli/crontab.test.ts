@@ -353,7 +353,12 @@ test("21. render's exact output over a one-entry bootstrap fixture, pinned liter
       "# Generated from host/schedule.ts — do not hand-edit. `npm run crontab check` diffs it.",
       "# BOOTSTRAP ONLY: everything else is scheduled by host/supervisor.ts.",
       "# a short fixture reason",
-      `${e.cron} cd ${ROOT} && node ${e.script} >> ${e.log} 2>&1`,
+      // R3 (SUP-03) fixed the disagreement between commandOf's script: branch and spawnChild:
+      // a script is executed directly via its own shebang, never through a `node` prefix (`node`
+      // cannot run a bash script). This hand-built line reflects that, independent of
+      // scriptCommandOf itself — see the test's own header comment for why that independence
+      // matters.
+      `${e.cron} cd ${ROOT} && ${ROOT}/${e.script} >> ${e.log} 2>&1`,
       "# <<< doppelganger:alpha managed block <<<",
     ];
     assert.deepEqual(out, expected);
