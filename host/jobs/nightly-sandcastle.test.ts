@@ -13,6 +13,7 @@ import { openDb } from "../../kernel/runtime/db.ts";
 import type { Logger } from "../../kernel/runtime/log/emit.ts";
 import { git } from "../../kernel/runtime/exec.ts";
 import type { Runner, RunRequest, RunResult } from "../../kernel/ports/runner.ts";
+import { NO_SHED } from "../../kernel/runtime/shed.ts";
 import {
   parseVerdict,
   blockedBy,
@@ -411,6 +412,7 @@ function buildContext(
     runIn: opts.runIn ?? (() => ({ ok: true, out: "" })),
     scratchRoot: mkdtempSync(join(tmpdir(), "pass-scratch-")),
     jobs: opts.jobs ?? [],
+    shed: NO_SHED,
   };
   return { deps, entries, raw, runnerCalls: runnerBundle.calls };
 }

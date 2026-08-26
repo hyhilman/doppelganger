@@ -16,6 +16,7 @@ import type { Logger } from "../../kernel/runtime/log/emit.ts";
 import { extractBlock, extractFields } from "../../kernel/runtime/payload.ts";
 import { runJob } from "../../kernel/runtime/runjob.ts";
 import { prepWorktree, teardownWorktree, reapWorktrees, worktreePromptLines, type Worktree } from "../../kernel/runtime/worktree.ts";
+import type { ShedDecision } from "../../kernel/runtime/shed.ts";
 import { DEFAULTS, defineJob, type Job } from "../../kernel/ports/job.ts";
 import type { Runner } from "../../kernel/ports/runner.ts";
 
@@ -398,6 +399,10 @@ export interface PassDeps {
   readonly runIn: GateDeps["runIn"];
   readonly scratchRoot: string;
   readonly jobs: readonly Job[];
+  /** QTA-08's downshift half — the SAME decision `host/run.ts`'s `runNamed` computed for this
+   *  run, handed straight through so `execPass`'s own `runJob` call (below) never recomputes it
+   *  (kernel/runtime/runjob.ts's `RunJobDeps.shed` is required, no default). */
+  readonly shed: ShedDecision;
 }
 
 /** The uncommitted files the agent left behind inside the worktree — `git status --porcelain`,
@@ -572,7 +577,7 @@ export async function execPass(deps: PassDeps): Promise<void> {
       ...(modelOverride !== undefined ? { model: modelOverride } : {}),
     };
     log.info("pass-start", { goal: goal.key, model: jobForRun.model ?? DEFAULTS.model });
-    const run = await runJob(jobForRun, { runner: deps.runner, cwd: wt.path, logPath: runLogPath });
+    const run = await runJob(jobForRun, { runner: deps.runner, cwd: wt.path, logPath: runLogPath, shed: deps.shed });
 
     // 11. verdict — HRN-10's "malformed payload writes nothing" as a warning, not a crash.
     const verdict = parseVerdict(run.stdout);

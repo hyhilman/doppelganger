@@ -4,6 +4,7 @@
 // here, from an arg the caller supplies (typically `worktreePromptLines` joined), never prepared.
 import { DEFAULTS, OPUS_GUIDANCE, assertPinned, skillOf, type Job } from "../ports/job.ts";
 import { runTimeoutMs, type Runner, type RunResult } from "../ports/runner.ts";
+import { shedModel, type ShedDecision } from "./shed.ts";
 
 export interface RunJobDeps {
   readonly runner: Runner;
@@ -12,6 +13,10 @@ export interface RunJobDeps {
   /** The run log, one file per run. */
   readonly logPath: string;
   readonly env?: Readonly<Record<string, string>>;
+  /** QTA-08's downshift half. REQUIRED, no default (N2 ruling 2: a default a caller can silently
+   *  inherit is the failure mode) — the caller (host/run.ts's `runNamed`,
+   *  host/jobs/nightly-sandcastle.ts's `execPass`) computes it once and hands it in. */
+  readonly shed: ShedDecision;
 }
 
 /**
@@ -61,9 +66,10 @@ export function substitute(
  *   1. D10's two shapes — `job.skill` and `job.exec` both set, or neither, throws.
  *   2. `args = job.promptArgs`; build the prompt from the skill's NAME.
  *   3. substitute every `{{KEY}}`; any left unresolved throws once, naming all.
- *   4. resolve the model (`job.model ?? DEFAULTS.model`) and `assertPinned` it — the runtime half of
- *      HRN-11 a source-text scan (test/model.test.ts, J3.10) cannot reach: an env-supplied model
- *      never appears as a literal for the scan to find.
+ *   4. resolve the model (`job.model ?? DEFAULTS.model`), apply QTA-08's `shedModel` CEILING, THEN
+ *      `assertPinned` the result — order matters: a downshift target is held to HRN-11 too, and
+ *      `assertPinned` is the runtime half of HRN-11 a source-text scan (test/model.test.ts,
+ *      J3.10) cannot reach: an env-supplied model never appears as a literal for the scan to find.
  *   5. dispatch to `deps.runner`.
  */
 export async function runJob(job: Job, deps: RunJobDeps): Promise<RunResult> {
@@ -82,7 +88,7 @@ export async function runJob(job: Job, deps: RunJobDeps): Promise<RunResult> {
     throw new Error(`runJob for ${job.name}: unresolved prompt placeholder(s): ${missing.join(", ")}`);
   }
 
-  const model = job.model ?? DEFAULTS.model;
+  const model = shedModel(job.model ?? DEFAULTS.model, deps.shed);
   assertPinned(model);
 
   return deps.runner({

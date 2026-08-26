@@ -13,12 +13,14 @@ import { logger } from "../kernel/runtime/log/emit.ts";
 import { git } from "../kernel/runtime/exec.ts";
 import { runJob } from "../kernel/runtime/runjob.ts";
 import { withLease } from "../kernel/runtime/lease.ts";
-import { isLimitError, limitClass, isPaused, pausedUntil, pause, QUOTA_SCOPE } from "../kernel/runtime/quota.ts";
+import { isLimitError, limitClass, isPaused, pausedUntil, pause, inspect, QUOTA_SCOPE } from "../kernel/runtime/quota.ts";
+import { decideShed, NO_SHED } from "../kernel/runtime/shed.ts";
 import { projectPath, ROOT, dbPath } from "../kernel/paths.ts";
 import { byStage } from "../kernel/stages.ts";
 import { parentEnv, errText } from "../kernel/config.ts";
 import type { Job } from "../kernel/ports/job.ts";
 import { sandcastleRunner } from "./runner.ts";
+import { classOf } from "./classes.ts";
 import { JOBS } from "./jobs/index.ts";
 import { GATE_TIMEOUT_MS, type PassDeps } from "./jobs/nightly-sandcastle.ts";
 import { SUPERVISOR_MAX_RUN_MIN, SUPERVISOR_KILL_GRACE_MS } from "./supervisor.ts";
@@ -79,6 +81,15 @@ export function jobListing(jobs: readonly Job[]): string {
  * could not have caused, and its own unrelated failure could OPEN one and park every job on the
  * host (the reference's 2026-08-07 incident). The consumer refuses BEFORE the lease is even
  * attempted — a wall costs the tick nothing, not even a claimed hour.
+ *
+ * QTA-08/SUP-16 — the downshift half. `decideShed` is computed ONCE, right here, and reused for
+ * BOTH dispatch shapes below: the skill path's own `RunJobDeps.shed`, and the exec path's
+ * `PassDeps.shed` (read by `nightly-sandcastle.ts`'s `execPass` for its own internal `runJob`
+ * call). It is keyed on `classOf(job.name)` directly — the supervisor's own `realShouldShed`
+ * (host/supervisor.ts) asks `classOf(programOf(e))` instead, and the two strings agree only by
+ * convention (host/classes.test.ts test 11). `deps.shed`, as received in this function's OWN
+ * parameter, is never read — it exists on `PassDeps` only because `execPass` (and every direct
+ * caller that is not `runNamed`, e.g. a test) needs somewhere to receive a real decision from.
  */
 export async function runNamed(job: Job, deps: PassDeps): Promise<number> {
   const spawnsAgent = job.skill !== undefined;
@@ -88,6 +99,8 @@ export async function runNamed(job: Job, deps: PassDeps): Promise<number> {
     return 0; // a wall is a skipped tick, never a failure (INV-10)
   }
 
+  const shed = decideShed(inspect(QUOTA_SCOPE), classOf(job.name), deps.now());
+
   const hour = deps.now().toISOString().slice(0, 13); // "2026-08-26T22"
   const key = `${job.name}@${hour}`;
   try {
@@ -96,10 +109,15 @@ export async function runNamed(job: Job, deps: PassDeps): Promise<number> {
       key,
       async () => {
         if (job.exec !== undefined) {
-          await (job.exec as unknown as (deps: PassDeps) => Promise<void>)(deps);
+          await (job.exec as unknown as (deps: PassDeps) => Promise<void>)({ ...deps, shed });
           return;
         }
-        const result = await runJob(job, { runner: deps.runner, cwd: deps.root, logPath: deps.runLogPath(job.name) });
+        const result = await runJob(job, {
+          runner: deps.runner,
+          cwd: deps.root,
+          logPath: deps.runLogPath(job.name),
+          shed,
+        });
         process.stderr.write(
           `iterations=${result.iterations} commits=${result.commits.length} completionSignal=${result.completionSignal ?? "none"}\n`,
         );
@@ -168,6 +186,10 @@ if (import.meta.filename === process.argv[1]) {
       },
       scratchRoot: projectPath(".doppelganger/scratch"),
       jobs: JOBS,
+      // A placeholder to satisfy PassDeps' shape: runNamed computes the REAL decision itself
+      // (classOf(job.name), this instant) and overrides it before dispatching to job.exec — this
+      // value is never read.
+      shed: NO_SHED,
     };
     process.exitCode = await runNamed(job, deps);
   }

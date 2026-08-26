@@ -24,6 +24,7 @@ import {
   bootOrDie,
   list,
   realReapOnBoot,
+  realShouldShed,
   type SupervisorDeps,
   type BootDeps,
   type SpawnedChild,
@@ -32,6 +33,7 @@ import {
   type ListOpts,
 } from "./supervisor.ts";
 import { createGate, type Gate, type Mode } from "../kernel/runtime/gate.ts";
+import { pause } from "../kernel/runtime/quota.ts";
 import { spawnSlot } from "../kernel/runtime/pool.ts";
 import { scriptCommandOf, type ScheduleEntry, type Program } from "./schedule.ts";
 import { parseLine, type LogLine } from "../kernel/runtime/log/parse.ts";
@@ -317,16 +319,81 @@ test("2. the order, proved by a recording gate", async () => {
   }
 });
 
-test("3. SUP-16: quota-shed", async () => {
-  const h = makeHarness(undefined, () => {});
-  const { lines } = await withLog(() =>
-    runEntry(entry(), { ...h.deps, shouldShed: () => ({ skip: true, class: "chore" }) }),
+/** J4.10: redirects `QUOTA_DB` to a fresh temp file for the duration of `fn`, restoring the prior
+ *  value afterwards — the LEASE_DB precedent (test 19/43) applied to quota.ts. */
+async function withQuotaDb<T>(fn: () => Promise<T>): Promise<T> {
+  const quotaDbPath = join(mkdtempSync(join(tmpdir(), "dg-supervisor-quota-")), "quota.db");
+  const previous = process.env.QUOTA_DB;
+  process.env.QUOTA_DB = quotaDbPath;
+  try {
+    return await fn();
+  } finally {
+    if (previous === undefined) delete process.env.QUOTA_DB;
+    else process.env.QUOTA_DB = previous;
+  }
+}
+
+test("3. SUP-16: quota-shed — the real predicate, over a real spend park (QTA-08)", async () => {
+  await withQuotaDb(async () => {
+    pause("claude", "You've hit your org's monthly spend limit · run /usage-credits to ask your admin for a higher limit");
+
+    // nightly-sandcastle is CHORE (host/classes.ts) — skipped outright, never reaches the gate.
+    // makeHarness's DEFAULT onChild (never test 3 through the file's own `() => {}` no-op), on
+    // purpose: a mutation that stops the skip from firing must turn this test red, not hang it —
+    // a fake child that never closes would do the latter (test 45's own first draft, AC5).
+    const h = makeHarness();
+    const { lines } = await withLog(() =>
+      runEntry(entry({ name: "nightly-sandcastle", job: "nightly-sandcastle" }), {
+        ...h.deps,
+        programs: { "nightly-sandcastle": program() },
+        shouldShed: realShouldShed,
+      }),
+    );
+    assert.equal(h.spawnCalls.length, 0);
+    const shed = lines.filter((l) => l.event === "quota-shed");
+    assert.equal(shed.length, 1);
+    assert.equal(shed[0]!.level, "info");
+    assert.equal(shed[0]!.fields.class, "chore");
+  });
+});
+
+test("45. SUP-16: a watch-class program under the SAME wall is NOT skipped — this is the assertion about the predicate, not merely the placement", async () => {
+  await withQuotaDb(async () => {
+    pause("claude", "You've hit your org's monthly spend limit · run /usage-credits to ask your admin for a higher limit");
+
+    // "ops-cron-check" names no CHORE/REVIEW entry (host/classes.ts) — classOf() defaults it to
+    // "watch", which decideShed never skips, so (unlike test 3) this run reaches the real gate
+    // and spawn — makeHarness's DEFAULT onChild (a child that emits "close" on the next tick) is
+    // what is needed here, not test 3's no-op override.
+    const h = makeHarness();
+    const { lines } = await withLog(() =>
+      runEntry(entry({ name: "ops-cron-check", job: "ops-cron-check" }), {
+        ...h.deps,
+        programs: { "ops-cron-check": program() },
+        shouldShed: realShouldShed,
+      }),
+    );
+    assert.equal(lines.filter((l) => l.event === "quota-shed").length, 0);
+    assert.equal(h.spawnCalls.length, 1);
+  });
+});
+
+test("46. the argv block names the real shouldShed predicate, never an inline literal (J4.10, the realJobRunner/realReapOnBoot precedent)", async () => {
+  // realShouldShed's OWN behaviour is proved by tests 3 and 45; the argv block that wires it is
+  // untested by construction (N2 ruling 1), so this pins the source text the same way test 42
+  // (realJobRunner) and test 43 (realReapOnBoot) already do.
+  const { projectPath } = await import("../kernel/paths.ts");
+  const src = readFileSync(projectPath("host/supervisor.ts"), "utf8");
+  const assignments = src
+    .split("\n")
+    .filter((l) => l.includes("shouldShed:"))
+    .filter((l) => !l.trimStart().startsWith("readonly ")) // the SupervisorDeps interface member
+    .map((l) => l.trim());
+  assert.deepEqual(
+    assignments,
+    ["shouldShed: realShouldShed,"],
+    "main()'s deps must use the exported realShouldShed — an inline argv literal there is ungated by construction",
   );
-  assert.equal(h.spawnCalls.length, 0);
-  const shed = lines.filter((l) => l.event === "quota-shed");
-  assert.equal(shed.length, 1);
-  assert.equal(shed[0]!.level, "info");
-  assert.equal(shed[0]!.fields.class, "chore");
 });
 
 test("4. SUP-10 / SUP-11: the refresh window", async () => {

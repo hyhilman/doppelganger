@@ -6,9 +6,10 @@ import { readFileSync } from "node:fs";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { OPUS_GUIDANCE, type Job } from "../ports/job.ts";
+import { DEFAULTS, OPUS_GUIDANCE, type Job } from "../ports/job.ts";
 import type { RunRequest, RunResult, Runner } from "../ports/runner.ts";
 import { buildPrompt, substitute, runJob, type RunJobDeps } from "./runjob.ts";
+import { NO_SHED, type ShedDecision } from "./shed.ts";
 
 function baseJob(overrides: Partial<Job> = {}): Job {
   return {
@@ -32,8 +33,8 @@ function recordingRunner(): { runner: Runner; calls: RunRequest[] } {
   return { runner, calls };
 }
 
-function baseDeps(runner: Runner): RunJobDeps {
-  return { runner, cwd: mkdtempSync(join(tmpdir(), "runjob-cwd-")), logPath: "/tmp/does-not-matter.log" };
+function baseDeps(runner: Runner, shed: ShedDecision = NO_SHED): RunJobDeps {
+  return { runner, cwd: mkdtempSync(join(tmpdir(), "runjob-cwd-")), logPath: "/tmp/does-not-matter.log", shed };
 }
 
 test("1. the prompt names the skill and nothing else — OPUS_GUIDANCE, every arg key, no path into a skill's files", async () => {
@@ -120,4 +121,36 @@ test("9. assertPinned fires on an env-supplied alias — the gate a source scan 
   const { runner: r2, calls } = recordingRunner();
   await runJob(baseJob({ model: "claude-opus-5" }), baseDeps(r2));
   assert.equal(calls[0]!.model, "claude-opus-5");
+});
+
+test("10. QTA-08: runJob downshifts when asked, and leaves the model alone otherwise", async () => {
+  const downshift: ShedDecision = { skip: false, downshift: true };
+  const { runner, calls } = recordingRunner();
+  await runJob(baseJob(), baseDeps(runner, downshift));
+  assert.equal(calls[0]!.model, DEFAULTS.shedModel);
+
+  const { runner: r2, calls: calls2 } = recordingRunner();
+  await runJob(baseJob(), baseDeps(r2, NO_SHED));
+  assert.equal(calls2[0]!.model, DEFAULTS.model);
+});
+
+test("11. the downshift target is held to HRN-11 too — shedModel runs before assertPinned (J4.10 AC7)", async () => {
+  const downshift: ShedDecision = { skip: false, downshift: true };
+  // The order-sensitive case: "opus" alone is an ALIAS (assertPinned rejects it outright) but IS
+  // opus-named, so the CORRECT order (shedModel first) replaces it with DEFAULTS.shedModel — a
+  // pinned model — before assertPinned ever sees it, so this call must NOT throw. Swap the two
+  // lines in runjob.ts and assertPinned("opus") throws before shedModel ever runs — that is what
+  // actually discriminates the order, not merely a throw/no-throw on a model shedModel would
+  // never touch.
+  const { runner, calls } = recordingRunner();
+  await runJob(baseJob({ model: "opus" }), baseDeps(runner, downshift));
+  assert.equal(calls[0]!.model, DEFAULTS.shedModel);
+
+  // A model shedModel would never touch (not opus-named) is still held to HRN-11 regardless of
+  // downshift — a downshift is a ceiling, never an escape hatch for an unrelated bad model.
+  const { runner: r2 } = recordingRunner();
+  await assert.rejects(
+    () => runJob(baseJob({ model: "claude-sonnet-latest" }), baseDeps(r2, downshift)),
+    /not pinned/,
+  );
 });

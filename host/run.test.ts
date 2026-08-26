@@ -12,6 +12,7 @@ import { projectPath } from "../kernel/paths.ts";
 import { closeAll } from "../kernel/runtime/db.ts";
 import { read as readLease } from "../kernel/runtime/lease.ts";
 import { isPaused as quotaIsPaused, QUOTA_SCOPE } from "../kernel/runtime/quota.ts";
+import { NO_SHED } from "../kernel/runtime/shed.ts";
 import { SUPERVISOR_MAX_RUN_MIN, SUPERVISOR_KILL_GRACE_MS } from "./supervisor.ts";
 import type { Job } from "../kernel/ports/job.ts";
 import type { Runner, RunRequest, RunResult } from "../kernel/ports/runner.ts";
@@ -95,6 +96,7 @@ function fakePassDeps(overrides: Partial<PassDeps> = {}): PassDeps {
     runIn: () => ({ ok: true, out: "" }),
     scratchRoot: mkdtempSync(join(tmpdir(), "run-scratch-")),
     jobs: [],
+    shed: NO_SHED,
     ...overrides,
   };
 }

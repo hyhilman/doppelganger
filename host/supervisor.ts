@@ -50,6 +50,9 @@ import { byStage } from "../kernel/stages.ts";
 import { RESOURCE_NAMES, REFRESH_WINDOW, inRefreshWindow, type RefreshWindow } from "./config.ts";
 import { gateWait, newTimer as realNewTimer } from "./cron.ts";
 import { reapDead } from "../kernel/runtime/lease.ts";
+import { inspect, QUOTA_SCOPE } from "../kernel/runtime/quota.ts";
+import { decideShed } from "../kernel/runtime/shed.ts";
+import { classOf } from "./classes.ts";
 
 // §2.27's three supervisor knobs. Each is read here (envNum) so `main()`'s argv block (J2.13) can
 // pass the resolved value into `deps` without resolving anything itself — the same pattern
@@ -109,10 +112,10 @@ export type SpawnFn = (cmd: string, args: readonly string[], opts: SpawnOptions)
  * command is driven end to end rather than merely assumed (J3.14 AC4). The real one is assembled
  * in `main()`'s argv block (J2.13).
  *
- * `shouldShed` (SUP-16, QTA-08/09) and boot-time lease reap (SUP-15) are the two N4 seams. Both
- * are honest here: SUP-16 is a PLACEMENT row — before the gate — and the placement is checked now;
- * the predicate itself is N4's, so the argv block passes `() => ({ skip: false })` until N4
- * replaces it.
+ * `shouldShed` (SUP-16, QTA-08/09) and boot-time lease reap (SUP-15) were the two N4 seams N2
+ * shipped honest but unfinished: SUP-16 is a PLACEMENT row — before the gate — checked from N2 on;
+ * the real predicate (`realShouldShed`, J4.10) replaced the `() => ({ skip: false })` spy the argv
+ * block carried until then.
  */
 export interface SupervisorDeps {
   /** SUP-03: the child's cwd. Never the package directory. */
@@ -537,6 +540,24 @@ export const realJobRunner = (job: string): readonly [string, readonly string[]]
 export const realReapOnBoot = (): Iterable<Record<string, string | number>> =>
   reapDead().map((r) => ({ scope: r.scope, key: r.key, pid: r.pid, claimed: r.claimedAt, ttlLeftMin: r.ttlLeftMin }));
 
+/**
+ * SUP-16, QTA-08/09's real predicate — the SKIP half. `deps.shouldShed` (`SupervisorDeps`) stays a
+ * required field; the argv block wires THIS in place of the N2 spy (`() => ({ skip: false })`).
+ * Exported top-level so a test can pin it — the argv block below is untested by construction (N2
+ * ruling 1), and N3 F1 is the precedent: an inline literal there regressed once with the whole
+ * suite green. Opens `quota.db` on the first call (`inspect`, inside `decideShed`'s caller here,
+ * never inside `decideShed` itself — QTA-09) and the handle lives for the supervisor's process.
+ *
+ * `program` is `programOf(e)` — `runEntry`'s own key, e.g. `nightly-sandcastle`. `classOf` is the
+ * SAME function `host/run.ts`'s `runNamed` calls for the DOWNSHIFT half, but handed a different
+ * string (`job.name` there); the two agree only by convention (host/classes.test.ts test 11).
+ */
+export const realShouldShed = (program: string, at: Date): { skip: boolean; class?: string } => {
+  const cls = classOf(program);
+  const d = decideShed(inspect(QUOTA_SCOPE), cls, at);
+  return d.skip ? { skip: true, class: cls } : { skip: false };
+};
+
 export async function bootOrDie(schedule: readonly ScheduleEntry[], deps: BootDeps): Promise<Supervisor> {
   try {
     return await main(schedule, deps);
@@ -677,7 +698,7 @@ if (import.meta.filename === process.argv[1]) {
     openSink: (path: string) => createWriteStream(path, { flags: "a" }),
     dotenvPath: projectPath(".env"),
     now: () => new Date(),
-    shouldShed: () => ({ skip: false }),
+    shouldShed: realShouldShed,
     maxRunMin: () => SUPERVISOR_MAX_RUN_MIN,
     killGraceMs: SUPERVISOR_KILL_GRACE_MS,
     spawnStaggerMs: SUPERVISOR_SPAWN_STAGGER_MS,
