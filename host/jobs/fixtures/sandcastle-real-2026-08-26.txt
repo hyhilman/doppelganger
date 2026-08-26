@@ -1,0 +1,45 @@
+<<<SANDCASTLE
+goal=docs-vs-code
+outcome=changed
+files=test/layout.test.ts
+ids=TST-06
+summary=CLAUDE.md's Repository-state module map is now a drift gate — kernel/ports/, kernel/runtime/ and cli/ checked both ways against the real filesystem, host/ doc-to-source only; previously only roadmap.md §1's copy of that map was pinned.
+verified=`npm run typecheck` clean; `node --test test/layout.test.ts` 16/16 pass; mutation check (deleted `pool.ts` from the CLAUDE.md sentence) makes assertion 16 fail, CLAUDE.md restored byte-identical; `npm test` 527 tests / 511 pass / 14 fail / 2 skipped — all 14 in host/jobs/nightly-sandcastle.test.ts and the same 14 fail with my edit reverted, so they pre-date this change.
+SANDCASTLE>>>
+---
+<<<SANDCASTLE
+goal=docs-vs-code
+outcome=changed
+files=test/commands.test.ts
+ids=TST-21,SUP-17,SUP-08,SKL-04
+summary=CLAUDE.md's "Live today" command list is fully derivable from package.json, the two CLI dispatchers and the supervisor's argv block, and nothing checked it; assertions 6 and 7 now gate it both ways, so a new script or a renamed CLI verb fails the build instead of quietly rotting the first paragraph of the Commands section.
+verified=env -u NIGHTLY_SANDCASTLE_BASE -u NIGHTLY_SANDCASTLE_DRY_RUN -u NIGHTLY_SANDCASTLE_ONLY npm test -> 529 tests, 527 pass, 0 fail, 2 skipped (pretest typecheck clean); the knobs are unset because the job's own env leaks into host/jobs/nightly-sandcastle.test.ts's fixtures and reds 14 pre-existing tests at HEAD 64226dc. Gate proved to bite by three mutations in a scratch copy (renamed skills verb, undocumented npm script, --list dropped), each red, restored green.
+SANDCASTLE>>>
+---
+<<<SANDCASTLE
+goal=docs-vs-code
+outcome=changed
+files=test/ids.test.ts
+ids=TST-06
+summary=Every feature ID cited in any .ts/.sh/.md now must resolve to a roadmap.md definition row, pinning CLAUDE.md's "cite the ID" claim that nothing checked.
+verified=`env -u NIGHTLY_SANDCASTLE_BASE -u NIGHTLY_SANDCASTLE_DRY_RUN -u NIGHTLY_SANDCASTLE_ONLY npm test` -> 532 tests, 530 pass, 0 fail, 2 skipped (was 529/527/0/2). The three env vars are unset because the job's own ambient env fails 14 pre-existing assertions in host/jobs/nightly-sandcastle.test.ts, unrelated to this change.
+SANDCASTLE>>>
+---
+<<<SANDCASTLE
+goal=docs-vs-code
+outcome=changed
+files=test/layout.test.ts
+ids=ADO-01,TST-06
+summary=ADO-01's package-NAME claim (@doppelganger/kernel + every @doppelganger/plugin-*) was derivable from every workspace package.json and pinned by nothing; layout.test.ts assertion 17 now gates it, completing assertion 5's version half.
+verified=`env -u NIGHTLY_SANDCASTLE_BASE -u NIGHTLY_SANDCASTLE_DRY_RUN -u NIGHTLY_SANDCASTLE_ONLY npm test` (pretest typecheck included) -> 533 tests, 531 pass, 0 fail, 2 skipped; up exactly one test from the 532/530/0 baseline. The three knobs must be unset: with the run's ambient NIGHTLY_SANDCASTLE_BASE=dev, 14 pre-existing fixture tests in host/jobs/nightly-sandcastle.test.ts fail for reasons unrelated to this change (see report item 1).
+SANDCASTLE>>>
+---
+<<<SANDCASTLE
+goal=docs-vs-code
+outcome=changed
+files=test/layout.test.ts
+ids=ADO-14
+summary=Assertion 18 pins CLAUDE.md's and roadmap.md ADO-14's quoted workspaces literal (and `private`) to package.json, both ways — the list every other layout rule is stated against was the one part of it no test read.
+verified=`npm test` (pretest typecheck clean) — 534 tests, 518 pass, 14 fail, 2 skip. All 14 failures are pre-existing and unrelated: they are host/jobs/nightly-sandcastle.test.ts #26-#39, and a pristine clone of HEAD 64226dc with zero changes fails exactly the same 14. `node --test test/layout.test.ts` is 18/18 green. Mutation-checked: 4 injected doc/package drifts each turned assertion 18 red, and it returned green on restore.
+SANDCASTLE>>>
+---
