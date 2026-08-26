@@ -82,10 +82,15 @@ test("6. spawnSlot lets the first spawn start at once, and holds each one after 
 });
 
 test("7. a spawn arriving after the chain has drained starts immediately", async () => {
-  await spawnSlot(20);
-  await delay(60, undefined); // let the chain fully resolve and go quiet
+  // A third, unadmitted upper bound (HRN-18): the plan's exceptions table names only two (db 19,
+  // pool assertion 6). This one had 20ms of headroom on a 60ms drain, the tightest in the suite,
+  // and would flake on a loaded CI box running 26 test files in parallel. Raised in the same ratio
+  // as assertion 6's STAGGER/headroom (50ms), with the drain scaled up to match.
+  const STAGGER = 50;
+  await spawnSlot(STAGGER);
+  await delay(150, undefined); // let the chain fully resolve and go quiet
   const start = Date.now();
-  await spawnSlot(20);
+  await spawnSlot(STAGGER);
   const waited = Date.now() - start;
-  assert.ok(waited < 20, `expected an immediate start, waited ${waited}ms`);
+  assert.ok(waited < STAGGER, `expected an immediate start, waited ${waited}ms`);
 });
