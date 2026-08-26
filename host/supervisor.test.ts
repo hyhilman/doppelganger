@@ -31,6 +31,7 @@ import {
   type ListOpts,
 } from "./supervisor.ts";
 import { createGate, type Gate, type Mode } from "../kernel/runtime/gate.ts";
+import { spawnSlot } from "../kernel/runtime/pool.ts";
 import type { ScheduleEntry, Program } from "./schedule.ts";
 import { parseLine, type LogLine } from "../kernel/runtime/log/parse.ts";
 
@@ -546,7 +547,7 @@ test("10. one sink per distinct path", async () => {
   assert.equal(h.openSinkCalls.filter((p) => p === sharedLog).length, 1);
 });
 
-test("11. SUP-13: the runtime bound", async () => {
+test("11. SUP-13: the runtime bound", { timeout: 5000 }, async () => {
   const h = makeHarness(undefined, () => {}); // the child never exits on its own
   const e = entry({ maxRunMin: 0.005 }); // 0.3s
   const { lines } = await withLog(() => runEntry(e, { ...h.deps, maxRunMin: () => 0.005, killGraceMs: 20 }));
@@ -566,7 +567,7 @@ test("11. SUP-13: the runtime bound", async () => {
   });
 });
 
-test("12. one terminal line, never two", async () => {
+test("12. one terminal line, never two", { timeout: 5000 }, async () => {
   let child!: FakeChild;
   const h = makeHarness(undefined, (c) => {
     child = c;
@@ -1101,4 +1102,146 @@ test("37. the empty schedule prints a header, a rule, and a 0/0 tally", () => {
   assert.match(lines[0]!, /^by\s+entry\s+cron\s+program\s+gate\s+resources\s+wait\s+dotenv$/);
   assert.match(lines[1]!, /^-+(\s\s-+)+$/);
   assert.equal(lines[2], "0 supervised, 0 on the real crontab");
+});
+
+// ---------------------------------------------------------------------------------------------
+// F7 (N2 VERIFY) — three named behaviours that never ran under `npm test`: runEntry's TWO
+// drain-skipped pre-flight checks (steps 6 and 8), and main()'s onTerm/onInt/onUnhandled bodies.
+// Appended here rather than interleaved with the runEntry/main() groups above, to avoid
+// renumbering every test after them — these are new coverage, not a sub-block of an existing one.
+// ---------------------------------------------------------------------------------------------
+
+/** An `isDraining` that returns the Nth entry of `script` on its Nth call (1-indexed), and `true`
+ *  (the safe default — never spawn) once `script` is exhausted. `.calls()` records how many times
+ *  it fired — a documentation aid below, NOT the mutation discriminator: see test 38's own comment
+ *  for why call-counting alone cannot tell step 6 apart from step 8. */
+function scriptedIsDraining(script: readonly boolean[]): { fn: () => boolean; calls: () => number } {
+  let n = 0;
+  const fn = (): boolean => {
+    const v = script[n] ?? true;
+    n++;
+    return v;
+  };
+  return { fn, calls: () => n };
+}
+
+test("38. step 6's drain-skipped fires between the gate and spawnSlot, never reaching spawn", { timeout: 5000 }, async () => {
+  // WHY A spawnSlot PROBE, NOT JUST CALL-COUNTING (F7, N2 VERIFY — the first draft of this test
+  // had exactly this hole): with a 2-element script, a DELETED step 6 does not skip the
+  // drain-skipped log at all — it just shifts step 8 into consuming the same 2nd `true` value,
+  // AFTER first really awaiting spawnSlot. spawnCalls stays 0 and drain-skipped still logs once
+  // EITHER way, so neither assertion tells step 6 firing apart from step 8 firing in its place.
+  //
+  // What a deleted step 6 cannot hide: `spawnSlot` (kernel/runtime/pool.ts) delays its NEXT
+  // caller, not itself — `spawnSlot(300)` returns almost immediately but queues a real 300ms wait
+  // for whoever calls `spawnSlot` after it. So probing with our OWN `spawnSlot(0)` call right
+  // after `runEntry` returns tells us whether `runEntry` called `spawnSlot` at all: if step 6 fired
+  // (never reached step 7), the probe resolves at once; if step 6 was skipped and step 7 really
+  // ran, the probe inherits its queued 300ms wait. Upper bound; listed in plan/N2-uac.md's
+  // exceptions table (F7 row). `maxRunMin` is dropped to a fraction of a second too, so a mutation
+  // that DOES fall through to a real spawn (this harness's child never closes on its own) fails in
+  // well under a second, not 180 minutes.
+  await spawnSlot(0); // drain any pending stagger left by an earlier test, so the probe starts clean
+  const h = makeHarness(undefined, () => {}); // spawn must never be called
+  const script = scriptedIsDraining([false, true]); // 1 (pre-flight step 1): not draining · 2 (step 6): draining
+  const deps: SupervisorDeps = { ...h.deps, spawnStaggerMs: 300, maxRunMin: () => 0.01 };
+  const { lines } = await withLog(() => runEntry(entry(), deps, script.fn));
+  assert.equal(h.spawnCalls.length, 0, "must never reach spawn");
+  const drainSkipped = lines.filter((l) => l.event === "drain-skipped");
+  assert.equal(drainSkipped.length, 1);
+  assert.equal(drainSkipped[0]!.level, "info");
+  assert.equal(script.calls(), 2, "isDraining fires exactly twice on the correct path");
+  const t0 = Date.now();
+  await spawnSlot(0);
+  const probeElapsed = Date.now() - t0;
+  assert.ok(
+    probeElapsed < 150,
+    `runEntry must never have called spawnSlot (step 6 must return first) — probe took ${probeElapsed}ms`,
+  );
+  assert.equal(h.deps.gate.selfHeld("probe"), false, "the self-lock and gate both release on this path too");
+});
+
+test("39. step 8's drain-skipped fires between spawnSlot and spawn, never reaching spawn", { timeout: 5000 }, async () => {
+  // `maxRunMin` dropped for the same reason test 38's comment gives: a mutation that deletes step
+  // 8 falls through to a real spawn, and this harness's child never closes on its own — without a
+  // short runtime bound that is a 180-minute hang instead of a fast, clean RED.
+  const h = makeHarness(undefined, () => {}); // spawn must never be called
+  const script = scriptedIsDraining([false, false, true]); // step 1, step 6: not draining · step 8: draining
+  const deps: SupervisorDeps = { ...h.deps, maxRunMin: () => 0.01 };
+  const { lines } = await withLog(() => runEntry(entry(), deps, script.fn));
+  assert.equal(h.spawnCalls.length, 0, "must never reach spawn — the direct proof step 8 fired, not a fallthrough");
+  const drainSkipped = lines.filter((l) => l.event === "drain-skipped");
+  assert.equal(drainSkipped.length, 1);
+  assert.equal(drainSkipped[0]!.level, "info");
+  assert.equal(script.calls(), 3, "isDraining fires exactly three times on the correct path");
+  assert.equal(h.deps.gate.selfHeld("probe"), false);
+});
+
+test("40. SUP-06: onTerm and onInt are real process.on listeners, not just stop() called by hand", async () => {
+  // a. SIGTERM. process.emit(...) invokes registered listeners synchronously — it never delivers
+  // a real OS signal — so this is safe to run in this process. main() registers onTerm via
+  // `process.on("SIGTERM", onTerm)`; onTerm's own body then drives the exact same stop() path
+  // test 26 already covers by calling stop() directly. What THIS proves is the WIRING: that a real
+  // "SIGTERM" event reaches it at all.
+  {
+    const h = makeBootHarness();
+    const originalExit = h.deps.exit;
+    let resolveExited!: () => void;
+    const exited = new Promise<void>((res) => (resolveExited = res));
+    const deps: BootDeps = { ...h.deps, exit: (code: number) => { originalExit(code); resolveExited(); } };
+    const { lines } = await withLog(async () => {
+      const sup = await main([], { ...deps, programs: {} });
+      assert.equal(sup.draining(), false);
+      process.emit("SIGTERM");
+      await exited;
+      assert.equal(sup.draining(), true);
+    });
+    assert.deepEqual(h.exitCalls, [0]);
+    const draining = lines.filter((l) => l.event === "supervisor-draining");
+    assert.equal(draining.length, 1);
+    assert.equal(draining[0]!.fields.signal, "SIGTERM");
+  }
+  // b. SIGINT — the same wiring, the other signal.
+  {
+    const h = makeBootHarness();
+    const originalExit = h.deps.exit;
+    let resolveExited!: () => void;
+    const exited = new Promise<void>((res) => (resolveExited = res));
+    const deps: BootDeps = { ...h.deps, exit: (code: number) => { originalExit(code); resolveExited(); } };
+    const { lines } = await withLog(async () => {
+      const sup = await main([], { ...deps, programs: {} });
+      process.emit("SIGINT");
+      await exited;
+      assert.equal(sup.draining(), true);
+    });
+    assert.deepEqual(h.exitCalls, [0]);
+    const draining = lines.filter((l) => l.event === "supervisor-draining");
+    assert.equal(draining.length, 1);
+    assert.equal(draining[0]!.fields.signal, "SIGINT");
+  }
+});
+
+test("41. SUP-06: onUnhandled logs unhandled-rejection at error level and does not exit", async () => {
+  // NOT process.emit("unhandledRejection", ...): node:test installs its OWN process-level
+  // unhandledRejection listener to detect a real test failure, and emitting the event invokes
+  // every listener including that one — this test's own "boom" would fail ITSELF as an unhandled
+  // rejection before ever reaching an assertion. Instead: diff `process.listeners(...)` before and
+  // after main() to find the ONE new listener main() really registered via `process.on(...)`
+  // (proving the wiring, not just calling a hand-picked function), and invoke only that one.
+  const h = makeBootHarness();
+  const { lines } = await withLog(async () => {
+    const before = process.listeners("unhandledRejection");
+    const sup = await main([], { ...h.deps, programs: {} });
+    const after = process.listeners("unhandledRejection");
+    const added = after.filter((l) => !before.includes(l));
+    assert.equal(added.length, 1, "main() must register exactly one new unhandledRejection listener");
+    (added[0] as (reason: unknown, promise: Promise<unknown>) => void)(new Error("boom"), Promise.resolve());
+    assert.equal(sup.draining(), false, "an unhandled rejection must not start a drain");
+    await sup.stop("SIGTERM"); // clean up this test's process.on listeners before the next test runs
+  });
+  const unhandled = lines.filter((l) => l.event === "unhandled-rejection");
+  assert.equal(unhandled.length, 1);
+  assert.equal(unhandled[0]!.level, "error");
+  assert.match(unhandled[0]!.msg, /boom/);
+  assert.deepEqual(h.exitCalls, [0], "only stop()'s own exit fires — the rejection itself never exits");
 });

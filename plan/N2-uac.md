@@ -658,7 +658,8 @@ proves they did not.
 
 Every other assertion in this phase is synchronous or awaits an already-settled promise. **The first
 draft claimed three exceptions and had five**, and two of the missing ones were upper bounds — the
-flaky direction — sitting in J2.8 with no entry here. All five are listed.
+flaky direction — sitting in J2.8 with no entry here. A sixth was added later, at N2 VERIFY
+follow-up F7 (host/supervisor.test.ts test 38) — all six are listed.
 
 | # | Where | Assertion | Direction | Headroom | Why it cannot race |
 |---|---|---|---|---|---|
@@ -667,11 +668,13 @@ flaky direction — sitting in J2.8 with no entry here. All five are listed.
 | 3 | J2.8 test 10 | `gateWait("* * * * *")` returns in `< 1000` ms | **upper** | ~1000× | Measured: with the early stop the call is **1 ms** (2 `nextRun` calls); without it, **6.4 s** (30,240 calls). Three orders of magnitude either side of the bound. |
 | 4 | J2.8 test 11 | the memoised second `gateWait` call is `< 100` ms | **upper** | ~100× | Same measurement: 1 ms served, and the un-memoised path it guards is seconds. Asserted as a flat bound, never as a ratio between two sub-millisecond numbers. |
 | 5 | J2.11 group 7 | second spawn starts `>= 20` ms after the first, with `spawnStaggerMs = 30` | lower | 10 ms | Same direction as row 1. |
+| 6 | F7, host/supervisor.test.ts test 38 | a `spawnSlot(0)` probe called right after `runEntry` returns resolves in `< 150` ms, with `spawnStaggerMs = 300` | **upper** | 150 ms (100%) | Proves step 6 returned BEFORE `runEntry` ever called `spawnSlot` — if it had, the probe would inherit `spawnSlot`'s queued 300 ms delay for its NEXT caller. Same shape as row 2: if it ever flakes, raise `spawnStaggerMs` and keep the `< spawnStaggerMs / 2` shape. |
 
-Two lower bounds (1, 5) and three upper ones (2, 3, 4). Rows 3 and 4 are upper bounds but not races:
-each guards a difference of three orders of magnitude, not a difference of tens of milliseconds. Row 2 is the only upper bound whose headroom is of the same
-size as the thing it measures; if it ever flakes the fix is to raise `waitMs` to 200 and keep the
-`< 2×` shape, never to delete the assertion.
+Two lower bounds (1, 5) and four upper ones (2, 3, 4, 6). Rows 3 and 4 are upper bounds but not races:
+each guards a difference of three orders of magnitude, not a difference of tens of milliseconds. Rows
+2 and 6 are the upper bounds whose headroom is of the same size as the thing they measure; if either
+ever flakes the fix is to raise the underlying delay and keep the `< half` shape, never to delete the
+assertion.
 
 **One `testDeps` default is load-bearing for this budget: `spawnStaggerMs = 0`.** `spawnChain` in
 `kernel/runtime/pool.ts` is module-global and never resets, so `node --test` running one file in one
