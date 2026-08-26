@@ -28,6 +28,7 @@ import {
   readState,
   type GateDeps,
   type PassDeps,
+  HEAD_MAX_CHARS,
 } from "./nightly-sandcastle.ts";
 
 const ROOT = new URL("../..", import.meta.url).pathname.replace(/\/$/, "");
@@ -201,7 +202,7 @@ test("14. head leads with the error class, drops at-frames and the Node.js banne
   assert.ok(h.startsWith("SyntaxError"));
   assert.ok(!h.includes(" at "));
   assert.ok(!h.includes("Node.js v"));
-  assert.ok(h.length < 400);
+  assert.ok(h.length < HEAD_MAX_CHARS);
 
   const suiteOut = Array.from({ length: 30 }, (_, i) => `line ${i}`).join("\n") + "\n# pass 30\n# fail 0";
   const t = tail(suiteOut, 3);

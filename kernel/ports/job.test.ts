@@ -80,5 +80,7 @@ test("8. Job.permissionMode is required — type-level (HRN-07)", () => {
     skill: "nightly-x",
   });
   void bad;
+  // The REAL gate is the @ts-expect-error above: it fails typecheck (TS2578) if the omission ever
+  // compiles. This line only keeps the test body non-empty — do not read it as the assertion.
   assert.ok(true, "the @ts-expect-error above proves Job.permissionMode cannot be omitted");
 });

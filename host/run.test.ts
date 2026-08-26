@@ -77,7 +77,7 @@ test("5. runNamed with an exec job calls exec once, returns 0, and never calls t
   assert.equal(code, 0);
 });
 
-test("6. runNamed with a skill-only job calls the runner once and returns 0; a rejecting runner returns non-zero and the message reaches stderr", async () => {
+test("6. runNamed with a skill-only job calls the runner once and returns 0; a rejecting runner REJECTS — the rejection propagates to the argv block, never a silent 0", async () => {
   const calls: RunRequest[] = [];
   const runner: Runner = async (req: RunRequest): Promise<RunResult> => {
     calls.push(req);

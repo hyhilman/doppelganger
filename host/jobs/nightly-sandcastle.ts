@@ -1,6 +1,11 @@
 // J3.8/J3.11/J3.12 (JOB-C15, SKL-02, SKL-05, SKL-07, TST-19, HRN-10, SAF-01…07, INS-06, KRN-07,
 // INV-1) — nightly-sandcastle: the verdict vocabulary, the blocked paths, the goal rotation, the
 // import smoke, the three-tier ship gate, and the pass itself.
+//
+// A free-smoke run (NIGHTLY_SANDCASTLE_MAX=0) leaves the `nightly/<INSTANCE>` branch behind after
+// teardown — deliberate: prepWorktree is idempotent and reuses it, so deleting it would only cost
+// the next pass a re-create. A reviewer running `git branch --list 'nightly/*'` after a smoke will
+// see one branch a zero-cost run created; that is this line's warrant, not a leak.
 import { spawnSync } from "node:child_process";
 import { existsSync, symlinkSync } from "node:fs";
 import { join } from "node:path";
@@ -191,7 +196,7 @@ export function importSmoke(path: string): string {
   return `${r.stdout ?? ""}${r.stderr ?? ""}`;
 }
 
-const HEAD_MAX_CHARS = 400;
+export const HEAD_MAX_CHARS = 400;
 const AT_FRAME_RE = /^\s*at\s/;
 const NODE_BANNER_RE = /^Node\.js v/;
 
