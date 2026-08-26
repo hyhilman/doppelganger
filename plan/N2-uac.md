@@ -1,4 +1,12 @@
-# N2 — Supervisor, one schedule entry · UAC breakdown
+# N2 — Supervisor and gate, no entry yet · UAC breakdown
+
+**Retitled.** `WORK.md` and §3 call this phase "Supervisor, one schedule entry". There is no entry
+N2 can ship (ruling 1), and a title promising a running entry would let J2.18 tick 32 boxes over a
+loop that has never run. The honest claim at the end of this phase is one sentence, and it is what
+J2.18 writes into `WORK.md`:
+
+> **Every mechanism the supervisor needs exists, each is exercised over its whole input space, and
+> they are wired together in a six-line block that nothing tests. No job has ever run.**
 
 N2 is done when one process owns every tick. Concretely: a schedule that is DATA, read live, with no
 compiled copy · a `validate()` that runs before a single timer is registered and collects every fault
@@ -13,10 +21,11 @@ mechanism is exercised with fixture entries — see the ruling in "The empty sch
 Eight things the roadmap states but does not resolve are settled here rather than left to the
 builder: whether `croner` is a dependency (J2.8) · what the POSIX oracle IS and where croner and
 POSIX genuinely disagree, measured (J2.10) · how a test proves the deadlock argument instead of one
-scenario (J2.4) · what `validate()` can check with no jobs (J2.9) · how the crontab is exercised
-without touching a real one (J2.16) · what a declared non-goal's test asserts (J2.6) · how FIFO with
-writer priority is tested with one timing bound in the whole phase (J2.5) · and the resource naming
-§5 Q1 leaves open (J2.6).
+scenario, and what it deliberately does NOT prove (J2.4) · what `validate()` can check with no jobs
+(J2.9) · how the crontab is exercised without ever reaching the real one, and why `isAbsolute` is
+the layer that makes that safe by construction rather than by care (J2.16) · what a declared
+non-goal's test asserts (J2.6) · how FIFO with writer priority is tested with no sleeps at all
+(J2.5) · and the resource naming §5 Q1 leaves open (J2.6).
 
 **Rule this plan obeys at every step: the phase is green at every commit.** `npm test` exits 0 after
 every job. Walk the commits in order and no job imports a file a later job creates.
@@ -34,11 +43,24 @@ sizes `schedule.ts` at "~1 entry" and lists `nightly-sandcastle` under **N3**.
 
 So: **`SCHEDULE = []` and `PROGRAMS = {}` at N2, and `validate([])` is legal by decision, not by
 accident** (J2.9 asserts it with that reason in the test name). Every mechanism is driven by fixture
-entries built by a `entry(over)` helper, the same shape the reference's `cron/validate.test.ts` uses.
-The first real entry is N3's `nightly-sandcastle`.
+entries built by an `entry(over)` helper, the same shape the reference's `cron/validate.test.ts`
+uses. The first real entry is N3's `nightly-sandcastle`.
 
 This is the same call N1 made when it declined TST-09's job-name gate: build the mechanism, do not
-invent the subject.
+invent the subject. **But "fixture entries cover it" is not one claim, it is three**, and this plan
+grades every use of it rather than repeating the phrase:
+
+| grade | what it means | where |
+|---|---|---|
+| **REAL** | the subject is a function over a value, so a fixture IS the correct input and the input space is fully covered | the gate (J2.4, J2.5) · `parseFive` + the parity walk (J2.8, J2.10) · `validate()`'s 23 rules (J2.9) · `inRefreshWindow` (J2.6, J2.17) · the crontab transforms (J2.15, J2.16) |
+| **UNTESTED BY CONSTRUCTION** | the argv block, where `ROOT`, the real gate, the real `spawn`, the real paths and `CRONTAB_CMD` are wired together. No test reaches it — that is exactly what ruling 2 buys, and it is also what ruling 2 costs | `host/supervisor.ts` (~6 lines) · `cli/crontab.ts` (~8 lines) |
+| **VACUOUS** | an assertion over an empty subject that cannot fail. **Not shipped.** Three were in the first draft and all three are deleted | ~~`validate(SCHEDULE)` (was J2.9 test 1)~~ · ~~`SCHEDULE.length >= 0` (was J2.10 test 2)~~ · ~~`entriesInWindow(SCHEDULE, null) === []` (was J2.17 test 6)~~ |
+
+**The untested middle is this phase's real risk, and it is counted rather than waved at.** Each argv
+block gets one end-to-end AC that runs the real binary against a temp `ENGINE_ROOT` (J2.13 AC7,
+J2.14 AC2, J2.16 AC7). Those are **smoke checks, not tests** — they prove the block parses and
+dispatches, not that it wired the right values. Everything the blocks assemble is covered; the
+assembling is read by a human once and that is the whole assurance there is.
 
 ### 2. Impure defaults are resolved in the argv block, never at module scope
 
@@ -59,15 +81,26 @@ Two things follow, and both are gated (J2.3):
 Measured on this machine, 2026-08-26, croner 10.0.1 / Node 22.23.1 — the full numbers are in J2.10:
 
 - **Only one of `dom`/`dow` restricted: 320 of 320 sweep cases agree.** croner is solid there.
-- **Both restricted: 334 of 336 agree, and 2 do not.** `0 0 1 * 1` and `0 0 1 * 2` both MISS
-  2026-03-01 (croner's `nextRun` steps Feb 23 → Mar 2 across the 28-day February). POSIX ORs the two
-  day fields and fires on the 1st.
+- **Both restricted, croner's `nextRun()` skips real firings.** Swept exhaustively over 2024–2032 ×
+  `dow` 0–6 × `dom` {1, 2, 15, 29, 30, 31}: **20 missed (expression, date) pairs across 14 distinct
+  dates, every one of them in March.** POSIX ORs the two day fields and fires; `nextRun` steps over
+  the day.
+- **It is NOT a 28-day-February artifact** — the first draft of this plan said it was, and that was
+  wrong. The list includes **2024-03-01** and **2028-03-01**, both after a *29-day leap* February.
+  What the sweep supports is narrower and more durable: `nextRun`'s day advance loses `dom`-only
+  matches on the first days of March. Why, is croner's to explain.
+- **The fault is in `nextRun()`, not in the pattern semantics.** `croner.match(date)` agrees with the
+  POSIX oracle **30,660 of 30,660** day-slots (2025–2028 × 28 dom/dow expressions), including every
+  skipped date above. croner *knows* 2026-03-01 matches `0 0 1 * 1`; only its iterator refuses to
+  stop there. That is why no constructor option can avoid it: the supervisor is driven by croner's
+  timer, and the timer is driven by `nextRun`.
 - **`5/10` (numeric-prefix step): croner THROWS**, POSIX accepts it as `5-59/10`.
 - **Names (`MON`), `L`, `#`, `?`, `W`, `@daily`, a 6-field seconds pattern: croner accepts them all**,
   POSIX crontab does not.
 
-So `validate()` refuses everything outside the intersection, and the parity test proves the
-intersection really is shared. Where they cannot agree, the grammar narrows — it never picks a side.
+So `validate()` refuses everything outside the intersection — the whole dom+dow class included,
+because `match` being correct does not help when `nextRun` drives the timer — and the parity test
+proves the intersection really is shared. Where they cannot agree, the grammar narrows — it never picks a side.
 No test asserts that croner is still wrong (that would rot on the next croner release); the
 measurement lives in a comment with its date, and an opt-in `CRON_PARITY_RECHECK=1` re-measures it,
 on N0's `CORPUS_RECHECK` precedent.
@@ -150,10 +183,12 @@ on N0's `CORPUS_RECHECK` precedent.
       prints `1`.
 - [ ] AC2 — for each of `config.ts`, `cron.ts`, `schedule.ts`, `supervisor.ts`, `crontab.ts`,
       `skills.ts`, `lease-clear.ts`, `grep -c` over the §1 range prints at least `1`.
-- [ ] AC3 — every new row carries exactly one milestone tag: over the §1 range,
-      `grep -cE '^\s{2}\S+\.ts\s.*\b(N2|N3|N4)\b'` prints `8` (5 host + 3 cli, minus `jobs/` which is
-      a directory row, plus `jobs/` itself — count what the file actually has and record it in the
-      commit body rather than trusting this number).
+- [ ] AC3 — every new file row carries a milestone tag, and **no count is asserted** — the first
+      draft asserted `8` and then told the builder not to trust the number, which is two
+      instructions where one will do. Run
+      `sed -n '/^## 1\. Target layout/,/^## 2\./p' roadmap.md | grep -E '^  \S+\.ts\s' | grep -vcE '\b(N1|N2|N3|N4|N5|v0|v1)\b'`
+      and confirm it prints `0`: no file row lacks a tag. Record the tagged-row count in the commit
+      body as an observation, never as an assertion.
 - [ ] AC4 — the §1 block still closes before `## 2.`:
       `sed -n '/^## 1\. Target layout/,/^## 2\./p' roadmap.md | tail -1` prints
       `## 2. Feature inventory`.
@@ -282,8 +317,12 @@ exists, and add the two doors ruling 2 needs.
    non-test file under those two roots, refuse a **top-level** call to `projectPath(`, `dbPath(`,
    `mkdirSync(`, `createWriteStream(` or `readFileSync(`. "Top-level" = the call's line begins at
    column 0 or the call appears inside a top-level `const`/`let` initialiser — implement it as: the
-   line matches `^(export )?(const|let|var)\b.*\b(projectPath|dbPath|mkdirSync|createWriteStream)\(`
-   OR the line starts at column 0 and contains one of those calls. Files under `kernel/` are exempt
+   line matches
+   `^(export )?(const|let|var)\b.*\b(projectPath|dbPath|mkdirSync|createWriteStream|readFileSync|writeFileSync)\(`
+   OR the line starts at column 0 and contains one of those calls. **The member list in the regex
+   and the member list in the prose above it must be the same list** — the first draft named
+   `readFileSync` in the prose and dropped it from the pattern three lines later, which is how a
+   door ends up narrower than its own documentation. Files under `kernel/` are exempt
    and stay exempt: `kernel/runtime/log/tail.ts`'s `LOG_ROOTS` is a module-scope `projectPath` on
    purpose, and it is a kernel default, not a host one.
    State in a comment which spelling this cannot see: a top-level call routed through a helper
@@ -402,8 +441,17 @@ export function createGate(names: readonly string[]): Gate;
    reverse and return `null`.
 6. **GAT-06, per-program self-exclusion.** `acquireSelf(key)` over an own `Set`, keyed on the PROGRAM
    (J2.7's `programOf`), never the entry. The release closure is idempotent.
-7. `waitMs` handling in this job is only the non-blocking half: `waitMs <= 0` means "try once, then
-   give up", and **no timer is created at all** on that path. The queue is J2.5.
+7. **The MINIMAL queue ships here, not in J2.5.** The first draft shipped only `waitMs <= 0` in this
+   job and then had its own level-3 liveness walk start an acquire "with a long wait and NOT
+   awaited" — which, with no queue, resolves `null` at once and makes the headline test of GAT-04
+   unperformable at its own commit. So J2.4 ships: a FIFO `queue` per resource, a waiter pushed
+   **synchronously**, `drain()` on release, and the `waitMs <= 0` fast path that creates no timer.
+   J2.5 then owns exactly what its own row is about — **writer priority** (`tryEnter` refusing while
+   anyone is queued) and the **whole-acquisition wait budget** — plus the timeout path and its
+   unwind.
+   Concretely: at this commit `tryEnter` is `admissible(mode)` alone, and J2.5 adds the
+   `queue.length > 0` clause. Drain-on-release therefore passes here; J2.5's writer-priority test is
+   red until J2.5 adds the clause, which is why it is J2.5's test and not this job's.
 
 ### How the test PROVES GAT-04, rather than showing one scenario worked
 
@@ -432,11 +480,28 @@ small, so "exhaustive" is literal.
   releases; `state()` shows every resource at `readers: 0, writer: false, queued: 0`. Both complete
   and nothing leaks, for every pair of multi-resource writers there is.
 
-**What this does and does not prove, stated in the file header so nobody overclaims:** a test cannot
-prove the absence of deadlock in general. It proves the two premises the argument needs — the
-acquisition order is total and caller-independent (level 2), and the exclusion decision is exactly
-the model (level 1) — over the whole finite space, plus the liveness consequence (level 3). The
-argument itself is prose, and it is written down.
+**What this does and does not prove, stated in the module header so nobody overclaims.** A test
+cannot prove the absence of deadlock in general. What the three levels give is: the exclusion
+decision is exactly the model (level 1, all 256 pairs) · the acquisition order is total and
+caller-independent (level 2, all 15 orderings) · and two contending holders both always finish
+(level 3, all 64 writer pairs). A total acquisition order extends that to three or more holders by
+the standard argument, with no further test needed.
+
+**But the argument carries one premise nothing here tests and nothing in the code forbids: NO HOLDER
+EVER ACQUIRES WHILE ALREADY HOLDING.** One task doing `acquire(["c"])` and then, still holding it,
+`acquire(["a"])` breaks the total order — it holds a later resource and wants an earlier one, which
+is precisely the wait-for cycle the fixed order exists to make impossible, and its mirror deadlocks
+against it. The exhaustive walks cannot see this, because every task in them acquires exactly once.
+
+Two things follow, and both are in this job:
+
+- **The premise goes in the module header, in those words, directly above the deadlock argument.** An
+  argument whose premise is unstated reads as a proof of more than it proves, and the first draft of
+  this plan read that way.
+- `runEntry` (J2.11) takes the gate exactly once per tick and holds nothing across the call, which is
+  what makes the premise true for the only caller N2 ships. It is **not** enforced by the gate.
+  Enforcing it — an owner token, a re-entrancy check — is a design change with no second caller to
+  argue with, which is D9's rule. **Flagged in Gaps as a rule the roadmap does not state.**
 
 **Do (tests), one `test()` per group:**
 
@@ -444,7 +509,8 @@ argument itself is prose, and it is written down.
    naming the offending value.
 2. The 256-pair model agreement (level 1).
 3. The 15-ordering normalisation (level 2).
-4. The 64-pair liveness and no-leak walk (level 3).
+4. The 64-pair liveness and no-leak walk (level 3). Performable at this commit because point 7 ships
+   the minimal queue: B's unawaited acquire really parks and A's release really drains it.
 5. GAT-03 stated by name, because the row exists for it: two writers on disjoint resources both hold
    at once — `excl ["a"]` and `excl ["b"]` — and the assertion message says this is the reason the
    gate is per-resource at all.
@@ -529,17 +595,20 @@ proves they did not.
 
 **Do:**
 
-1. Add the FIFO to `ResourceLock`:
-   - `tryEnter(mode)` refuses when **anyone is queued**, even if the mode would otherwise be
-     admissible. That refusal IS the fairness — without it a stream of readers walks past a waiting
-     writer, which is the `flock` starvation this replaces.
-   - `acquire(mode, waitMs)`: `tryEnter` first; `waitMs <= 0` returns `false` with **no timer
-     created**; otherwise push a waiter and arm one `setTimeout(waitMs)`.
-   - On timeout: splice the waiter out, settle `false`, then `drain()` — removing a waiter can
-     unblock the ones behind it, and nothing else would notice until the current holder happens to
-     release.
-   - `release(mode)` then `drain()`: hand the resource to as many queue-heads as can share it; a
-     writer takes it alone and `drain` stops.
+1. J2.4 already ships the FIFO, the synchronous push and `drain()` on release. This job adds the
+   three things GAT-05 is actually about:
+   - **Writer priority.** `tryEnter(mode)` refuses when **anyone is queued**, even if the mode would
+     otherwise be admissible. That refusal IS the fairness — without it a stream of readers walks
+     past a waiting writer, which is the `flock` starvation this replaces.
+   - **The timeout.** `acquire(mode, waitMs)` with `waitMs > 0` arms one `setTimeout(waitMs)`
+     alongside the waiter. On fire: splice the waiter out, settle `false`, then `drain()` — removing
+     a waiter can unblock the ones behind it, and nothing else would notice until the current holder
+     happens to release.
+   - **The unwind on timeout.** A multi-resource acquire that holds resources `0…k-1` and then times
+     out on resource `k` must release what it holds before returning `null`. J2.4 covers this for
+     the `waitMs = 0` path; the timeout path is a **different code path** and the first draft never
+     restated it. It is the one failure that strands the gate forever, with no owner left to release
+     it, so it gets its own test (group 7).
    - The timer is **not** `unref`ed. A pass parked at the gate is real pending work; an unref'd timer
      lets the loop drain out from under it and the promise never settles, so the caller hangs forever
      instead of skipping its tick. `main()`'s drain path calls `process.exit` explicitly (J2.13), so
@@ -569,25 +638,51 @@ proves they did not.
    writer queued behind it with a long wait; let the reader time out; release the holder; the queued
    writer resolves truthy.
 6. **The budget is whole-acquisition, not per resource.** A writer holds `["c"]`; a writer on
-   `["a","c"]` with `waitMs = 50` returns `null`, and the elapsed time is asserted only as a lower
-   bound (`>= 40`) on the SAME timer as group 4 — i.e. the assertion is that it did not wait 100 ms
-   for two resources. Express it as `elapsed < 2 * 50`, and note in the comment that this is an upper
-   bound and therefore an exception (table below).
+   `["a","c"]` with `waitMs = 50` returns `null`, and the elapsed time is asserted as
+   `elapsed < 2 * 50` — the failure it catches is a *per-resource* budget, which would take a full
+   100 ms. An upper bound, and therefore an exception (table below).
+7. **The unwind on timeout — the one failure that strands the gate forever.** A writer holds `["c"]`
+   only. A second writer asks for `["a","c"]` with `waitMs = 50`: it takes `a` at once, parks on
+   `c`, and times out. Assert it returned `null` **and** that `a` is free afterwards —
+   `await gate.acquire("excl", ["a"], 0)` succeeds, and `state().resources.a` shows
+   `{ readers: 0, writer: false, queued: 0 }`. Without the unwind, `a` is held by a caller that no
+   longer exists and no release will ever come.
+8. **Mixed reader/writer liveness across MULTIPLE resources.** Level 3 in J2.4 walks writer pairs
+   only, and group 3 above covers readers on one resource. This is the gap between them: a reader
+   holds all three; a writer queues on `["a","b"]`; a second reader queues behind it; release the
+   first reader; assert the writer takes `a` and `b` together, then release the writer and assert
+   the second reader gets in. Three parties, two resources, and every step observed through
+   `state()` with no timer.
 
 ### Timing assertions in N2 — the exceptions table
 
-Every other assertion in this phase is synchronous or a lower bound. These are the exceptions.
+Every other assertion in this phase is synchronous or awaits an already-settled promise. **The first
+draft claimed three exceptions and had five**, and two of the missing ones were upper bounds — the
+flaky direction — sitting in J2.8 with no entry here. All five are listed.
 
-| Where | Assertion | Direction | Headroom | Why it cannot race |
-|---|---|---|---|---|
-| J2.5 group 4 | `elapsed >= 40` for `waitMs = 50` | lower | 10 ms | A loaded host makes a wait longer, never shorter. Node's `setTimeout` does not fire before its delay. |
-| J2.5 group 6 | `elapsed < 100` for `waitMs = 50` over two resources | upper | 50 ms | The failure it catches is a *per-resource* budget, which would take 100 ms exactly. 50 ms of headroom on a 50 ms timer. |
-| J2.11 group 7 | second spawn starts `>= 20` ms after the first, with `spawnStaggerMs = 30` | lower | 10 ms | Same direction as J2.5 group 4. |
+| # | Where | Assertion | Direction | Headroom | Why it cannot race |
+|---|---|---|---|---|---|
+| 1 | J2.5 group 4 | `elapsed >= 40` for `waitMs = 50` | lower | 10 ms | A loaded host makes a wait longer, never shorter. Node's `setTimeout` does not fire before its delay. |
+| 2 | J2.5 group 6 | `elapsed < 100` for `waitMs = 50` over two resources | **upper** | 50 ms (100%) | The failure it catches is a *per-resource* budget, which takes a full 100 ms. 50 ms of headroom on a 50 ms timer. |
+| 3 | J2.8 test 10 | `gateWait("* * * * *")` returns in `< 1000` ms | **upper** | ~1000× | Measured: with the early stop the call is **1 ms** (2 `nextRun` calls); without it, **6.4 s** (30,240 calls). Three orders of magnitude either side of the bound. |
+| 4 | J2.8 test 11 | the memoised second `gateWait` call is `< 100` ms | **upper** | ~100× | Same measurement: 1 ms served, and the un-memoised path it guards is seconds. Asserted as a flat bound, never as a ratio between two sub-millisecond numbers. |
+| 5 | J2.11 group 7 | second spawn starts `>= 20` ms after the first, with `spawnStaggerMs = 30` | lower | 10 ms | Same direction as row 1. |
+
+Two lower bounds (1, 5) and three upper ones (2, 3, 4). Rows 3 and 4 are upper bounds but not races:
+each guards a difference of three orders of magnitude, not a difference of tens of milliseconds. Row 2 is the only upper bound whose headroom is of the same
+size as the thing it measures; if it ever flakes the fix is to raise `waitMs` to 200 and keep the
+`< 2×` shape, never to delete the assertion.
+
+**One `testDeps` default is load-bearing for this budget: `spawnStaggerMs = 0`.** `spawnChain` in
+`kernel/runtime/pool.ts` is module-global and never resets, so `node --test` running one file in one
+process means every `runEntry` call in that file joins the same chain. At the default 2000 ms, the
+37 tests in `host/supervisor.test.ts` would serialise into over a minute and blow J2.14 AC1. Only
+group 7, which is about the stagger, sets a non-zero value.
 
 **Acceptance criteria:**
 
-- [ ] AC1 — `npm test` exits 0 and `kernel/runtime/gate.test.ts` reports 17 passing tests (11 from
-      J2.4 + 6).
+- [ ] AC1 — `npm test` exits 0 and `kernel/runtime/gate.test.ts` reports 19 passing tests (11 from
+      J2.4 + 8).
 - [ ] AC2 — **the gate fires on writer priority.** Delete the `this.queue.length > 0` clause from
       `tryEnter`. `npm test` exits non-zero on group 2 — the later reader overtakes. Revert. This is
       GAT-05's whole content and the mutation is one condition.
@@ -599,10 +694,17 @@ Every other assertion in this phase is synchronous or a lower bound. These are t
       instead of the remaining budget. `npm test` exits non-zero on group 6. Revert.
 - [ ] AC5 — **the gate fires on the drain-after-timeout.** Delete the `this.drain()` call in the
       timeout handler. `npm test` exits non-zero on group 5. Revert.
+- [ ] AC5b — **the gate fires on the timeout unwind.** Delete the reverse-release loop from the
+      *timeout* branch of `acquire` (leaving J2.4's `waitMs = 0` branch intact, so J2.4's own
+      stranding test still passes and only the new path goes red). `npm test` exits non-zero on
+      group 7. Revert. Two branches, two tests — that is the point of splitting them.
+- [ ] AC5c — **the gate fires on multi-resource mixed liveness.** Change `drain()` to `if` instead of
+      `while`, so only one queue-head is ever handed the resource. `npm test` exits non-zero on
+      group 8 (and on group 3). Revert.
 - [ ] AC6 — `grep -c 'setTimeout' kernel/runtime/gate.test.ts` prints `0`: the tests never create a
       timer of their own. The only timers in play are the gate's own, driven by `waitMs`.
 - [ ] AC7 — `time node --test kernel/runtime/gate.test.ts` stays under 3 seconds. The only real waits
-      are three 50 ms timeouts.
+      are four 50 ms timeouts.
 
 **Commit:** `Gate FIFO with writer priority, and a wait budget that spans the whole acquisition (GAT-05)`
 
@@ -733,8 +835,10 @@ ever run.
 - [ ] AC1 — `npm test` exits 0 and `host/config.test.ts` reports 7 passing tests.
 - [ ] AC2 — **the INS-05 path gate fires.** Add a row
       `{ name: "hostwide", path: "/var/lib/doppelganger", why: "probe" }` to `RESOURCES`. `npm test`
-      exits non-zero on test 3 naming `hostwide` and the escape. Revert. This is the mutation §5 Q1's
-      constraint exists for.
+      exits non-zero on test 3: `projectPath("/var/lib/doppelganger")` **throws** `escapes ROOT
+      (INS-02)` and the test asserts `doesNotThrow`, so the throw is the failure. (The first draft
+      wrote "does not throw", which describes the passing case, not the mutation.) Revert. This is
+      the mutation §5 Q1's constraint exists for.
 - [ ] AC3 — **the INS-05 independence gate fires.** Change `createGate` to memoise gates by their
       joined name list (a singleton by the back door). `npm test` exits non-zero on test 4. Revert.
 - [ ] AC4 — **the window gate fires.** Change `inRefreshWindow` to a closed interval
@@ -879,13 +983,21 @@ derive `gateWait(cron)` from croner itself so **no cron parser ships in producti
 - `/home/hyhilman/projects/me/doppelganger/host/cron.ts` (new)
 - `/home/hyhilman/projects/me/doppelganger/host/cron.test.ts` (new)
 - `/home/hyhilman/projects/me/doppelganger/test/deps.test.ts` (new)
+- `/home/hyhilman/projects/me/doppelganger/test/knobs.test.ts` (`ROWS` + `readers`)
 - `/home/hyhilman/projects/me/doppelganger/roadmap.md` (§2.27: `GATE_WAIT_CAP_S`)
+
+**Every job below that lands an `EnvSpec` row also touches `test/knobs.test.ts`, and it is not
+optional.** Since N1 F3 closed the `>=` hole, assertion 2 is an exact `deepEqual` between the keys
+scanned out of the tree and the curated `ROWS` list — so a new row with no `ROWS` entry fails the
+suite in the commit that adds it. The first draft of this plan omitted `knobs.test.ts` from four
+jobs' `Files touched` (J2.8, J2.11, J2.13, J2.16) and every one of them would have shipped red.
 
 ### The dependency question, answered plainly
 
 **N2 adds `croner`, pinned exactly at `10.0.1`, as a root `dependencies` entry.** Node ships no cron
 scheduler and no cron parser; there is no `node:` builtin to prefer, which is the only reason N0 and
-N1 could get to 199 tests with two devDependencies.
+N1 could get to **200 tests (199 pass, 1 skip)** with two devDependencies. Measured, not recalled — the
+first draft wrote "199 tests", which is the pass count, not the total.
 
 Why the alternative was rejected: writing the parser instead would make SUP-07 circular. The row
 demands croner-vs-POSIX parity, and **parity with what** if croner is not there? The whole value of
@@ -938,7 +1050,12 @@ export function parseFive(expr: string): { ok: true } | { ok: false; problems: r
 export function firings(expr: string, fromMs: number, toMs: number, stopAtS?: number): number[];
 export function tickSeconds(expr: string, days?: number, stopAtS?: number): number;
 export function gateWait(expr: string): number;     // memoised; min(tick || cap, cap)
-export function newTimer(e: ScheduleEntry, fn: () => void): { stop(): void };
+export interface Timer {          // the slice of croner's `Cron` this repo depends on
+  readonly name: string | undefined;
+  nextRun(from?: Date): Date | null;
+  stop(): void;
+}
+export function newTimer(e: ScheduleEntry, fn: () => void): Timer;
 ```
 
 **`CRON_ANCHOR` is Sunday 22 February 2026, 00:00 UTC**, and every window in N2 starts there. Three
@@ -970,17 +1087,30 @@ in a comment.
    - `newTimer` = `new Cron(e.cron, { timezone: "UTC", name: e.name, protect: false, catch: true },
      fn)`. `protect: false` on purpose: overlap is a per-PROGRAM property and `PROGRAMS[].self` is
      where it is already stated; two mechanisms for one question is how they drift apart.
+     **A live `Cron` holds the event loop open** — measured: `timeout 5 node -e '<construct one>'`
+     exits **124**, and the same script with a `stop()` exits **0**. The return type is `Timer`
+     above, not `{ stop(): void }`, because the test asserts `nextRun()` and `name`, and because
+     `stop()` is the only thing that lets a process — or a `node --test` file — exit. Any test that
+     builds a live timer must `stop()` it in a `finally`, and the module header says so.
    - Add `GATE_WAIT_CAP_S` to §2.27's Core/paths list in the same commit (`knobs.test.ts` assertion 6
      requires it), with the row's `why`: *"longest a gate writer may block — a job whose own tick is
      rarer than this waits the cap, not its interval"*.
 3. Write `test/deps.test.ts`, on `test/no-raw-sqlite.test.ts`'s shape:
    - the set of files importing `croner` equals `{ "host/cron.ts" }`, matched with a regex covering
-     **every spelling**: `from "croner"`, `require("croner")`, and a dynamic `import("croner")`
-     — the same three-form pattern `no-raw-sqlite.test.ts` uses, for the same reason.
+     **four** spellings: `from "croner"`, `require("croner")`, a dynamic `import("croner")`, and
+     **the bare side-effect form `import "croner";`** — no `from` clause at all.
+     **The fourth is the one this repo has now missed four times.** Measured: `import "croner";`
+     resolves and loads the module, and `no-raw-sqlite.test.ts`'s three-form pattern — which this
+     test was going to copy — does not see it. `LOOP.md`'s standing rule exists because N1 shipped
+     three gates that matched one spelling; this would have been the fourth.
    - the set of **bare package specifiers** (not `node:`, not relative) across every non-test `.ts`
      under `kernel/`, `host/`, `cli/` equals `{ "croner" }`, and each is declared in the root
-     `dependencies`. This is TST-25's narrow form, shipped by the phase that creates the first
-     dependency; the general per-workspace form arrives at N5.
+     `dependencies`. The scan must match a specifier in **all four positions** too, not only after
+     `from` — one shared `SPECIFIER_RE` used by both clauses, so the two cannot drift. This is
+     TST-25's narrow form, shipped by the phase that creates the first dependency; the general
+     per-workspace form arrives at N5.
+   - a comment naming what the scan cannot see: a specifier built by concatenation, or one held in a
+     variable and passed to a dynamic import. Accepted and written down, per LOOP.md.
    - `kernel/` names no bare specifier at all — the published package stays dependency-free.
    - `node_modules/croner/package.json` has no non-empty `dependencies`.
    - `package.json`'s `croner` version has no range character (`^`, `~`, `*`, `>`, `<`) and equals
@@ -1009,6 +1139,12 @@ in a comment.
    `tickSeconds > 0`, `gateWait(expr) <= tickSeconds(expr)`. Waiting longer than your own interval is
    strictly worse than skipping — you hold your self-lock through the ticks you are waiting for, so
    you cause the skips you were trying to avoid.
+   **The corpus for THIS test excludes `* * * * *`, and the reason is a measurement, not taste.**
+   The invariant needs the true tick, so it calls `tickSeconds` **without** `stopAtS` — and for
+   `* * * * *` that is 30,240 `nextRun` calls, measured at **6.4 s**, which alone breaks AC8's
+   "under 5 seconds" budget for the whole suite. `*/5 * * * *` (6,048 firings, ~1.3 s) is the densest
+   expression this test walks and it exercises the same code path. A comment carries both numbers so
+   nobody adds the every-minute case back without seeing the price.
 10. **The early stop is real and is what makes this usable.** `gateWait("* * * * *")` returns 60, and
     the call completes in under 100 ms. Without the early stop the same call enumerates 30,240
     firings and takes about 5 s. Recorded as a *lower-bound-free* assertion: assert only
@@ -1016,24 +1152,39 @@ in a comment.
     sub-10 ms success. Comment names both measurements.
 11. Memoisation: `gateWait` called twice on the same expression returns the same value and the second
     call is not slower — asserted as "both under 100 ms", not as a ratio.
-12. `newTimer` builds a paused-capable pattern for a fixture entry: the returned object's `nextRun()`
-    is non-null and its name equals the entry name. **We do not test that croner's timer fires** —
-    that would cost a minute of wall clock and would test croner. What we test is that the pattern
-    croner will fire on is the pattern POSIX fires on, and that is J2.10.
+12. `newTimer` builds a live timer for a fixture entry: the returned object's `nextRun()` is
+    non-null and its `name` equals the entry name. **The timer is stopped in a `finally`** — a live
+    `Cron` keeps the event loop open (measured above), so without the `stop()` this one test hangs
+    `node --test` for the whole file. Assert afterwards that `nextRun()` still answers, so `stop()`
+    is not silently a `dispose()`.
+    **We do not test that croner's timer fires** — that would cost a minute of wall clock and would
+    be a test of croner. What we test is that the pattern croner will fire on is the pattern POSIX
+    fires on, and that is J2.10.
 
 **Acceptance criteria:**
 
 - [ ] AC1 — `npm test` exits 0; `host/cron.test.ts` reports 12 passing tests and `test/deps.test.ts`
-      reports 5.
+      reports 5. `test/knobs.test.ts` still reports 7, now with `GATE_WAIT_CAP_S` in `ROWS`.
 - [ ] AC2 — `npm ci` in a fresh clone of this commit exits 0 and `npm test` exits 0 there — the
       lockfile is in the same commit. Record the clone path in the commit body.
-- [ ] AC3 — `node -e "console.log(require('./package.json').dependencies)"` prints
-      `{ croner: '10.0.1' }` exactly, with no range character.
+- [ ] AC3 — assert on a **field**, not on an object dump:
+      `node -e "console.log(require('./package.json').dependencies.croner)"` prints `10.0.1` — a bare
+      string with no `^`, `~` or other range character. (`console.log` of the object itself can print
+      a `[Object: null prototype]` prefix depending on how the JSON was parsed, which makes an
+      eyeball comparison unreliable; a field read cannot.)
 - [ ] AC4 — **the import gate fires.** Add `import { Cron } from "croner";` plus a use
       (`export const probe = (): unknown => Cron;`) to `kernel/runtime/gate.ts`. `npm test` exits
       non-zero on `test/deps.test.ts` naming `kernel/runtime/gate.ts` in two assertions — the
       croner-importers set and the "kernel names no bare specifier" clause. Revert. The mutation
       consumes the binding, so TS6133 cannot pre-empt it.
+- [ ] AC4b — **the fourth spelling is really covered.** Add the bare side-effect line
+      `import "croner";` to `kernel/runtime/gate.ts` — nothing to consume, so `noUnusedLocals` has
+      nothing to say and the file still typechecks. `npm test` exits non-zero on the same two
+      assertions. Revert. Run this one even if AC4 passed: AC4 passes with a three-spelling regex
+      and this one does not, which is the whole point.
+- [ ] AC4c — **the knob row is registered.** Remove `GATE_WAIT_CAP_S_ENV` from `ROWS` in
+      `test/knobs.test.ts` while leaving the row in `host/cron.ts`. `npm test` exits non-zero on
+      knobs assertion 2. Restore.
 - [ ] AC5 — **the grammar gate fires.** Delete the dom+dow clause from `parseFive`. `npm test` exits
       non-zero on test 2's `0 0 1 * 1` case. Revert.
 - [ ] AC6 — **the early-stop gate fires.** Remove the `stopAtS` argument from `gateWait`'s call into
@@ -1147,29 +1298,32 @@ Then: `if (errs.length) throw new Error("host/schedule.ts is invalid:\n  - " + e
 
 **Do (tests, `host/validate.test.ts`):**
 
-1. `validate()` over the live `SCHEDULE` does not throw — the assertion that matters on any given
-   night, vacuous today and load-bearing from N3.
-2. `validate([])` does not throw, with the decision in the title.
-3. The baseline fixture validates, so every refusal below is about the field it changed.
-4. One `it()` per rule, 1–23. Each breaks exactly one field of the baseline and asserts the thrown
+1. `validate([])` does not throw, with the decision in the title: *"an empty schedule is valid by
+   decision — the first entry needs a job (N3) or the watchdog script (N4)"*.
+   **The first draft also had a `validate(SCHEDULE)` test. It is deleted.** With `SCHEDULE = []` it
+   is the same call as this one wearing a different name, and a test that cannot fail is worse than
+   no test: it reads, in a review, as coverage of the live schedule. N3 adds it back on the day
+   there is something in there.
+2. The baseline fixture validates, so every refusal below is about the field it changed.
+3. One `it()` per rule, 1–23. Each breaks exactly one field of the baseline and asserts the thrown
    message matches a rule-specific regex. Rules needing a real file on disk (10, 11) point `jobsDir`
    and `root` at a `mkdtempSync` directory the test writes into and removes.
-5. Every fault is reported, not just the first: two entries with different broken fields, and both
+4. Every fault is reported, not just the first: two entries with different broken fields, and both
    appear in one message.
-6. The `%` rule is scoped: refused on a `supervised: false` entry, accepted escaped (`50\%`), ignored
+5. The `%` rule is scoped: refused on a `supervised: false` entry, accepted escaped (`50\%`), ignored
    on a supervised entry. Three assertions in one test — a negative filter is the kind that reads as
    dead code until someone drops it and the one bootstrap entry silently gains a truncated command.
 
 **Acceptance criteria:**
 
-- [ ] AC1 — `npm test` exits 0 and `host/validate.test.ts` reports 29 passing tests (23 rules + 6).
+- [ ] AC1 — `npm test` exits 0 and `host/validate.test.ts` reports 28 passing tests (23 rules + 5).
 - [ ] AC2 — **each rule is really reachable.** For each of the 23, the corresponding `it()` fails when
       that single rule is deleted from `validate`. Prove it for the five most easily broken —
       rules 2, 6, 17, 21, 22 — by deleting each in turn, running
       `node --test host/validate.test.ts`, recording the failing test's name, and reverting. Record
       the five names in the commit body.
 - [ ] AC3 — **the collect-all behaviour fires.** Change the loop to `return` on the first error.
-      `npm test` exits non-zero on test 5. Revert.
+      `npm test` exits non-zero on test 4. Revert.
 - [ ] AC4 — `validate()` with no arguments over the real, empty `SCHEDULE` prints nothing and returns
       `undefined`: `node -e "import('./host/schedule.ts').then(m=>{m.validate();console.log('ok')})"`
       prints `ok`.
@@ -1216,10 +1370,18 @@ Three properties make it an oracle rather than a second copy of our own bug:
    across a matcher and an iterator is very unlikely; the reference's own file makes this argument
    and then quietly reuses `cron/lib.ts`'s `expand()` in `tickSeconds`, which is the mistake this
    plan avoids by not shipping an expander at all.
-2. **It is STRICT: it throws on anything it cannot expand.** This is the correction the reference
-   needs. Its oracle does `expand(dow, 0, 6)`, so `0 0 * * 7` yields an EMPTY set, the expression
-   reads as "never fires", and a real crontab would have fired it every Sunday. Same for `MON`
-   (`Number("MON")` is `NaN`). A silently empty set is how a parity test passes over a hole.
+2. **It is STRICT: it throws on anything it cannot expand**, and the reason is narrower than the
+   first draft claimed. That draft said the reference's parity test "passes over a hole". **It does
+   not** — measured: `engine/cron/schedule-croner.test.ts` line 81 already carries
+   `assert.ok(expected.length > 0, …)`, and for `0 0 * * 7` the oracle yields 0 firings while croner
+   yields 2, so the test goes **RED**. The true objection is about the message, and it is still
+   enough to justify throwing: the failure reads *"`0 0 * * 7` fires at least once in 14 days"*,
+   which tells the reader their expression is too sparse, when the real fault is that the oracle
+   cannot parse `7`. A wrong diagnosis on a 3am failure costs more than the failure.
+   And the guard only holds where the expression fires **zero** times. `0 0 * * 1,7` fires on
+   Mondays, so `expected.length > 0` passes while the oracle silently drops every Sunday — a
+   **partial** expansion the count guard cannot see at all. Throwing catches both; counting catches
+   one.
 3. **It is pinned by literal data, not only by agreement with croner.** A table of hand-computed
    minute sets — the reference's "the step forms this schedule actually relies on" block — so if
    croner and the oracle ever agree on something wrong, the table still disagrees.
@@ -1240,16 +1402,24 @@ Why this fortnight and not the reference's 1–15 February: it **crosses a month
 
 ### What the sweep measured, 2026-08-26, croner 10.0.1 / Node 22.23.1
 
-| class | cases | agree | disagree |
+| what was swept | slots | agree | disagree |
 |---|---|---|---|
-| exactly one of `dom`/`dow` restricted (8 minute forms × 5 hour forms × 8 day forms) | 320 | **320** | 0 |
-| both restricted, swept over all twelve 2026 month-rolls | 336 | 334 | **2** |
+| exactly one of `dom`/`dow` restricted (8 minute × 5 hour × 8 day forms, 14-day window) | 320 | **320** | 0 |
+| `croner.match(date)` vs the oracle, 2025–2028 × 28 dom/dow expressions, day by day | 30,660 | **30,660** | 0 |
+| `croner.nextRun()` vs the oracle, 2024–2032 × `dow` 0–6 × `dom` {1,2,15,29,30,31} | 42 expressions | — | **20 missed (expression, date) pairs, 14 distinct dates** |
 
-The two: `0 0 1 * 1` and `0 0 1 * 2`, both across the February→March 2026 roll. croner's `nextRun`
-steps 2026-02-23 → 2026-03-02 and **never emits 2026-03-01**, while POSIX ORs the day fields and
-fires on the 1st. It is not a window artifact: from an explicit cursor of `2026-02-28T23:59Z`,
-`nextRun` returns `2026-03-02T00:00Z`. Neighbouring cases behave: `0 0 1 * 3` DOES fire on
-2026-03-01, and `0 0 1 * 1` DOES fire on 2026-05-01.
+Every missed date is in **March**. The list includes **2024-03-01** and **2028-03-01**, both after a
+**29-day leap February** — so the first draft's "28-day February" explanation was wrong and is
+withdrawn. What the sweep supports: `nextRun`'s day advance loses `dom`-only matches on the first
+days of March. It is not a window artifact either — from an explicit cursor of `2026-02-28T23:59Z`,
+`nextRun` returns `2026-03-02T00:00Z`.
+
+**The middle row is the important one.** `match()` is right everywhere, including on every skipped
+date, so croner's pattern semantics agree with POSIX exactly and only its **iterator** is wrong.
+That is why no constructor option fixes it: the supervisor is driven by croner's timer and the timer
+is driven by `nextRun`. Neighbouring cases behave normally — `0 0 1 * 3` DOES fire on 2026-03-01 and
+`0 0 1 * 1` DOES fire on 2026-05-01 — which is what makes this the silent class rather than an
+obvious breakage.
 
 **Therefore `validate()` refuses dom+dow both restricted (J2.9 rule 4/`parseFive`), and this file's
 corpus contains only expressions `validate()` accepts.** Where two implementations cannot agree, the
@@ -1301,38 +1471,50 @@ its comment says why (it is the shape N4's `ops-lease-reap` will use); a second 
 
 1. **Parity over the corpus.** For each form: enumerate croner's firings in `[START, END)` and the
    oracle's matching minutes, assert both are non-empty (a form that fires zero times in 14 days
-   proves nothing and is how an empty-set bug hides), and `assert.deepEqual` the two ISO-minute
-   lists. On failure the message names the form and the first differing minute.
-2. **Parity over the live schedule.** The same, for every `SCHEDULE` entry's `cron`. Vacuous today;
-   the test asserts `SCHEDULE.length >= 0` and says in a comment that it becomes the load-bearing
-   half at N3.
-3. **The oracle is pinned by literal data.** A table of `[expression, minutes[]]` — the nine step
+   proves nothing), and `assert.deepEqual` the two ISO-minute lists. On failure the message names
+   the form and the first differing minute.
+   **There is no separate "parity over the live `SCHEDULE`" test.** The first draft had one and it
+   asserted `SCHEDULE.length >= 0`, which cannot fail. Instead, the corpus is built as
+   `[...FORMS, ...SCHEDULE.map(e => e.cron)]` in **this same test**, so N3's first entry is walked
+   the day it lands with no test to remember to add.
+2. **The oracle is pinned by literal data.** A table of `[expression, minutes[]]` — the nine step
    forms from the reference plus `0-59/60` and `*/13` — asserting the distinct minute values the
    oracle produces. A regression here reads as "the job is just quiet lately" rather than as a fault,
    which is why it is spelled out separately.
-4. **The oracle is strict.** For each of `0 0 * * MON`, `0 0 L * *`, `5/10 * * * *`, `0 0 * * 8`,
+3. **The oracle is strict.** For each of `0 0 * * MON`, `0 0 L * *`, `5/10 * * * *`, `0 0 * * 8`,
    `10-5 * * * *`: the oracle THROWS. Not "returns empty" — the assertion is `assert.throws`, and the
    comment names the reference bug this closes.
-5. **`7` is Sunday on both sides.** `0 0 * * 7` and `0 0 * * 0` produce identical firing lists from
+4. **`7` is Sunday on both sides.** `0 0 * * 7` and `0 0 * * 0` produce identical firing lists from
    croner AND from the oracle, and `0 0 * * 0-7` produces the same list as `0 0 * * *` at midnight.
-6. **The corpus is inside the grammar.** Every form in `FORMS` is accepted by `parseFive`. A form
+5. **The corpus is inside the grammar.** Every form in `FORMS` is accepted by `parseFive`. A form
    `validate()` would refuse has no business being asserted as shared.
-7. **The refused class is refused.** For each of the measured divergences (`0 0 1 * 1`,
-   `0 0 1 * 2`) and each croner-only extension (`0 0 L * *`, `0 0 * * 5#2`, `@daily`,
+6. **The refused class is refused.** For each of two measured `nextRun` divergences (`0 0 1 * 1`,
+   `0 0 1 * 2` — two of the twenty, chosen because their skipped date is inside this file's own
+   window) and each croner-only extension (`0 0 L * *`, `0 0 * * 5#2`, `@daily`,
    `0 0 0 * * *`, `0 0 * * MON`), `parseFive` reports a problem. This is the live half of the
    divergence story and it never mentions croner's behaviour, only our grammar's.
-8. **The opt-in re-measure.** Under `CRON_PARITY_RECHECK=1` only, run the dom+dow sweep across all
-   twelve 2026 month-rolls and `console.error` the disagreeing expressions and their windows. Skipped
-   by default with `t.skip("set CRON_PARITY_RECHECK=1 to re-measure the croner/POSIX dom+dow
-   divergence")`. It asserts nothing — it reports, so a future reader can see whether the reason for
-   grammar rule "dom+dow" still holds without a test that rots.
+7. **The opt-in re-measure.** Under `CRON_PARITY_RECHECK=1` only, run **both** sweeps and
+   `console.error` what they find:
+   - `nextRun` vs the oracle over 2024–2032 × `dow` 0–6 × `dom` {1, 2, 15, 29, 30, 31}, printing
+     every missed (expression, date) pair. Recorded here as 20 pairs over 14 distinct dates, all in
+     March — printed, never asserted, so a croner fix shows up as a shorter list rather than as a
+     red suite.
+   - `match()` vs the oracle over the same expressions, day by day for 2025–2028, printing the
+     agreement count. Recorded here as 30,660 of 30,660. **This is the sweep that says WHERE the
+     fault is**, and it is the one a future reader needs to decide whether the dom+dow refusal is
+     still the right rule or whether croner fixed its iterator.
+   Skipped by default with `t.skip("set CRON_PARITY_RECHECK=1 to re-measure the croner nextRun/match
+   split")`. It asserts nothing.
 
 **Acceptance criteria:**
 
-- [ ] AC1 — `npm test` exits 0 and `host/parity.test.ts` reports 7 passing tests and 1 skipped.
-- [ ] AC2 — `CRON_PARITY_RECHECK=1 node --test host/parity.test.ts` exits 0, reports 8 tests, and
-      prints two disagreeing expressions (`0 0 1 * 1`, `0 0 1 * 2`) with the February 2026 window.
-      Record the output in the commit body — that is the measurement this plan is asserting in prose.
+- [ ] AC1 — `npm test` exits 0 and `host/parity.test.ts` reports 6 passing tests and 1 skipped.
+- [ ] AC2 — `CRON_PARITY_RECHECK=1 node --test host/parity.test.ts` exits 0, reports 7 tests, and
+      prints the `nextRun` skip list for 2024–2032 — **a count, not a fixed pair**. The measurement
+      recorded here is 20 (expression, date) pairs over 14 distinct dates, all in March; the recheck
+      prints whatever it finds and asserts nothing, so a croner fix shows up as a shorter list
+      rather than as a red suite. Record the output in the commit body. (The first draft said
+      "exactly two disagreeing expressions", which was the 2026-only slice of a much larger list.)
 - [ ] AC3 — **the parity gate fires.** Change the oracle's day rule from OR to AND when both fields
       are restricted. Every corpus form has a `*` in at least one day field, so nothing moves —
       **which is the point**: add `0 0 13 * 5` to `FORMS` temporarily, and now test 1 fails naming
@@ -1341,14 +1523,21 @@ its comment says why (it is the shape N4's `ops-lease-reap` will use); a second 
 - [ ] AC4 — **the strictness gate fires.** Change the oracle's `expand` to return an empty set instead
       of throwing on an unparseable token. `npm test` exits non-zero on test 4. Revert. This is the
       reference's live bug and the mutation restores it exactly.
-- [ ] AC5 — **the non-empty gate fires.** Remove the `expected.length > 0` assertion from test 1 and
-      make the oracle return empty for `0 0 * * 7`. `npm test` still passes — proving the assertion
-      is what catches it. Restore the assertion; `npm test` now fails. Revert both. Record both runs.
+- [ ] AC5 — **the strictness gate catches what a count guard cannot.** The first draft's version of
+      this AC was unperformable: it claimed that removing `expected.length > 0` and making the
+      oracle return empty for `0 0 * * 7` would still pass — measured, `deepEqual([2 firings], [])`
+      fails either way. The performable mutation is a **silently partial** expansion: make the
+      oracle's `expand` skip the value `7` inside a comma list instead of throwing, and add
+      `0 0 * * 1,7` to `FORMS`. The expression still fires (Mondays), so `expected.length > 0`
+      passes, and only `assert.deepEqual` and the strictness test catch the dropped Sundays.
+      `npm test` exits non-zero on tests 1 and 3. Revert both. **Record that the count guard alone
+      passes this mutation** — that is the sentence this whole oracle design rests on.
 - [ ] AC6 — **the window is pinned.** `grep -c 'Date.now' host/parity.test.ts` prints `0`, and the
       file imports `CRON_ANCHOR` from `host/cron.ts` rather than re-spelling a date:
       `grep -c 'CRON_ANCHOR' host/parity.test.ts` prints at least `1`.
-- [ ] AC7 — `time node --test host/parity.test.ts` stays under 20 seconds. Measured budget: ~7 s of
-      croner plus the oracle's walk. If it is slower, a second dense expression was added — the
+- [ ] AC7 — `time node --test host/parity.test.ts` stays under 20 seconds. Measured budget: 22 forms,
+      ~34,000 firings, **7.0–7.8 s** of croner (measured twice, independently) plus about 100 ms for
+      the oracle's walk. If it is slower, a second dense expression was added — the
       corpus comment says to say why.
 
 **Commit:** `Croner-vs-POSIX parity over a fixed 14-day window, with a strict independent oracle (SUP-07, TST-15)`
@@ -1376,6 +1565,7 @@ and a wall-clock bound that releases the locks when a pass wedges.
 - `/home/hyhilman/projects/me/doppelganger/host/supervisor.ts` (new)
 - `/home/hyhilman/projects/me/doppelganger/host/supervisor.test.ts` (new)
 - `/home/hyhilman/projects/me/doppelganger/kernel/config.ts` (add `parentEnv`)
+- `/home/hyhilman/projects/me/doppelganger/test/knobs.test.ts` (`ROWS` + `readers`, three new rows)
 - `/home/hyhilman/projects/me/doppelganger/roadmap.md` (§2.27: three supervisor knobs)
 
 ### `deps`, and why every field is required
@@ -1422,8 +1612,15 @@ the argv block and nothing calls it, because `SCHEDULE` is empty.
 4. acquireSelf(program)            → null? log warn lock-held mode=self, return  (GAT-06)
 5. gate !== "none" → acquire(mode, resources, gateWait)                 (GAT-08)
                      null? log warn lock-held, releaseSelf, return
-6. spawnChild(...)  finally { hold?.release(); releaseSelf(); }
+6. draining? → log info drain-skipped, return                           (J2.13's stop())
+7. await spawnSlot(spawnStaggerMs)   ← HOLDS THE GATE. See below.       (HRN-18)
+8. draining? → log info drain-skipped, return
+9. spawn(...)       finally { hold?.release(); releaseSelf(); }
 ```
+
+**Step 7 is in the numbered list, not only in prose under "The child".** The first draft buried it,
+and a step that holds the gate for up to `SUPERVISOR_SPAWN_STAGGER_MS` belongs where the order is
+argued, not in a paragraph three screens down.
 
 Steps 2 and 3 are **before** the self-lock and the gate because a skipped tick should cost nothing
 and hold nothing. Step 4 is **before** step 5 because that is GAT-09's whole content: a pass that
@@ -1443,10 +1640,36 @@ contended tick SKIPS, because the next tick sees the same work.
 - `spawn(cmd, args, { cwd: deps.root, env: childEnv(e, spec), stdio: ["ignore", "pipe", "pipe"] })`.
   `cwd = ROOT` and never the package directory: a spawned agent's cwd picks its project scope, and
   getting it wrong fails as a denied tool call with no explanation.
-- `await spawnSlot(deps.spawnStaggerMs)` from `kernel/runtime/pool.ts` **after** the gate and before
-  the spawn — a queued spawn still holds whatever it already took, exactly as a job's own internal
-  `spawnSlot` wait does mid-pass. This is HRN-18's cross-ENTRY use: `pool.ts`'s chain is
-  module-global precisely so two pools — here, two entries — in one process share it.
+- `await spawnSlot(deps.spawnStaggerMs)` from `kernel/runtime/pool.ts`, **after** the gate and
+  immediately before the spawn. This is HRN-18's cross-ENTRY use: `pool.ts`'s chain is module-global
+  precisely so two pools — here, two entries — in one process share it.
+
+  **This placement was challenged as a regression against the reference. It is not, and the check is
+  on the record.** The claim was that `engine/src/supervisor.ts:209` calls `spawnSlot` *before* the
+  window check (318) and the gate (330). Those line numbers are real but they are **definition
+  order, not execution order**: line 209 sits inside `spawnChild`, which is *defined* above
+  `runEntry` and *called* from it at line 355, inside the `try` that the gate acquire at 342 guards.
+  The reference's own comment on the line directly above 209 says so in as many words:
+
+  > *"Hold here, not before the gate — a queued spawn still holds whatever resource claim it already
+  > took, exactly like a job's own internal `spawnSlot` wait does mid-pass."*
+
+  **And the reference is right, for a reason stronger than fidelity: staggering before the gate does
+  not work.** The stagger exists to space the moment two children each run
+  `git config --global --add safe.directory`, which takes an OS lock on `~/.gitconfig`. If two
+  entries stagger 2 s apart and then both block at the gate, they are released by the same
+  `drain()` and spawn in the same instant — the stagger has been spent and the race is still there.
+  The stagger only removes the race if it is the last thing before `spawn`.
+
+  **The cost is real and it is stated rather than waved at.** With N entries firing on one minute,
+  the last one holds its gate for up to `N × SUPERVISOR_SPAWN_STAGGER_MS`, and the chain is
+  module-global so it is genuinely serial. At the 2000 ms default and the reference's 12-entries-on-
+  one-minute worst case that is 24 s of held gate. Three things bound it: readers hold `shared` and
+  do not exclude each other, so the cost lands only on a writer waiting behind them · a writer's
+  `gateWait` is derived from its own tick and capped at 30 min, so 24 s does not push it over · and
+  N2 has zero entries, so the first real measurement is N3's. **Flagged in Gaps**: no row states the
+  trade, and the reference states it in a comment inside `spawnChild`, which is the last place a
+  reader looking at the pre-flight order will find it.
 - Both streams pipe into `openSink(e.log)`, with `{ end: false }`, and the sink is cached **per
   distinct path**, never per entry: one log file backing fifteen entries with fifteen streams
   interleaves their buffers into unparseable lines.
@@ -1492,6 +1715,12 @@ be bash again.
 whose paths are `mkdtempSync` and whose `spawn` is a fake returning an `EventEmitter` with
 `PassThrough` stdout/stderr and a recording `kill`.
 
+**`testDeps` sets `spawnStaggerMs: 0`, and that default is load-bearing.** `spawnChain` in
+`kernel/runtime/pool.ts` is module-global and never resets, and `node --test` runs one file in one
+process — so every `runEntry` call in this file joins the same chain. At the 2000 ms production
+default the 37 tests here would serialise into over a minute and blow J2.14 AC1's budget. Group 7,
+which is about the stagger, is the only test that sets a non-zero value, and it uses 30 ms.
+
 1. **The happy path.** One entry, `gate: "shared"`, fake child exits 0. Assert: the gate was taken
    `shared` over all resources and released; the self-lock was taken and released; the sink received
    the child's stdout AND stderr; exactly one `job-ok` line, `job=` carrying the PROGRAM.
@@ -1513,9 +1742,13 @@ whose paths are `mkdtempSync` and whose `spawn` is a fake returning an `EventEmi
 6. **GAT-08.** An entry with `gateWait: true` and `cron: "*/10 15-21 * * *"` against a held gate:
    assert the `waitMs` handed to `acquire` is `600_000` (the spy records it) and the resulting
    `lock-held` line carries `waited=600`. An entry without the flag gets `0` and no `waited` field.
-7. **HRN-18's stagger, cross-entry.** `spawnStaggerMs = 30`, two entries fired back to back; assert
-   the second `spawn` call happened at least 20 ms after the first. Lower bound, in the exceptions
-   table.
+7. **HRN-18's stagger, cross-entry, and the gate it holds.** `spawnStaggerMs = 30`, two entries on
+   disjoint resources fired back to back; assert the second `spawn` call happened at least 20 ms
+   after the first (lower bound, exceptions table row 5). **Then assert the cost, so it is a
+   measured property rather than a footnote:** while the second entry is parked in `spawnSlot`,
+   `deps.gate.state()` shows its resource already held. A reader arriving at that moment is
+   excluded. The test title says this is deliberate and names the reason — a stagger that releases
+   the gate first would let both children spawn in the same instant and buy nothing.
 8. **SUP-03.** Assert the recorded spawn options: `cwd === deps.root`, `stdio` deep-equals
    `["ignore", "pipe", "pipe"]`, and `args` came from `jobRunner` for a `job:` entry and from
    `<root>/<script>` for a `script:` entry.
@@ -1567,7 +1800,13 @@ whose paths are `mkdtempSync` and whose `spawn` is a fake returning an `EventEmi
       `["kernel/config.ts"]`. Then spread `process.env` inline in `host/supervisor.ts` instead and
       confirm `npm test` exits non-zero naming `host/supervisor.ts`. Revert.
 - [ ] AC9 — `sed -n '/^### 2\.27/,/^### 2\.28/p' roadmap.md | grep -c 'SUPERVISOR_KILL_GRACE_MS'`
-      prints `1`, and the same for `SUPERVISOR_SPAWN_STAGGER_MS`.
+      prints `1`, and the same for `SUPERVISOR_SPAWN_STAGGER_MS`. `test/knobs.test.ts` reports 7
+      passing with all three new rows in `ROWS`; remove one row from `ROWS` and confirm assertion 2
+      exits non-zero, then restore.
+- [ ] AC9b — **the stagger holds the gate, and that is asserted, not assumed.** Move
+      `await spawnSlot(...)` to before the gate acquire. `npm test` exits non-zero on group 7's
+      second half (the gate is not held while the second entry is parked). Revert. The mutation is
+      the placement the review proposed, so the test is what settles it rather than the prose.
 - [ ] AC10 — `git status --porcelain` is empty after `npm test`, and `.doppelganger/` does not exist
       in the checkout: `test -e .doppelganger && echo LEAK || echo clean` prints `clean`. Every path
       this job can write is a required `deps` field pointing at `mkdtempSync`.
@@ -1675,8 +1914,8 @@ carrying a name from a different part of the system is a knob nobody can find. F
 
 **Acceptance criteria:**
 
-- [ ] AC1 — `npm test` exits 0; `kernel/runtime/gate.test.ts` reports 22 tests (17 + 5) and
-      `host/supervisor.test.ts` reports 16.
+- [ ] AC1 — `npm test` exits 0; `kernel/runtime/gate.test.ts` reports 24 tests (19 from J2.4+J2.5,
+      plus 5) and `host/supervisor.test.ts` reports 16 (15 + 1).
 - [ ] AC2 — **the program-grain gate fires.** Change J2.11's `emit` to use `e.name` instead of
       `programOf(e)`. `npm test` exits non-zero on the new supervisor test. Revert.
 - [ ] AC3 — **the family gate fires.** Delete the `envDynamic` lookup from `starveThreshold`.
@@ -1712,6 +1951,7 @@ supervised entry, stamp liveness every minute, drain on a signal, and refuse lou
 **Files touched:**
 - `/home/hyhilman/projects/me/doppelganger/host/supervisor.ts`
 - `/home/hyhilman/projects/me/doppelganger/host/supervisor.test.ts`
+- `/home/hyhilman/projects/me/doppelganger/test/knobs.test.ts` (`ROWS` + `readers`, `SUPERVISOR_DRAIN_MS`)
 - `/home/hyhilman/projects/me/doppelganger/roadmap.md` (§2.27: `SUPERVISOR_DRAIN_MS`)
 
 ### `main`'s shape
@@ -1837,16 +2077,19 @@ one of the two roots `kernel/runtime/log/tail.ts` already reads.
       non-zero on test 8. Revert.
 - [ ] AC6 — **the exit code is real.** `node -e "import('./host/supervisor.ts').then(m=>m.bootOrDie([{name:'ops-x',cron:'bad',log:'/tmp/x.log',why:'w',script:'nope.sh'}],D))"`
       exits non-zero. Recorded in the commit body with its stderr.
-- [ ] AC7 — running the real binary once is safe and does nothing:
+- [ ] AC7 — **a smoke check of the argv block, and it is named as one.** It proves the block parses
+      and dispatches; it does NOT prove it wired the right values, and nothing does — see ruling 1's
+      "untested by construction" row.
       `ENGINE_ROOT=$(mktemp -d) timeout 3 node host/supervisor.ts` prints a `supervisor-up entries=0`
       line to stderr, writes a heartbeat under that temp root, and exits on the timeout's SIGTERM
-      with a `supervisor-draining` line. Record the two lines.
+      with a `supervisor-draining` line. Record the two lines and the temp root.
 - [ ] AC8 — `test -e .doppelganger && echo LEAK || echo clean` prints `clean` after `npm test`.
 - [ ] AC9 — `test/writes.test.ts` assertion 3 passes with `host/supervisor.ts` newly in `REGISTER`,
       and assertion 4 accepts its category. Remove the register entry and confirm `npm test` exits
       non-zero naming the file. Restore.
 - [ ] AC10 — `sed -n '/^### 2\.27/,/^### 2\.28/p' roadmap.md | grep -c 'SUPERVISOR_DRAIN_MS'` prints
-      `1`.
+      `1`, and `test/knobs.test.ts` reports 7 passing with the row in `ROWS`. Remove it from `ROWS`
+      and confirm assertion 2's `deepEqual` exits non-zero. Restore.
 
 **Commit:** `main(): validate then reap then timers, a heartbeat, a drain, and a loud refusal (SUP-06, SUP-14, SUP-15, SUP-18)`
 
@@ -2084,33 +2327,52 @@ end to end **without ever touching the developer's real crontab**.
 - `/home/hyhilman/projects/me/doppelganger/cli/crontab.ts`
 - `/home/hyhilman/projects/me/doppelganger/cli/crontab-cli.test.ts` (new)
 - `/home/hyhilman/projects/me/doppelganger/test/writes.test.ts` (`COMMAND_REGISTER`)
+- `/home/hyhilman/projects/me/doppelganger/test/knobs.test.ts` (`ROWS` + `readers`, two new rows)
 - `/home/hyhilman/projects/me/doppelganger/package.json` (one script)
 - `/home/hyhilman/projects/me/doppelganger/roadmap.md` (§2.27: `CRONTAB_CMD`, `CRONTAB_DRY_RUN`)
 
 ### How this is tested without a real crontab — the four layers
 
 **A test that edits the developer's crontab is unacceptable**, and "we were careful" is not a
-mechanism. Four layers, each independently sufficient to keep the real one untouched:
+mechanism. Five layers. **Layer 0 is new and it is the one that makes the rest safe by construction
+rather than by discipline** — the first draft had only layers 1–4, and its own AC3 would have
+overwritten the developer's crontab.
 
-1. **The command name is a knob.** `CRONTAB_CMD` (`EnvSpec`, default `"crontab"`) is read in exactly
-   one place. Every test sets it to an absolute path.
+0. **`readCrontab` and `install` REFUSE a command name that is not absolute.**
+   `if (!isAbsolute(cmd)) throw new Error(\`crontab command must be an absolute path, got \${cmd} —
+   a bare name is a PATH lookup, and the thing PATH finds is the user's real crontab\`)`.
+   One line, and it closes the last door: `execFileSync` with a bare `"crontab"` does a PATH lookup,
+   so **any** path that reaches the real binary must first spell a bare name, and now that throws.
+   The argv block therefore resolves `CRONTAB_CMD` through `which`-style absolutisation — or the
+   operator sets it to an absolute path — and a default of `"crontab"` fails loudly at the one place
+   a human is watching, instead of quietly at 3am in a test.
+1. **The command name is a knob.** `CRONTAB_CMD` (`EnvSpec`, default `"/usr/bin/crontab"` — absolute,
+   because of layer 0) is read in exactly one place.
 2. **The command is a value, not a global.** `readCrontab(cmd)` and `install(cmd, text)` take it as
    an argument; the knob is resolved only in the argv block (ruling 2). A test that forgets to pass
-   it does not compile.
+   it does not compile. **This stops omission; it cannot stop a literal**, which is why layer 0
+   exists.
 3. **A fake binary that RECORDS.** The end-to-end test writes into a `mkdtempSync` directory:
    ```bash
    #!/usr/bin/env bash
-   echo "$*" >> "$FAKE_CRONTAB_LOG"
+   # argv: <log-path> <state-path> <crontab-args...>
+   log="$1"; state="$2"; shift 2
+   echo "$*" >> "$log"
    case "$1" in
-     -l) [ -s "$FAKE_CRONTAB_FILE" ] && cat "$FAKE_CRONTAB_FILE" || exit 1 ;;
-     -)  cat > "$FAKE_CRONTAB_FILE" ;;
+     -l) [ -s "$state" ] && cat "$state" || exit 1 ;;
+     -)  cat > "$state" ;;
      *)  exit 2 ;;
    esac
    ```
-   `chmod 0o755`. Every test asserts the **contents of `$FAKE_CRONTAB_LOG`** — the exact argv of every
-   invocation, in order. That turns "we hope the redirect worked" into "the fake was called twice,
-   with `-l` and then `-`". A `PATH` trick could silently fall through to the real binary; an
-   absolute path plus a recorded call log cannot.
+   `chmod 0o755`. **The log and state paths come in as argv, not from the environment.** `node --test`
+   runs one file in one process and may have two tests in flight, so two tests reading
+   `$FAKE_CRONTAB_LOG` out of a shared `process.env` would write each other's files. `CRONTAB_CMD`
+   is therefore a small per-test **wrapper script** whose first two argv entries are that test's own
+   paths, and the wrapper `exec`s the shared fake. One fake, N wrappers, no shared global.
+   Every test asserts the **contents of its own log** — the exact argv of every invocation, in
+   order. That turns "we hope the redirect worked" into "the fake was called twice, with `-l` then
+   `-`". A `PATH` trick could silently fall through to the real binary; an absolute path, a refusal
+   of non-absolute names, and a recorded call log cannot.
 4. **`crontab -l` exits 1 when the user has no crontab**, and `readCrontab` treats a non-zero exit as
    `""`. The fake reproduces that, so the "fresh host" path is exercised rather than assumed.
 
@@ -2123,7 +2385,7 @@ Both impure functions go through `run(...)` from `kernel/runtime/exec.ts` — th
 
 | knob | effect |
 |---|---|
-| `CRONTAB_CMD=/path/to/fake` | SAF-05's throwaway-store analogue: point the tool at something that is not the system crontab |
+| `CRONTAB_CMD=/path/to/fake` | SAF-05's throwaway-store analogue: point the tool at something that is not the system crontab. Must be **absolute** (layer 0) — a bare name throws |
 | `CRONTAB_DRY_RUN=1` | SAF-01: `sync` prints the crontab it WOULD install, byte for byte, and calls nothing. It still **reads** — the read is what makes the printed diff true, and SAF-01's "fully inert" is about writes |
 | `render` | already side-effect-free by definition (SUP-08) |
 | `check` | never writes, in any mode |
@@ -2143,16 +2405,25 @@ Both impure functions go through `run(...)` from `kernel/runtime/exec.ts` — th
 
 **Do:**
 
-1. Add `readCrontab(cmd)`, `install(cmd, text)`, `CRONTAB_CMD_ENV`, `CRONTAB_DRY_RUN_ENV` and a
+1. Add the **`isAbsolute(cmd)` refusal (layer 0) first**, in both `readCrontab` and `install`, with
+   the message spelled out above. Write its two unit tests before anything else in this job: a bare
+   `"crontab"` throws, and an absolute path does not. This is the guard that makes every mutation in
+   the ACs below safe to perform.
+2. Add `readCrontab(cmd)`, `install(cmd, text)`, `CRONTAB_CMD_ENV`, `CRONTAB_DRY_RUN_ENV` and a
    `run(argv, deps)` command dispatcher returning `{ out, err, code }` — a **pure-ish** function that
    takes the crontab command and the schedule as arguments and returns text plus an exit code, so
    every command is assertable without capturing a stream. The argv block resolves the knobs, calls
    `run`, writes the two streams and sets `process.exitCode`.
-2. Add `"crontab": "node cli/crontab.ts"` to root `scripts`.
-3. `test/writes.test.ts`: add `cli/crontab.ts` to `COMMAND_REGISTER` with
+3. Add `"crontab": "node cli/crontab.ts"` to root `scripts`.
+4. `test/writes.test.ts`: add `cli/crontab.ts` to `COMMAND_REGISTER` with
    `{ command: "crontab", category: "INSTANCE-discriminated", reason: "the managed block, delimited by markers carrying INSTANCE (INS-03)" }`. **This is INS-02's second category getting its first
    member** — LOOP.md records that it had none until N2, and this is the line that fills it.
-4. `roadmap.md` §2.27 Core/paths: add `CRONTAB_CMD` and `CRONTAB_DRY_RUN`.
+5. `roadmap.md` §2.27 Core/paths: add `CRONTAB_CMD` and `CRONTAB_DRY_RUN`; add both rows to
+   `test/knobs.test.ts`'s `ROWS` in the same commit, or assertion 2's `deepEqual` fails.
+6. **The per-test wrapper helper.** `makeFakeCrontab(dir)` writes the shared fake once, then writes
+   a wrapper `fake-<n>.sh` that `exec`s it with this test's own log and state paths as `$1`/`$2`,
+   and returns `{ cmd, logPath, statePath, calls() }`. Every test calls it; no test reads a
+   `FAKE_CRONTAB_*` variable out of the environment.
 
 **Do (tests, `cli/crontab-cli.test.ts`):** each test builds a fresh temp dir, the fake and its two
 files.
@@ -2181,37 +2452,60 @@ files.
     one test that sets `CRONTAB_CMD` to a path that does not exist and asserts the command fails
     loudly rather than falling back to anything — proving there is no `PATH` fallback in the code.
 12. **Two instances, end to end.** Two child processes with `INSTANCE=alpha` and `INSTANCE=beta`
-    against **one** fake crontab file; `sync` in each; assert the file holds two named blocks, that
-    running `alpha`'s `sync` again leaves `beta`'s block byte-identical, and that `check` exits 0 for
-    both. Children, because `INSTANCE` resolves at import.
+    against **one** fake crontab state file; `sync` in each; assert the file holds two named blocks,
+    that running `alpha`'s `sync` again leaves `beta`'s block byte-identical, and that `check` exits
+    0 for both. Children, because `INSTANCE` resolves at import.
+    **Each child's `env` must carry `CRONTAB_CMD` explicitly** — this is a Do-list item, not a risk
+    note. The children run the argv block, which resolves `CRONTAB_CMD` from the environment;
+    `run()` in `kernel/runtime/exec.ts` passes no `env` option, so the fake inherits whatever the
+    child got. If the test builds the child's env without `CRONTAB_CMD`, both children resolve the
+    default and call the real `crontab -`. Build the env explicitly —
+    `{ PATH, INSTANCE, CRONTAB_CMD: wrapper.cmd }` — never by spreading `process.env` and hoping.
+    Layer 0 does not save this case on its own, because the default is absolute; the **call-log
+    assertion** is what catches it, and both children's logs are asserted non-empty.
 13. **The argv guard.** `grep` the module for `import.meta.filename === process.argv[1]`, and note
     that this whole test file imports `cli/crontab.ts` without any command running — which the other
     twelve tests demonstrate.
 
 **Acceptance criteria:**
 
-- [ ] AC1 — `npm test` exits 0 and `cli/crontab-cli.test.ts` reports 13 passing tests.
+- [ ] AC1 — `npm test` exits 0 and `cli/crontab-cli.test.ts` reports 15 passing tests (13 plus the
+      two layer-0 refusal tests from Do step 1).
 - [ ] AC2 — **the developer's crontab is untouched.** Record `crontab -l | md5sum` before and after
       `npm test`. The two are identical. If the developer has no crontab, record that `crontab -l`
       exits 1 both times. **This AC is mandatory and its output goes in the commit body.**
-- [ ] AC3 — **the recording proves the redirect.** Delete the `CRONTAB_CMD` plumbing so
-      `readCrontab` hard-codes `"crontab"`. `npm test` exits non-zero on test 11 and on tests 1–10's
-      fake-log assertions (the log stays empty because the real binary was called). Revert. Run AC2
-      again afterwards to confirm nothing was written during that mutation — **run the mutation with
-      `CRONTAB_CMD` still exported in your shell if you want belt and braces.**
+- [ ] AC3 — **the recording proves the redirect, and the mutation is safe by construction.**
+      **DO NOT** hard-code `"crontab"`: measured, `execFileSync` with a bare name does a PATH lookup,
+      and tests 1/3/4/5 then reach `install` → `crontab -` → **the developer's real crontab is
+      overwritten**. The first draft's version of this AC did exactly that, and its hedge ("run with
+      `CRONTAB_CMD` still exported") was incoherent, because the plumbing it deleted is what reads
+      that variable.
+      The safe mutation, and it tests the same thing: hard-code
+      **`"/nonexistent/crontab-DOES-NOT-EXIST"`** — absolute, so layer 0 lets it through, and
+      guaranteed to `ENOENT`. `npm test` exits non-zero on tests 1–11: the fake's log stays empty
+      because the fake was never called, which is the assertion that proves the redirect was load-
+      bearing. Revert.
+- [ ] AC3b — **layer 0 fires.** Call `readCrontab("crontab")` directly in a scratch test. It throws
+      `crontab command must be an absolute path`. This is the one line that makes a bare name
+      unreachable, and it is why AC3 can be performed at all.
 - [ ] AC4 — **the refusal really refuses.** Change `sync`'s collision path to install anyway.
       `npm test` exits non-zero on test 4's fake-log assertion. Revert.
 - [ ] AC5 — **the dry run really is inert.** Remove the `CRONTAB_DRY_RUN` guard around `install`.
       `npm test` exits non-zero on test 10. Revert.
 - [ ] AC6 — **the two-instance path holds end to end.** Change `markers` to a global pair.
       `npm test` exits non-zero on test 12. Revert.
-- [ ] AC7 — `npm run crontab render` with `INSTANCE=probe` prints a block with
+- [ ] AC7 — **a smoke check of the argv block** (ruling 1's "untested by construction" row).
+      `INSTANCE=probe npm run crontab render` prints a block with
       `# >>> doppelganger:probe managed block` and no command lines (the schedule is empty), and
-      exits 0. Record the output.
+      exits 0. `render` reaches no crontab at all, so this is the one argv-block command that is
+      safe to run without a redirect. Record the output.
 - [ ] AC8 — `test/writes.test.ts` door 5 passes with `cli/crontab.ts` registered, and assertion 4
       accepts `INSTANCE-discriminated`. Remove the register entry; `npm test` exits non-zero naming
       the file. Restore.
-- [ ] AC9 — `sed -n '/^### 2\.27/,/^### 2\.28/p' roadmap.md | grep -c 'CRONTAB_CMD'` prints `1`.
+- [ ] AC9 — `sed -n '/^### 2\.27/,/^### 2\.28/p' roadmap.md | grep -c 'CRONTAB_CMD'` prints `1`,
+      **and the same for `CRONTAB_DRY_RUN`** — the first draft grepped only the first of the two rows
+      it added. `test/knobs.test.ts` reports 7 passing with both rows in `ROWS`; remove either and
+      confirm assertion 2 exits non-zero.
 - [ ] AC10 — `git status --porcelain` is empty and no fake survives: `ls /tmp | grep -c crontab` is
       unchanged before and after.
 
@@ -2221,7 +2515,9 @@ files.
 
 **Risks / what could be wrong:**
 - **This is the one job in N2 that can damage something outside the repo.** AC2 is the guard and it
-  is not optional. Run it before and after the whole job, not only at the end.
+  is not optional: run it before the first commit of this job and after the last, not only at the
+  end. Layer 0 is what turns "be careful" into "cannot happen": with `isAbsolute` in place, every
+  route to the real binary has to spell a bare name first, and that throws.
 - **`CRONTAB_DRY_RUN` is a new knob with no roadmap row of its own.** SAF-01 is the row it satisfies
   (`*_DRY_RUN` per job); the crontab tool is not a job. Flagged in Gaps.
 - **The fake is bash.** On a host without bash the tests fail at spawn rather than silently — which
@@ -2272,21 +2568,22 @@ SUP-12 has two halves and they are in different states:
    fire time (`runEntry` step 2) and their expression legitimately fires in there. Assert a flagged
    entry that fires inside is NOT in the set — and assert in the same test that the unflagged one
    beside it IS, so the skip cannot silently swallow both.
-6. **The live allowlist.** `entriesInWindow(SCHEDULE, REFRESH_WINDOW, PROGRAMS)` deep-equals `[]`.
-   The test title carries the reason: `REFRESH_WINDOW` is `null` at N2 and `SCHEDULE` is empty, so
-   this asserts nothing is excused; at N3 the expected list gains its first name and each one carries
-   a comment saying why it may be in there.
-7. **The two halves are tied together.** Assert `entriesInWindow` calls the same `inRefreshWindow`
+6. **The two halves are tied together.** Assert `entriesInWindow` calls the same `inRefreshWindow`
    the supervisor does, by passing a window and checking that an entry firing one minute before the
    opening is out and one minute after is in — the boundary, resolved through the real predicate.
-8. **A `gate: "none"` program cannot cost the lint its slot**, so it is exempt from the allowlist's
+7. **A `gate: "none"` program cannot cost the lint its slot**, so it is exempt from the allowlist's
    concern: assert `entriesInWindow` reports the program's gate mode alongside each name, so the
    allowlist at N3 can say *why* each entry is allowed rather than only that it is. (A name with no
    reason is how an allowlist becomes a list of things somebody once approved.)
 
 **Acceptance criteria:**
 
-- [ ] AC1 — `npm test` exits 0 and `host/window.test.ts` reports 8 passing tests.
+- [ ] AC1 — `npm test` exits 0 and `host/window.test.ts` reports 7 passing tests.
+      **The first draft had 8**; the live-allowlist test — `entriesInWindow(SCHEDULE, null)` deep-
+      equals `[]`, over an empty schedule and a null window — is deleted. It asserts `[] === []` and
+      cannot fail, and an assertion that cannot fail reads in review as coverage of the live
+      schedule. N3 adds it on the day there is an entry to excuse. The machinery it would have
+      called is fully covered by tests 4, 5 and 7, which use fixtures with real entries.
 - [ ] AC2 — **the walk fires.** Change `inRefreshWindow`'s interval to closed (`<=`). `npm test`
       exits non-zero on test 1, naming the single disagreeing minute. Revert. One minute out of
       10,080 is exactly the size of drift this walk exists to catch.
@@ -2296,9 +2593,11 @@ SUP-12 has two halves and they are in different states:
       `entriesInWindow`. `npm test` exits non-zero on test 5. Revert. Then remove the *second* half
       of test 5 (the unflagged entry) and confirm the first half alone would have passed a skip that
       swallowed everything — record that, because it is why the test has two halves.
-- [ ] AC5 — **the live allowlist gate fires.** Add one fixture entry to `SCHEDULE` that fires
-      round-the-clock, and set `REFRESH_WINDOW` to the fixture window. `npm test` exits non-zero on
-      test 6 with the entry named. Revert both.
+- [ ] AC5 — **the allowlist machinery fires on real data.** Change `entriesInWindow` to return every
+      entry rather than only those firing inside the window. `npm test` exits non-zero on test 4,
+      naming the entry that fires only outside. Revert. (This replaces the first draft's mutation,
+      which poked a fixture entry into the live `SCHEDULE` to give a vacuous test something to
+      fail — a mutation that only proves the test would work if it had a subject.)
 - [ ] AC6 — `grep -c 'Date.now' host/window.test.ts` prints `0`.
 - [ ] AC7 — `time node --test host/window.test.ts` stays under 2 seconds: four 10,080-minute walks
       are about 40,000 predicate calls.
@@ -2308,9 +2607,11 @@ SUP-12 has two halves and they are in different states:
 **Depends on:** J2.6, J2.7, J2.8.
 
 **Risks / what could be wrong:**
-- **Test 6 is vacuous today.** Named as such in its own title, with the N3 handover written down. The
-  alternative — not shipping it — means N3 has to remember to build it, and this is exactly the kind
-  of assertion nobody remembers.
+- **N3 has to remember to add the live allowlist**, because this plan deletes the vacuous version
+  rather than shipping it as a placeholder. That trade is deliberate: a placeholder that cannot fail
+  is worse than a gap, because it looks like coverage. The handover is written into `WORK.md` by
+  J2.18 and into the module comment beside `entriesInWindow`, which is the file N3 will already be
+  editing.
 - **Test 1's local predicate could be written the same way as the production one**, which would make
   it a copy rather than a check. The instruction is explicit: build a set of opening minutes up
   front on one side and test a modular interval on the other. If the builder writes the same
@@ -2318,10 +2619,10 @@ SUP-12 has two halves and they are in different states:
 
 ---
 
-## J2.18 — close N2 in `WORK.md` and `LOOP.md`
+## J2.18 — close N2, and retitle it  ·  §3, `WORK.md`
 
-**Goal:** the phase's own bookkeeping, and the moment N2 stops being the CURRENT phase for J2.2's
-gate.
+**Goal:** the phase's own bookkeeping, the retitle, and the moment N2 stops being the CURRENT phase
+for J2.2's gate.
 
 **Files touched:**
 - `/home/hyhilman/projects/me/doppelganger/WORK.md`
@@ -2329,16 +2630,26 @@ gate.
 
 **Do:**
 
-1. `WORK.md`: tick all 32 N2 boxes, each with the job number(s) that did it, in the `(J1.5) **DBS-01**`
+1. **Retitle the phase, in both places that name it.** `WORK.md`'s
+   `## N2 — Supervisor, one schedule entry` and `roadmap.md` §3's `### N2 — Supervisor, one schedule
+   entry` both become **`N2 — Supervisor and gate, no entry yet`**. §3's N2 body already describes
+   only mechanisms, so nothing else in it moves. The old title promises a running entry, and ticking
+   32 boxes underneath it would be the phase claiming more than it built.
+2. **Write the end-of-phase claim into `WORK.md`**, directly under the retitled heading, in the words
+   this plan opens with:
+   > Every mechanism the supervisor needs exists, each is exercised over its whole input space, and
+   > they are wired together in a six-line block that nothing tests. **No job has ever run.** The
+   > first entry, the first spawned child and the first real gate contention all arrive at N3.
+3. `WORK.md`: tick all 32 N2 boxes, each with the job number(s) that did it, in the `(J1.5) **DBS-01**`
    style N1 used. Where a row is partly declined, say so on the row itself:
    - `SUP-06` — the loud refusal ships; the restart loop is SUP-19 (M9) and the watchdog is JOB-O10
      (N4).
    - `SUP-15` — the ordering and its test ship; the reap itself is LSE-09 (N4).
    - `SUP-16` — the placement and its test ship; `decideShed` is QTA-09 (N4).
    - `GAT-10` — the line shape and the threshold ship; the `lockloss:` counter is JOB-O02 (N5).
-   - `SUP-12` — the walk is live; the allowlist is machinery with fixture tests and one vacuous live
-     invocation until N3.
-2. `LOOP.md`: mark N2's Plan/Gap/Build/Verify, and add to **Settled questions**:
+   - `SUP-12` — the walk is live and the allowlist machinery has fixture tests; **the live allowlist
+     assertion is N3's**, deliberately not shipped as a vacuous placeholder.
+4. `LOOP.md`: mark N2's Plan/Gap/Build/Verify, and add to **Settled questions**:
    - **§5 Q1 settled (J2.6)** — the host names the gate's resources as `{ name, path, why }` rows;
      `path` is ROOT-relative, which is INS-05's constraint made mechanical. Two names at N2: `repo`,
      `skills`.
@@ -2351,17 +2662,28 @@ gate.
      F4 leak.
    - **Enqueue is synchronous, so FIFO needs no sleeps (J2.5)** — and the reference's own tests did
      not need theirs.
-3. `LOOP.md` **Open items**: carry forward anything the Gaps section below leaves unresolved, plus
+   - **The gate's deadlock argument has one unchecked premise (J2.4)** — no holder ever acquires
+     while already holding. `runEntry` satisfies it; the gate does not enforce it; N3's first job is
+     the first chance to get it wrong.
+   - **`spawnSlot` goes AFTER the gate (J2.11)** — challenged as a regression, checked, upheld. The
+     reference's line 209 is definition order, not execution order, and staggering before the gate
+     buys nothing because two entries released by one `drain()` spawn in the same instant anyway.
+     The cost — a gate held for up to `N × stagger` — is stated and asserted.
+   - **`isAbsolute` on the crontab command (J2.16)** — the one line that makes a bare-name PATH
+     lookup unreachable, and therefore makes the destructive mutation in AC3 performable at all.
+5. `LOOP.md` **Open items**: carry forward anything the Gaps section below leaves unresolved, plus
    the ADO-01 `cli`-publishes question now that `cli/crontab.ts` imports `host/`.
 
 **Acceptance criteria:**
 
-- [ ] AC1 — `grep -c '^- \[ \]' WORK.md` drops by exactly 32.
+- [ ] AC1 — `grep -c '^- \[ \]' WORK.md` drops by exactly 32, and
+      `grep -c 'one schedule entry' WORK.md roadmap.md` prints `0` for both files.
 - [ ] AC2 — `npm test` exits 0. **This is the moment J2.2's phase rule flips N2 from CURRENT to
       SHIPPED**, so every §1 row tagged `N2` must now exist — and it does. If this fails, a file was
       named in §1 and never built, which is precisely what the flip is for. Record the pass.
-- [ ] AC3 — the phase totals: `npm test` reports the N1 baseline (200 tests) plus N2's, and the
-      commit body records the exact `# pass` / `# fail` / `# skip` line.
+- [ ] AC3 — the phase totals: `npm test` reports the N1 baseline — measured **200 tests, 199 pass,
+      0 fail, 1 skip** — plus N2's, and the commit body records the exact `# tests` / `# pass` /
+      `# fail` / `# skipped` lines.
 - [ ] AC4 — `git status --porcelain` is empty; `test -e .doppelganger && echo LEAK || echo clean`
       prints `clean`; and `crontab -l | md5sum` matches the value recorded at J2.16 AC2.
 - [ ] AC5 — `LOOP.md`'s phase table shows N2 `✅` in all four columns, or `⚠` with the open items
@@ -2383,19 +2705,22 @@ only place the check can be honest.
 |---|---|
 | **This repo has no dependencies, and SUP-07 demands croner-vs-POSIX parity** | **N2 adds `croner`, exactly `10.0.1`, as a root `dependencies` entry.** Node ships no cron scheduler and no cron parser, so there is no builtin to prefer. Writing the parser instead makes SUP-07 circular — parity with *what*, if croner is not there? TST-22 is untouched (it governs linters, bundlers and build steps; `croner` is on no denylist and adds no config file). TST-25 survives because `host/` is deliberately not a workspace (ADO-14), so the root manifest is its dependency owner and nothing is phantom; `test/deps.test.ts` ships TST-25's narrow form now — one importer, one bare specifier repo-wide, `kernel/` names none — and the general per-workspace form arrives at N5. Measured: zero transitive dependencies, own `.d.ts`, `engines.node >= 18`. |
 | **`gateWait(cron)` needs a cron parser at N2** | It does not. `tickSeconds` enumerates **croner's own firings** over a fixed 21-day window and takes the smallest gap, so nothing hand-written parses cron in production and "one of the entry's own ticks" means one of the ticks the supervisor will actually fire. Two mechanisms make it usable: **early stop** (`gateWait` only needs `min(tick, cap)`, so the walk halts on the first gap under 1800 s — a dense expression stops after two firings) and **memoisation** per expression, because `runEntry` asks the same question every tick. Measured: `nextRun` costs ~0.2 ms, so an un-stopped `* * * * *` walk is 3.4 s over 14 days and ~5 s over 21; with the stop it is under 10 ms. |
-| **SUP-07's POSIX oracle: which library, or what?** | **Neither — a strict hand-written matcher inside `host/parity.test.ts`.** A second library moves the question one hop and answers a dependency question with a dependency. It is a real oracle for three reasons: it is a different SHAPE (a matcher over a walked window versus croner's next-run iterator, so a shared bug is unlikely) · it **throws** on any token it cannot expand, which is the correction the reference needs — its `expand(dow, 0, 6)` turns `0 0 * * 7` and `0 0 * * MON` into EMPTY sets, so the expression reads as "never fires" and the parity test passes over a hole · and it is pinned by a table of hand-computed minute sets, so croner and the oracle agreeing on something wrong still goes red. |
-| **Where croner and POSIX actually disagree** | Measured 2026-08-26, croner 10.0.1 / Node 22.23.1. **One of `dom`/`dow` restricted: 320/320 agree.** **Both restricted: 334/336, and the two failures are `0 0 1 * 1` and `0 0 1 * 2` across the 28-day February 2026 roll** — croner's `nextRun` steps Feb 23 → Mar 2 and never emits Mar 1, while POSIX ORs the day fields. Not a window artifact: from an explicit `2026-02-28T23:59Z` cursor `nextRun` still returns Mar 2, and `0 0 1 * 3` DOES fire on Mar 1. Separately, croner **throws** on `5/10` (POSIX accepts it) and **accepts** names, `L`, `#`, `?`, `W`, `@daily` and 6-field patterns (POSIX does not). **Resolution: the schedule's cron grammar is the INTERSECTION**, enforced by `validate()`, and the parity walk proves the intersection is shared. No test asserts croner is still wrong — that claim is about a package outside this repo and would rot on the next release; it lives in a dated comment with an opt-in `CRON_PARITY_RECHECK=1` re-measure, on N0's `CORPUS_RECHECK` precedent. |
+| **SUP-07's POSIX oracle: which library, or what?** | **Neither — a strict hand-written matcher inside `host/parity.test.ts`.** A second library moves the question one hop and answers a dependency question with a dependency. It is a real oracle for three reasons: it is a different SHAPE (a matcher over a walked window versus croner's next-run iterator, so a shared bug is unlikely) · it **throws** on any token it cannot expand · and it is pinned by a table of hand-computed minute sets, so croner and the oracle agreeing on something wrong still goes red. **The justification for throwing is narrower than the first draft claimed and is corrected here.** That draft said the reference's parity test "passes over a hole"; measured, it does not — line 81 already carries `assert.ok(expected.length > 0)`, and `0 0 * * 7` (oracle 0, croner 2) goes RED. Two true objections remain and both are enough: the failure message reads *"fires at least once in 14 days"*, which diagnoses a sparse expression rather than an unparseable `7` — a wrong diagnosis at 3am costs more than the failure — and the count guard is blind to a **partial** expansion, where `0 0 * * 1,7` fires on Mondays, passes `> 0`, and silently drops every Sunday. Throwing catches both; counting catches one. |
+| **Where croner and POSIX actually disagree** | Measured 2026-08-26, croner 10.0.1 / Node 22.23.1. **One of `dom`/`dow` restricted: 320/320 agree.** **Both restricted, `nextRun()` skips real firings: 20 missed (expression, date) pairs over 14 distinct dates**, swept exhaustively over 2024–2032 × `dow` 0–6 × `dom` {1,2,15,29,30,31}, every one of them in March. **The first draft blamed the 28-day February and that was wrong** — the list contains 2024-03-01 and 2028-03-01, both after a 29-day *leap* February; the claim is withdrawn and replaced by the narrower one the data supports. **The decisive measurement is that the fault is in the ITERATOR, not the semantics:** `croner.match(date)` agrees with the oracle **30,660/30,660** day-slots (2025–2028 × 28 expressions) including every skipped date, so croner knows 2026-03-01 matches `0 0 1 * 1` and only `nextRun` refuses to stop there. No constructor option avoids it, because the timer is driven by `nextRun`. Separately, croner **throws** on `5/10` (POSIX accepts it) and **accepts** names, `L`, `#`, `?`, `W`, `@daily` and 6-field patterns (POSIX does not). **Resolution: the grammar is the INTERSECTION**, enforced by `validate()`. No test asserts croner is still wrong — that would rot on the next release; it lives in a dated comment with an opt-in `CRON_PARITY_RECHECK=1` re-measure that prints a list and asserts nothing, on N0's `CORPUS_RECHECK` precedent. |
 | **The parity window must not depend on today's date** | One exported anchor, `CRON_ANCHOR = Date.UTC(2026, 1, 22)` — Sunday 22 Feb 2026, 00:00 UTC — imported by both the parity walk (14 days, per SUP-07) and `tickSeconds` (21 days, because a weekly expression needs more than 14 to show two firings). A Sunday, so all seven weekdays appear in the first week; February 2026 has 28 days, so a 14-day window crosses a month end on day seven, which is exactly where the divergence lives. The reference's own 1–15 February window would have missed it. |
-| **GAT-04's deadlock argument must be PROVED, not demonstrated** | A test cannot prove absence of deadlock in general. It can prove the two premises the argument rests on, **over the entire finite request space**, because the space is small: 3 resources → 8 subsets → 16 request shapes. Level 1: the exclusion decision matches a four-line pure model for all **256 ordered pairs**. Level 2: `hold.resources` is the global order for all **15 caller orderings** of every non-empty subset. Level 3: for all **64 ordered writer pairs**, A holds, B queues, A releases, B completes, and the gate returns to fully idle. Given a total acquisition order and an exclusion decision that is exactly the model, the argument (no wait-for cycle) does the rest — and the argument is written in the module header rather than implied. |
+| **GAT-04's deadlock argument must be PROVED, not demonstrated** | A test cannot prove absence of deadlock in general. It can prove the premises the argument rests on, **over the entire finite request space**, because the space is small: 3 resources → 8 subsets → 16 request shapes. Level 1: the exclusion decision matches a four-line pure model for all **256 ordered pairs**. Level 2: `hold.resources` is the global order for all **15 caller orderings**. Level 3: for all **64 ordered writer pairs**, A holds, B queues, A releases, B completes, gate fully idle. A total order extends that to three or more holders by the standard argument, with no further test. **But one premise is unchecked and nothing in the code forbids breaking it: no holder ever acquires while already holding.** `acquire(["c"])` then, still holding, `acquire(["a"])` inverts the order and deadlocks against its mirror; every task in the exhaustive walks acquires exactly once, so they cannot see it. The premise is written in the module header above the argument, `runEntry` satisfies it by taking the gate once per tick, and the gate does **not** enforce it — a re-entrancy check is a design change with no second caller to argue with (D9). Flagged in Gaps. |
 | **§5 Q1 — naming the gate's resources** | Settled: **the host declares them**, as `{ name, path, why }` rows in `host/config.ts`, validated at boot (SUP-05). `path` is ROOT-relative and never absolute, which is INS-05's constraint made mechanical — a machine-wide resource cannot be written down without `projectPath` throwing. Two names at N2: **`repo`** (the checkout, its refs and worktrees) and **`skills`** (`.claude/skills`, written by SKL-04's renderer and read by every spawned agent mid-run — the reference's `plugin` resource with the names changed). Two rather than one because GAT-03 has no subject with one; two rather than three because a third would be a guess, and deleting a name from a host list is a one-line change. |
 | **`validate()` with no jobs and no skills** | It is a function over a value, not a gate over a corpus, so all 23 rules are exercised against fixture entries with exactly one field broken — the reference's own shape. What is **not** built: no docs↔code count of the check list (TST-06 is cut by D17, and §3's N2 line says so), and no live assertion over `SCHEDULE` beyond `validate([])` not throwing. Three rules are added to SUP-05's list and flagged: `log` must sit under one of the two roots (SUP-18's operational meaning) · `gate: "none"` needs a non-empty `whyNoGate` (GAT-07 turned from a comment into a checkable field) · `clearsRefreshWindow` is refused while no window is declared. |
 | **SUP-08 writes to the developer's real crontab** | Four independent layers: the command name is a knob (`CRONTAB_CMD`) read in exactly one place · the command is passed as a **value**, so a test that forgets to redirect does not compile · the end-to-end tests use a **recording** fake binary at an absolute path whose invocation log is asserted, so a fall-through to the real binary shows up as an empty log rather than as silence · and `CRONTAB_DRY_RUN=1` makes `sync` print without installing. J2.16 AC2 is mandatory and records `crontab -l | md5sum` before and after the whole job. INS-03 is honoured by putting the instance INTO the markers, and it is load-bearing in four separate assertions — another instance's pair is not ours, `splice` leaves it byte-identical, `collisions` does not count its lines, and an unnamed pair is an unmigrated block that `check` refuses and `sync --adopt` claims. |
 | **INS-05 is a declared non-goal, and a non-goal needs a test that keeps it declined** | Two assertions, and the second is the valuable one. **(a)** Two `createGate` instances over the same names exclude nothing from each other — INS-05's own sentence, executable, and it only exists because N2 ships a factory instead of the reference's module-global singleton. **(b)** Every declared resource's `path` resolves inside `ROOT` via `projectPath`, so *"this is sound only while every named gate resource lives inside its own checkout"* becomes a line of code that goes red when someone writes `/var/lib/x`. Mutations for both are one line each. |
-| **GAT-05's FIFO needs controlled interleaving, and flaky timing bounds are banned** | **Enqueue is synchronous** — `acquire` pushes its waiter inside the `Promise` executor, which runs before the call returns — so `gate.state().resources.a.queued === 1` is readable on the line after an unawaited `acquire`, with no sleep. The synchronicity is asserted directly rather than relied on, and wrapping the push in a `queueMicrotask` turns four tests red. Release and drain are synchronous too, so a queued acquire resolves without any timer. The reference's own tests sleep 10 ms to let a writer queue; they did not need to. **The whole phase spends three timing assertions**, all named in an exceptions table with their headroom, and two of the three are lower bounds. |
-| **N2's phase title says "one schedule entry" and there is no entry to ship** | `SCHEDULE = []` and `PROGRAMS = {}`, by decision, asserted in a test whose title says so. An entry needs a `job` (N3's `host/jobs/`) or the watchdog `script` (JOB-O10, N4); §3.0 itself lists `nightly-sandcastle` under N3. Every mechanism is driven by fixture entries from a builder exported by `host/schedule.test.ts`. Same call N1 made in declining TST-09's gate: build the mechanism, do not invent the subject. |
+| **GAT-05's FIFO needs controlled interleaving, and flaky timing bounds are banned** | **Enqueue is synchronous** — `acquire` pushes its waiter inside the `Promise` executor, which runs before the call returns — so `gate.state().resources.a.queued === 1` is readable on the line after an unawaited `acquire`, with no sleep. The synchronicity is asserted directly rather than relied on, and wrapping the push in a `queueMicrotask` turns four tests red. Release and drain are synchronous too, so a queued acquire resolves without any timer. The reference's own tests sleep 10 ms to let a writer queue; they did not need to. **The first draft claimed three timing assertions and had five, two of them upper bounds sitting in J2.8 with no table entry.** All five are now listed with direction and headroom: **two lower bounds and three upper ones**. Two of the three upper bounds guard a difference of three orders of magnitude (1 ms served vs 6.4 s un-stopped), not a difference of tens of milliseconds, so neither can race. Only J2.5 group 6 has headroom the same size as what it measures, and its remedy — raise `waitMs` to 200 and keep the `< 2×` shape — is written down rather than left to whoever sees it flake. |
+| **N2's phase title says "one schedule entry" and there is no entry to ship** | **The phase is retitled to "Supervisor and gate, no entry yet"**, in `WORK.md` and in §3, by J2.18 — ticking 32 boxes under the old title would be the phase claiming a running loop it does not have. `SCHEDULE = []` and `PROGRAMS = {}`, by decision, asserted in a test whose title says so. An entry needs a `job` (N3's `host/jobs/`) or the watchdog `script` (JOB-O10, N4); §3.0 itself lists `nightly-sandcastle` under N3. The end-of-phase claim J2.18 writes down: *every mechanism exists, each is exercised over its whole input space, and they are wired together in a six-line block that nothing tests — no job has ever run.* |
+| **"Fixture entries cover it" was said in eight places and means three different things** | Graded once, in ruling 1, and every use points at the grade. **REAL** — the gate, `parseFive` and the parity walk, `validate()`'s 23 rules, `inRefreshWindow`, the crontab transforms: all functions over values, where a fixture IS the correct input and the space is fully covered. **UNTESTED BY CONSTRUCTION** — the two argv blocks (~14 lines total) where `ROOT`, the real gate, the real `spawn` and `CRONTAB_CMD` are wired; no test reaches them, which is what ruling 2 buys and also what it costs. Each gets one **smoke check** against a temp `ENGINE_ROOT`, named as a smoke check, proving the block parses and dispatches but not that it wired the right values. **VACUOUS** — three assertions over an empty subject that could not fail: `validate(SCHEDULE)`, `SCHEDULE.length >= 0`, and `entriesInWindow(SCHEDULE, null) === []`. **All three are deleted rather than shipped as placeholders**, because an assertion that cannot fail reads in review as coverage. The parity corpus instead becomes `[...FORMS, ...SCHEDULE.map(e => e.cron)]`, so N3's first entry is walked the day it lands with no test to remember. |
 | **Three N2 rows depend on N4 modules** | SUP-15 (LSE-09's reap), SUP-16 (QTA-09's `decideShed`) and half of SUP-06 (the watchdog). Each is an **ordering or placement** row, and the ordering is N2's to get right: `deps.reapOnBoot` and `deps.shouldShed` are supplied by the caller, and the tests assert with spies that the reap runs before the first timer registers and that a shed tick takes neither the self-lock nor the gate. Both become live at N4 by changing one line in the argv block. |
 | **`test/layout.test.ts` assertion 12 hard-codes "N1 means it exists"** | Replaced by a rule **derived from `WORK.md`**, which owns phase state: a phase is SHIPPED when every one of its checkboxes is `[x]`; the first with an unticked box is CURRENT; the rest are FUTURE. SHIPPED rows must exist, FUTURE rows must be absent, CURRENT rows are exempt from both while clause 1 (every file on disk is named in §1) still covers them. Only J2.18 ticks an N2 box, so the phase stays CURRENT throughout and the suite is green at every commit — and J2.18 AC2 is the moment the flip proves every §1 row was really built. |
 | **Every path a test could leak into the checkout** | Ruling 2: every path and every external command in `host/` and `cli/` is a **required** field on a `deps` argument, with no default, and the real values are assembled inside an `import.meta.filename === process.argv[1]` block no test reaches. TypeScript refuses a call that omits one. Two cheap doors back it up (J2.3): no module-scope `projectPath`/`mkdirSync`/`createWriteStream` in `host/` or `cli/`, and a register for files naming an externally-mutating command. This is the structural answer to N1's F4 leak, where a gitignored `leak.db` survived a whole phase because `git status` stayed clean. |
+| **`spawnSlot` after the gate was challenged as a regression** | Checked and **upheld**, with the check on the record. The claim was that `engine/src/supervisor.ts:209` staggers before the window check (318) and the gate (330); those are **definition** line numbers, not execution order — 209 is inside `spawnChild`, which `runEntry` calls at 355, inside the `try` the gate acquire at 342 guards. The reference's own comment above 209 reads *"Hold here, not before the gate"*. And it is right for a reason stronger than fidelity: the stagger exists to space two children's `git config --global` calls, so if two entries stagger apart and then both block at the gate, one `drain()` releases them into the same instant and the stagger bought nothing. It only works as the last step before `spawn`. **The cost is real and is now stated and asserted rather than buried in prose**: the last of N entries firing on one minute holds its gate for up to `N × stagger`, and group 7 asserts the gate IS held while a pass is parked, so the trade is a measured property. Bounded by three things: readers do not exclude each other, a writer's `gateWait` is capped at 30 min, and N2 has no entries. Flagged in Gaps — no row states the trade. |
+| **A mutation in the first draft would have destroyed the developer's crontab** | J2.16 AC3 said to hard-code `"crontab"`; measured, `execFileSync` with a bare name does a PATH lookup and four tests then reach `install` → `crontab -`. **Fixed twice over.** The mutation becomes `"/nonexistent/crontab-DOES-NOT-EXIST"` — absolute, guaranteed `ENOENT`, and it proves the same thing (the fake's log stays empty). And a new **layer 0** makes it safe by construction: `readCrontab`/`install` throw unless `isAbsolute(cmd)`, so every route to the real binary must first spell a bare name and every bare name now throws. One line, and it is what turns "be careful" into "cannot happen". The fake's log and state paths also move from shared environment variables to per-test wrapper scripts taking them as argv, because `node --test` runs one file in one process and two tests in flight would otherwise share one global. |
 | **`host/` names `process.env` for the child's inherited environment** | `kernel/config.ts` gains a three-line `parentEnv()` returning `{ ...process.env }`, so `test/knobs.test.ts` assertion 3 — now scanning `kernel/`, `host/` and `cli/` — stays exactly `["kernel/config.ts"]`. The reference spreads `process.env` inline in the supervisor; this keeps KRN-06's one-file rule true as the repo grows past the kernel. |
 
 ---
@@ -2430,15 +2755,19 @@ only place the check can be honest.
    fact that one was given.
 
 6. **SUP-07 does not say the 14-day walk is O(firings), and it is.** Measured: one `* * * * *`
-   expression costs 3.4 s of croner time over 14 days, and 22 forms cost 6.9 s. The row should either
-   bound the corpus or say the window is walked per expression, because the natural reading — "every
-   expression" — puts a multi-second test on the critical path of every commit and there is no note
-   anywhere that says so.
+   expression costs 3.4 s of croner time over 14 days (6.4 s over the 21-day window `tickSeconds`
+   uses), and a 22-form corpus costs 7.0–7.8 s. The row should either bound the corpus or say the
+   window is walked per expression, because the natural reading — "every expression" — puts a
+   multi-second test on the critical path of every commit and no note anywhere says so. The same
+   cost is what forces `gateWait`'s early stop and its memoisation, neither of which GAT-08
+   mentions.
 
 7. **Nothing anywhere says the schedule's cron grammar is the intersection of croner and POSIX, and
-   it has to be.** Measured, they disagree on dom+dow-both-restricted across a 28-day February, and
-   they disagree on `a/n` in the other direction. SUP-05's check list should name the refusal, or
-   SUP-07 should say what happens when parity fails rather than only that it is tested.
+   it has to be.** Measured, they disagree on dom+dow-both-restricted (20 missed pairs, 14 dates,
+   2024–2032) and they disagree on `a/n` in the other direction. SUP-05's check list should name the
+   refusal, or SUP-07 should say what happens when parity FAILS rather than only that it is tested.
+   A row that mandates a comparison and is silent on the outcome leaves the builder to invent the
+   policy, which is how two builders invent two.
 
 8. **`BACKLOG_LOCK_STARVE_N` and `BACKLOG_LOCK_STARVE_N_TODO_EXEC` carry a pipeline stage name that
    means nothing in this repo** and sit under §2.27's "Health" bullet, while the knob is a property
@@ -2491,3 +2820,26 @@ only place the check can be honest.
 17. **`maxRunMin` is minutes and its type is `number`, so the only way to test SUP-13 in under a
     minute is a fractional minute** (`0.005`). It works and it needs no new seam, but the row does
     not say fractions are legal. Either say so, or accept a millisecond field on `deps`.
+
+18. **No row states the `spawnSlot`-holds-the-gate trade, and the reference states it in the worst
+    possible place.** HRN-18 describes the stagger; SUP-03 describes the spawn; neither says the
+    stagger runs INSIDE the gate hold, so the last of N entries firing on one minute holds its gate
+    for up to `N × SUPERVISOR_SPAWN_STAGGER_MS` (24 s at the reference's own 12-entries-on-one-minute
+    worst case). The reference's justification is a two-line comment inside `spawnChild`, three
+    hundred lines from the pre-flight order a reader is actually looking at — which is why this
+    plan's first reviewer read the line numbers as execution order and called the correct placement
+    a regression. Either HRN-18 or SUP-03 should carry the trade in one sentence.
+
+19. **`nextRun` and `match` are two different questions and the roadmap treats croner as one thing.**
+    Measured: `match()` agrees with POSIX on 30,660 of 30,660 day-slots while `nextRun()` skips 20
+    (expression, date) pairs. SUP-07 says "croner-vs-POSIX parity" without saying which entry point,
+    and the answer decides the whole design: if it were `match`, the grammar would need no dom+dow
+    refusal at all. The row should name `nextRun`, because that is what a croner timer runs on.
+
+20. **Nothing forbids a nested gate acquire, and GAT-04's deadlock argument silently assumes none.**
+    A caller that holds `["c"]` and then asks for `["a"]` inverts the fixed global order and
+    deadlocks against its mirror — the exact failure GAT-04 exists to make impossible. GAT-01…09 say
+    nothing about re-entrancy, and the exhaustive test cannot see it because every task acquires
+    once. `runEntry` happens to satisfy the premise; N3's first job is the first chance to break it.
+    Either GAT-04 states the premise, or a row mandates that the gate enforce it — and the second is
+    a design change that wants a second caller to argue with (D9) rather than a guess now.
