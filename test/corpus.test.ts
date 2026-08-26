@@ -8,6 +8,13 @@
 //     produced drifts 0.4%-0.84%, which passes a ±2% gate — the band could not catch the
 //     failure it was written for. See plan/N0-uac.md J0.12 for the full reasoning.
 //   - an exact re-measure against the live corpus is opt-in (CORPUS_RECHECK=1), never run in CI.
+//
+// Follow-up fix (F4): the four counts are written as ROUNDED APPROXIMATIONS ("about 250 TS
+// files"), not exact integers. An exact count of a live external repo that other people commit
+// to is false again within hours — pinning a fresh exact number just resets a clock that runs
+// out again tomorrow. The provenance checks above still hold the two files to the SAME stated
+// approximation; the opt-in re-measure below checks the live corpus still ROUNDS to that
+// approximation, not that it equals a frozen integer.
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -46,13 +53,30 @@ function corpusPresent(path: string): boolean {
   return existsSync(join(path, "engine")) && existsSync(join(path, "compose-data/docker-compose.yml"));
 }
 
-// The four dated observations J0.11 refreshed. Matched by structure (the surrounding words and
-// the number's unit), not by literal value, so a future refresh does not need to touch this file.
+// The four dated observations J0.11 refreshed, now written as approximations ("about 250").
+// Matched by structure (the surrounding words and the number's unit), not by literal value, so a
+// future refresh does not need to touch this file. Every gap between tokens is `\s+`/`\s*`, not a
+// literal single space — markdown line-wraps a sentence wherever it likes, and the claim being
+// gated is the words and the numbers, not which column they wrap at. The "about " is optional in
+// the regex only so the same parser reads both an old-style exact figure and the new approximate
+// one — it does not make "about " optional in the DOCUMENT, which the tests below still require.
 function extractObservations(roadmap: string, claude: string) {
-  const engineSrc = /`engine\/src\/\*\*`\s*\((\d+) files, (\d+) non-test, measured (\d{4}-\d{2}-\d{2})\)/.exec(roadmap);
-  const engineAll = /`engine\/\*\*` is (\d+) TS files \/ ([\d,]+) lines outside `node_modules` \(measured (\d{4}-\d{2}-\d{2})\)/.exec(roadmap);
-  const loopSurface = /\*\*(\d+) files, ([\d,]+) lines — (\d+)% of the engine's ([\d,]+)\*\*\s*\n\(measured (\d{4}-\d{2}-\d{2})/.exec(roadmap);
-  const claudeMirror = /verified (\d{4}-\d{2}-\d{2}): (\d+) TS files \/ ([\d,]+) lines outside/.exec(claude);
+  const engineSrc =
+    /`engine\/src\/\*\*`\s*\(\s*(?:about\s+)?(\d+)\s+files,\s*(?:about\s+)?(\d+)\s+non-test\s*—\s*approximate,\s*measured\s+(\d{4}-\d{2}-\d{2})\)/.exec(
+      roadmap,
+    );
+  const engineAll =
+    /`engine\/\*\*`\s+is\s+(?:about\s+)?(\d+)\s+TS\s+files\s*\/\s*(?:about\s+)?([\d,]+)\s+lines\s+outside\s+`node_modules`\s*\(measured\s+(\d{4}-\d{2}-\d{2})/.exec(
+      roadmap,
+    );
+  const loopSurface =
+    /\*\*(\d+)\s+files,\s*([\d,]+)\s+lines\s*—\s*(\d+)%\s+of\s+the\s+engine's\s+(?:about\s+)?([\d,]+)\*\*\s*\(measured\s+(\d{4}-\d{2}-\d{2})/.exec(
+      roadmap,
+    );
+  const claudeMirror =
+    /verified\s+(\d{4}-\d{2}-\d{2}):\s*(?:about\s+)?(\d+)\s+TS\s+files\s*\/\s*(?:about\s+)?([\d,]+)\s+lines\s+outside/.exec(
+      claude,
+    );
   return { engineSrc, engineAll, loopSurface, claudeMirror };
 }
 
@@ -147,11 +171,17 @@ test("5. provenance: the four counts share one date stamp, and §3.0's percentag
   );
 });
 
-// Opt-in exact re-measure. Test-only, also not an EnvSpec row (same reasoning as
-// CORPUS_OVERRIDE above). A human runs this when refreshing the counts; a nightly-polish job at
-// N5 is the natural long-term owner. On failure: re-measure, update all four places, move the
-// date (J0.11's shape).
-test("6. CORPUS_RECHECK=1 -> the four counts equal a live re-measure exactly (opt-in, not in CI)", (t) => {
+// Round a live measurement to the same bucket the stated approximation is written at, so
+// "still true" means "still rounds the same way", not "still equals a frozen integer".
+function roundToNearest(value: number, bucket: number): number {
+  return Math.round(value / bucket) * bucket;
+}
+
+// Opt-in re-measure against the live corpus. Test-only, also not an EnvSpec row (same reasoning
+// as CORPUS_OVERRIDE above). A human runs this when the approximation itself looks wrong; a
+// nightly-polish job at N5 is the natural long-term owner. On failure: re-measure, update all
+// four places, move the date (J0.11's shape) — do not just widen the tolerance to make it pass.
+test("6. CORPUS_RECHECK=1 -> the live corpus still rounds to the stated approximation (opt-in, not in CI)", (t) => {
   const path = corpusPath(readRoadmap());
   if (process.env.CORPUS_RECHECK !== "1" || !corpusPresent(path)) {
     t.skip("opt-in: set CORPUS_RECHECK=1 with the corpus present to run this");
@@ -179,11 +209,56 @@ test("6. CORPUS_RECHECK=1 -> the four counts equal a live re-measure exactly (op
       .trim(),
   );
 
-  const failMsg = "the corpus counts are stale: re-measure, update all four places in roadmap.md and CLAUDE.md, and move the date stamp";
-  assert.equal(Number(engineSrc![1]), srcFileCount, failMsg);
-  assert.equal(Number(engineSrc![2]), srcNonTestCount, failMsg);
-  assert.equal(Number(engineAll![1]), fileCount, failMsg);
-  assert.equal(Number(engineAll![2].replace(/,/g, "")), lineCount, failMsg);
-  assert.equal(Number(claudeMirror![2]), fileCount, failMsg);
-  assert.equal(Number(claudeMirror![3].replace(/,/g, "")), lineCount, failMsg);
+  // Three of the four figures are written as a round number a reader would read as "about X"
+  // (250, 240, 57,000). Round the live measurement to the SAME bucket the prose implies — nearest
+  // 10 for a file count in the hundreds, nearest 1,000 for a line count in the tens of thousands —
+  // and compare. This tolerates the kind of drift a normal month of commits produces (a handful of
+  // files, a few hundred lines) without tolerating a real jump (a rewrite, a big vendor drop).
+  const statedSrcFiles = Number(engineSrc![1]);
+  const statedAllFiles = Number(engineAll![1]);
+  const statedAllLines = Number(engineAll![2].replace(/,/g, ""));
+  const statedClaudeFiles = Number(claudeMirror![2]);
+  const statedClaudeLines = Number(claudeMirror![3].replace(/,/g, ""));
+
+  const roundedMsg = (label: string, live: number, bucket: number, stated: number) =>
+    `${label}: live=${live} rounds to ${roundToNearest(live, bucket)}, no longer "about ${stated}" — ` +
+    `re-measure and update roadmap.md:9, :12, :1216 and CLAUDE.md:15, and move the date stamp`;
+
+  assert.equal(
+    roundToNearest(srcFileCount, 10),
+    statedSrcFiles,
+    roundedMsg("engine/src/** files", srcFileCount, 10, statedSrcFiles),
+  );
+  assert.equal(
+    roundToNearest(fileCount, 10),
+    statedAllFiles,
+    roundedMsg("engine/** files", fileCount, 10, statedAllFiles),
+  );
+  assert.equal(
+    roundToNearest(lineCount, 1000),
+    statedAllLines,
+    roundedMsg("engine/** lines", lineCount, 1000, statedAllLines),
+  );
+  assert.equal(
+    roundToNearest(fileCount, 10),
+    statedClaudeFiles,
+    roundedMsg("CLAUDE.md mirror files", fileCount, 10, statedClaudeFiles),
+  );
+  assert.equal(
+    roundToNearest(lineCount, 1000),
+    statedClaudeLines,
+    roundedMsg("CLAUDE.md mirror lines", lineCount, 1000, statedClaudeLines),
+  );
+
+  // The non-test source count (134) is small and, unlike the other three, is not itself written
+  // at a round bucket — rounding it to the nearest 10 would read "about 130", which is not what
+  // the prose says. Give it a flat tolerance instead: +/-10 covers a normal month of test-file
+  // churn without pretending 134 is a round number it is not.
+  const NON_TEST_TOLERANCE = 10;
+  const statedNonTest = Number(engineSrc![2]);
+  assert.ok(
+    Math.abs(srcNonTestCount - statedNonTest) <= NON_TEST_TOLERANCE,
+    `engine/src/** non-test files: live=${srcNonTestCount} is more than ±${NON_TEST_TOLERANCE} from ` +
+      `"about ${statedNonTest}" — re-measure and update roadmap.md:9, and move the date stamp`,
+  );
 });

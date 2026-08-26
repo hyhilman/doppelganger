@@ -6,10 +6,11 @@ Extraction of the `xenith/engine` unattended-agent engine into a structured, reu
 `engine/CLAUDE.md` · `engine/README.md` · `engine/jobs.md` · `engine/pipeline.md` ·
 `engine/distribution.md` · `engine/herdr-migration.md` · `engine/mcp-bridge-migration.md` ·
 `engine/cron/schedule.ts` · `engine/labels.sh` · `engine/fleet.sh` · `engine/watchdog.sh` ·
-`engine/src/**` (240 files, 134 non-test, measured 2026-08-25) · `compose-data/docker-compose.yml` ·
-the framework-extraction draft.
+`engine/src/**` (about 240 files, about 134 non-test — approximate, measured 2026-08-25) ·
+`compose-data/docker-compose.yml` · the framework-extraction draft.
 
-`engine/**` is 251 TS files / 56,922 lines outside `node_modules` (measured 2026-08-25).
+`engine/**` is about 250 TS files / about 57,000 lines outside `node_modules` (measured 2026-08-25
+— approximate; xenith is a live repo other people commit to, see D15).
 
 This file is the **complete feature inventory** plus the order to build it in. Every feature in the
 reference is listed with an ID. Nothing was dropped; where a feature is deliberately re-shaped
@@ -1213,8 +1214,9 @@ M-numbers so a commit or comment citing `M2` still resolves.
 ### 3.0 The loop's measured surface
 
 Traced transitively from `supervisor.ts`, `sandcastle.ts`, `jobs/nightly-sandcastle.ts` and
-`cron/schedule.ts` in the reference: **19 files, 4,517 lines — 8% of the engine's 56,922**
-(measured 2026-08-25; `4517 / 56922 = 7.9%`, rounds to 8% — the two numbers move together).
+`cron/schedule.ts` in the reference: **19 files, 4,517 lines — 8% of the engine's about 57,000**
+(measured 2026-08-25 — approximate; `4517 / 57000 = 7.9%`, rounds to 8% — the two numbers move
+together).
 
 | Lines | Reference file | IDs |
 |---|---|---|

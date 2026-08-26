@@ -816,6 +816,19 @@ J0.12 writes a gate over them.
 **Risks / what could be wrong:** the counts will be stale again within days — xenith is a live repo.
 That is the whole reason J0.12 does not gate them live.
 
+**Follow-up fix (F4, 2026-08-26):** the risk above was not hypothetical — it happened before the
+next work session. `CORPUS_RECHECK=1 npm test` failed within hours of this job landing: live xenith
+had already moved past 251 files / 56,872 lines (`engine/**`) and 240 / 134 (`engine/src/**`) to
+252 / 57,085 and 241 / 134, then further still by the time it was checked again. Re-measuring and
+writing a new exact integer would only reset the same clock — a live repo other people commit to
+makes an exact count of it false again by the next afternoon.
+
+The fix: stop writing exact integers and round the four figures to what they actually support —
+**about 250 TS files, about 57,000 lines, about 240 source files, about 134 non-test** — with the
+prose saying plainly that these are approximate. The `measured 2026-08-25` date stamp is unchanged;
+only the precision the sentence claims is. J0.12's re-check test changes to match — see its own
+follow-up note below.
+
 ---
 
 ## J0.12 — `test/corpus.test.ts` — path and provenance  ·  D15, TST convention
@@ -901,6 +914,24 @@ files, both went stale, and nothing noticed because nothing tied them together.
 counts can still go stale silently — but they now go stale as *dated observations*, which is a
 smaller and more honest failure than a live claim going wrong. CI protects the path and the
 provenance; a human protects the numbers.
+
+**Follow-up fix (F4, 2026-08-26):** assertion 6 as built asserted the four counts equal a live
+re-measure **exactly**, no band — the very shape this job's own write-up rejected for assertion 5
+("Exact equality against the live corpus... it goes red whenever somebody else commits to xenith").
+It was wrong here for the same reason: `CORPUS_RECHECK=1 npm test` exits 1 against live xenith
+within hours (see J0.11's follow-up note), and re-measuring more often does not fix that — it only
+resets the same clock.
+
+The counts are now written as rounded approximations (J0.11's follow-up), and assertion 6 checks
+that the live corpus still **rounds** to the stated approximation rather than equalling a frozen
+integer: nearest 10 for a file count in the hundreds, nearest 1,000 for a line count in the tens of
+thousands, and a flat ±10 for the one figure (134 non-test source files) that is not itself written
+at a round bucket. Assertion 5 is unchanged in kind — same-date, same-numbers provenance across the
+two files — except that a gap in the numbers half was found and fixed separately: it compared only
+the date stamps across files, never the counts themselves, so two files could state different
+numbers for one measurement and both stay green (F1). Also fixed: assertion 5's percentage check
+had `4517` written into the test as a literal instead of reading it from the same regex match that
+reads the denominator, so a wrong numerator in the doc would pass unnoticed (F2).
 
 ---
 
