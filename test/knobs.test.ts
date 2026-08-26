@@ -11,7 +11,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { readFileSync, readdirSync, statSync } from "node:fs";
+import { readFileSync, readdirSync, statSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { assertSpecShape, type EnvSpec } from "../kernel/config.ts";
 import { INSTANCE_ENV } from "../kernel/instance.ts";
@@ -22,6 +22,30 @@ import { LOG_MAX_BYTES_ENV, LOG_MAX_READ_BYTES_ENV } from "../kernel/runtime/log
 import { EXEC_TIMEOUT_MS_ENV } from "../kernel/runtime/exec.ts";
 
 const ROOT = new URL("..", import.meta.url).pathname.replace(/\/$/, "");
+
+// J2.3 (INS-02, KRN-06) — every N2 file lands outside kernel/, so this file's three scans must
+// learn about host/ and cli/ before the first such file exists. plugins/ stays out: it holds no
+// .ts file until N5.
+const SCANNED_DIRS = ["kernel", "host", "cli"];
+
+/** Every non-test .ts file under kernel/, host/ and cli/ — tolerating a root that does not exist
+ *  yet (host/ and cli/ have no .ts file at N2's first commits). */
+function allNonTestTsFiles(): string[] {
+  const out: string[] = [];
+  const walk = (dir: string): void => {
+    for (const entry of readdirSync(dir)) {
+      const full = join(dir, entry);
+      const st = statSync(full);
+      if (st.isDirectory()) walk(full);
+      else if (entry.endsWith(".ts") && !entry.endsWith(".test.ts")) out.push(full);
+    }
+  };
+  for (const d of SCANNED_DIRS) {
+    const abs = join(ROOT, d);
+    if (existsSync(abs)) walk(abs);
+  }
+  return out;
+}
 
 interface RowMeta {
   spec: EnvSpec;
@@ -70,16 +94,7 @@ test("1. assertSpecShape passes over every real row", () => {
  * list can only ever prove the rows it already knows about agree with each other.
  */
 function findEnvSpecKeys(): string[] {
-  const files: string[] = [];
-  const walk = (dir: string): void => {
-    for (const entry of readdirSync(dir)) {
-      const full = join(dir, entry);
-      const st = statSync(full);
-      if (st.isDirectory()) walk(full);
-      else if (entry.endsWith(".ts") && !entry.endsWith(".test.ts")) files.push(full);
-    }
-  };
-  walk(join(ROOT, "kernel"));
+  const files = allNonTestTsFiles();
 
   const keys: string[] = [];
   const declRe = /:\s*EnvSpec\s*=\s*\{/g;
@@ -121,17 +136,8 @@ test("2. every scanned EnvSpec row is in ROWS, and every ROWS key is scanned —
   assert.equal(new Set(keys).size, keys.length, `duplicate keys among: ${keys.join(", ")}`);
 });
 
-test("3. process.env is named in exactly one non-test file under kernel/: kernel/config.ts", () => {
-  const files: string[] = [];
-  const walk = (dir: string): void => {
-    for (const entry of readdirSync(dir)) {
-      const full = join(dir, entry);
-      const st = statSync(full);
-      if (st.isDirectory()) walk(full);
-      else if (entry.endsWith(".ts") && !entry.endsWith(".test.ts")) files.push(full);
-    }
-  };
-  walk(join(ROOT, "kernel"));
+test("3. process.env is named in exactly one non-test file under kernel/, host/, cli/: kernel/config.ts", () => {
+  const files = allNonTestTsFiles();
 
   const named = files
     .filter((f) => readFileSync(f, "utf8").includes("process.env"))
@@ -215,16 +221,7 @@ test("6. every row appears in roadmap.md Section 2.27", () => {
 });
 
 test("7. envDynamic has exactly one call site (in paths.ts), and its definition names the family", () => {
-  const files: string[] = [];
-  const walk = (dir: string): void => {
-    for (const entry of readdirSync(dir)) {
-      const full = join(dir, entry);
-      const st = statSync(full);
-      if (st.isDirectory()) walk(full);
-      else if (entry.endsWith(".ts") && !entry.endsWith(".test.ts")) files.push(full);
-    }
-  };
-  walk(join(ROOT, "kernel"));
+  const files = allNonTestTsFiles();
 
   const callSites: string[] = [];
   for (const f of files) {

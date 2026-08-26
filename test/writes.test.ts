@@ -4,11 +4,15 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { readFileSync, readdirSync, statSync } from "node:fs";
+import { readFileSync, readdirSync, statSync, existsSync } from "node:fs";
 import { join } from "node:path";
 
 const ROOT = new URL("..", import.meta.url).pathname.replace(/\/$/, "");
-const KERNEL = join(ROOT, "kernel");
+
+// J2.3 (INS-02, KRN-06) — every N2 file lands outside kernel/, so the three repo-wide registers
+// must learn about host/ and cli/ before the first such file exists. plugins/ stays out: it holds
+// no .ts file until N5, and scanning it now would be a scan with no subject.
+const SCANNED_DIRS = ["kernel", "host", "cli"];
 
 function walkTsFiles(dir: string, out: string[]): void {
   for (const entry of readdirSync(dir)) {
@@ -17,6 +21,17 @@ function walkTsFiles(dir: string, out: string[]): void {
     if (st.isDirectory()) walkTsFiles(full, out);
     else if (entry.endsWith(".ts") && !entry.endsWith(".test.ts")) out.push(full);
   }
+}
+
+/** Every non-test .ts file under kernel/, host/ and cli/ — tolerating a root that does not exist
+ *  yet (host/ and cli/ have no .ts file at N2's first commits). */
+function allTsFiles(): string[] {
+  const out: string[] = [];
+  for (const d of SCANNED_DIRS) {
+    const abs = join(ROOT, d);
+    if (existsSync(abs)) walkTsFiles(abs, out);
+  }
+  return out;
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -30,9 +45,8 @@ function walkTsFiles(dir: string, out: string[]): void {
 // the lookbehind was added — measured, this repo has none today.
 const HARDCODED_PATH = /(?<=[=(\[{,:\s])(["'])[/~]/;
 
-test("1. door 1 — no hardcoded path literal, no homedir()/tmpdir() in the kernel", () => {
-  const files: string[] = [];
-  walkTsFiles(KERNEL, files);
+test("1. door 1 — no hardcoded path literal, no homedir()/tmpdir() in kernel/, host/, cli/", () => {
+  const files = allTsFiles();
   const offenders: string[] = [];
   for (const f of files) {
     const src = readFileSync(f, "utf8");
@@ -61,8 +75,7 @@ function scrubbedChild(code: string, env: Record<string, string> = {}): string {
  *  same technique test/knobs.test.ts's assertion 2 uses, kept as an independent copy on purpose: a
  *  bug in one file's scanner must not silently blind the other's. */
 function findEnvSpecRowKeys(): string[] {
-  const files: string[] = [];
-  walkTsFiles(KERNEL, files);
+  const files = allTsFiles();
   const keys: string[] = [];
   const declRe = /:\s*EnvSpec\s*=\s*\{/g;
   for (const f of files) {
@@ -181,8 +194,7 @@ const NAMESPACE_SHAPES: readonly RegExp[] = [
 ];
 
 function findFsWriters(): string[] {
-  const files: string[] = [];
-  walkTsFiles(KERNEL, files);
+  const files = allTsFiles();
   const offenders: string[] = [];
   for (const f of files) {
     const src = readFileSync(f, "utf8");
@@ -202,7 +214,7 @@ function findFsWriters(): string[] {
   return offenders.map((f) => f.slice(ROOT.length + 1)).sort();
 }
 
-test("3. door 3 — every fs-writing file under kernel/ signs the register", () => {
+test("3. door 3 — every fs-writing file under kernel/, host/, cli/ signs the register", () => {
   const found = findFsWriters();
   const registered = Object.keys(REGISTER).sort();
   assert.deepEqual(
@@ -212,11 +224,109 @@ test("3. door 3 — every fs-writing file under kernel/ signs the register", () 
   );
 });
 
-test("4. the register's category column accepts exactly two words", () => {
+test("4. the registers' category column accepts exactly two words", () => {
   for (const [file, entry] of Object.entries(REGISTER)) {
     assert.ok(
       entry.category === "project-relative" || entry.category === "INSTANCE-discriminated",
       `${file}: category must be "project-relative" or "INSTANCE-discriminated", got ${JSON.stringify(entry.category)}`,
     );
   }
+  for (const [file, entry] of Object.entries(COMMAND_REGISTER)) {
+    assert.ok(
+      entry.category === "project-relative" || entry.category === "INSTANCE-discriminated",
+      `${file}: COMMAND_REGISTER category must be "project-relative" or "INSTANCE-discriminated", got ${JSON.stringify(entry.category)}`,
+    );
+  }
+});
+
+// ---------------------------------------------------------------------------------------------
+// Door 5 — a write that leaves through a COMMAND, not through node:fs
+// ---------------------------------------------------------------------------------------------
+//
+// The crontab is INS-02's first INSTANCE-discriminated write, and it is performed by `crontab -`
+// (execFileSync), which door 3 cannot see — no node:fs member is ever named. This door scans for a
+// QUOTED command-name literal against a small, deliberate set of externally-mutating commands.
+//
+// What it cannot see: a name built by concatenation ("cron" + "tab") or read from a variable set
+// elsewhere. That is the honest limit (LOOP.md: "a gate that pattern-matches ONE spelling of an
+// import is not a gate") — J2.16's isAbsolute guard is the real enforcement; this text scan is the
+// cheap second line. `gh` and `git` are deliberately not in this set: kernel/runtime/exec.ts names
+// both and they are read-mostly wrappers whose write paths are JOB-G's (N5) to register.
+const EXTERNAL_COMMANDS = ["crontab", "systemctl", "docker", "at"];
+
+interface CommandRegisterEntry {
+  command: string;
+  category: string;
+  reason: string;
+}
+
+const COMMAND_REGISTER: Record<string, CommandRegisterEntry> = {};
+
+test("5. door 5 — every file naming an externally-mutating command signs COMMAND_REGISTER", () => {
+  const files = allTsFiles();
+  for (const f of files) {
+    const src = readFileSync(f, "utf8");
+    const rel = f.slice(ROOT.length + 1);
+    for (const cmd of EXTERNAL_COMMANDS) {
+      if (new RegExp(`["']${cmd}["']`).test(src)) {
+        assert.ok(
+          rel in COMMAND_REGISTER,
+          `${rel} names ${JSON.stringify(cmd)} and is not in COMMAND_REGISTER`,
+        );
+      }
+    }
+  }
+});
+
+// ---------------------------------------------------------------------------------------------
+// Door 6 — no module-scope side-effect path in host/ or cli/ (ruling 2)
+// ---------------------------------------------------------------------------------------------
+//
+// Every path and every external command in host/ and cli/ arrives through a REQUIRED `deps`
+// argument, resolved only inside the `if (import.meta.filename === process.argv[1])` block that no
+// test ever reaches — never at module scope. This door refuses a TOP-LEVEL call to any of six
+// path/write primitives in a non-test file under host/ or cli/. kernel/ is exempt:
+// kernel/runtime/log/tail.ts's LOG_ROOTS is a module-scope projectPath on purpose — a kernel
+// default, not a host one.
+//
+// "Top-level" = the call's line begins at column 0, or the call appears inside a top-level
+// const/let/var initialiser on the SAME line. The member list here and in the pattern below are the
+// SAME list — six members: projectPath, dbPath, mkdirSync, createWriteStream, readFileSync,
+// writeFileSync.
+//
+// What it cannot see: a top-level call routed through a helper defined in the same file. Accepted —
+// the required-deps typing is the real enforcement; this door is the cheap second line.
+const MODULE_SCOPE_MEMBERS = "projectPath|dbPath|mkdirSync|createWriteStream|readFileSync|writeFileSync";
+const MODULE_SCOPE_DECL_RE = new RegExp(`^(export )?(const|let|var)\\b.*\\b(${MODULE_SCOPE_MEMBERS})\\(`);
+const MODULE_SCOPE_CALL_RE = new RegExp(`\\b(${MODULE_SCOPE_MEMBERS})\\(`);
+
+function findModuleScopeOffenders(): string[] {
+  const offenders: string[] = [];
+  for (const d of ["host", "cli"]) {
+    const abs = join(ROOT, d);
+    if (!existsSync(abs)) continue;
+    const files: string[] = [];
+    walkTsFiles(abs, files);
+    for (const f of files) {
+      const src = readFileSync(f, "utf8");
+      const rel = f.slice(ROOT.length + 1);
+      for (const line of src.split("\n")) {
+        const declMatch = MODULE_SCOPE_DECL_RE.exec(line);
+        if (declMatch) {
+          offenders.push(`${rel}: module-scope ${declMatch[3]}(`);
+          continue;
+        }
+        if (!/^\s/.test(line)) {
+          const callMatch = MODULE_SCOPE_CALL_RE.exec(line);
+          if (callMatch) offenders.push(`${rel}: module-scope ${callMatch[1]}(`);
+        }
+      }
+    }
+  }
+  return offenders;
+}
+
+test("6. door 6 — no module-scope path/write call in host/ or cli/ (ruling 2)", () => {
+  const offenders = findModuleScopeOffenders();
+  assert.deepEqual(offenders, [], `module-scope side effect(s) found:\n${offenders.join("\n")}`);
 });
