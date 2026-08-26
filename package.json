@@ -3,15 +3,24 @@
   "private": true,
   "version": "0.0.0",
   "type": "module",
-  "workspaces": ["kernel", "plugins/*", "cli"],
-  "engines": { "node": ">=22.18.0" },
+  "workspaces": [
+    "kernel",
+    "plugins/*",
+    "cli"
+  ],
+  "engines": {
+    "node": ">=22.18.0"
+  },
   "scripts": {
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "pretest": "npm run typecheck",
     "test": "node --test \"kernel/**/*.test.ts\" \"plugins/**/*.test.ts\" \"host/**/*.test.ts\" \"cli/**/*.test.ts\" \"test/**/*.test.ts\""
   },
   "devDependencies": {
-    "typescript": "5.9.3",
-    "@types/node": "22.20.1"
+    "@types/node": "22.20.1",
+    "typescript": "5.9.3"
+  },
+  "dependencies": {
+    "croner": "10.0.1"
   }
 }
