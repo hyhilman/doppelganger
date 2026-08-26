@@ -25,9 +25,11 @@ export const LOG_LEVEL_ENV: EnvSpec = {
 };
 
 /** Read once at module load — an unreadable value must not silence the log, so it falls back to
- *  `info` rather than throwing. */
+ *  `info` rather than throwing. Exported beside the row (J1.18): the row and the value are one
+ *  object, so a test can resolve the real default in a child rather than merely trusting the row. */
 const rawLevel = envStr(LOG_LEVEL_ENV);
-const MIN = ORDER[(rawLevel in ORDER ? rawLevel : "info") as Level];
+export const LOG_LEVEL: Level = (rawLevel in ORDER ? rawLevel : "info") as Level;
+const MIN = ORDER[LOG_LEVEL];
 
 export type Fields = Record<string, string | number | boolean | null | undefined>;
 
