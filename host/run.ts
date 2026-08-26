@@ -12,6 +12,7 @@ import { openDb } from "../kernel/runtime/db.ts";
 import { logger } from "../kernel/runtime/log/emit.ts";
 import { git } from "../kernel/runtime/exec.ts";
 import { runJob } from "../kernel/runtime/runjob.ts";
+import { withLease } from "../kernel/runtime/lease.ts";
 import { projectPath, ROOT, dbPath } from "../kernel/paths.ts";
 import { byStage } from "../kernel/stages.ts";
 import { parentEnv } from "../kernel/config.ts";
@@ -19,6 +20,7 @@ import type { Job } from "../kernel/ports/job.ts";
 import { sandcastleRunner } from "./runner.ts";
 import { JOBS } from "./jobs/index.ts";
 import { GATE_TIMEOUT_MS, type PassDeps } from "./jobs/nightly-sandcastle.ts";
+import { SUPERVISOR_MAX_RUN_MIN, SUPERVISOR_KILL_GRACE_MS } from "./supervisor.ts";
 
 /** `undefined` names no job at all (bare `npm run job`); an unknown name is a SEPARATE case, so the
  *  two produce different messages. Both list what IS registered, grouped by SUP-20 stage — the
@@ -46,23 +48,50 @@ export function jobListing(jobs: readonly Job[]): string {
 }
 
 /**
- * D10's two shapes, no third: `job.exec` -> call it with the assembled deps and return 0;
- * otherwise the skill runner path -> report `iterations`, `commits.length` and
- * `completionSignal ?? "none"` on STDERR (LOG-06: stdout stays free for the payload).
+ * D10's two shapes, no third: `job.exec` -> call it with the assembled deps; otherwise the skill
+ * runner path -> report `iterations`, `commits.length` and `completionSignal ?? "none"` on STDERR
+ * (LOG-06: stdout stays free for the payload).
  *
  * The cast on `job.exec` is the ONE cast this repo performs to call a job's own deps-typed `exec`
  * from a registry that only knows `(deps: never) => Promise<void>` (kernel/ports/job.ts) — every
  * job at N3 shares `PassDeps`' shape, so there is exactly one shape to cast to today.
+ *
+ * LSE-04 — every registered job claims its hour before it runs, GENERIC, not special-cased: the
+ * key is `${job.name}@<UTC hour>`, the clock versioning it for a reason wholly unrelated to
+ * whether the pass worked (ruling 3, plan/N4-uac.md). `done` terminal is then exactly right —
+ * that hour's run happened once — and it excludes what the gate (per-process) cannot: a hand-run
+ * beside a scheduled tick, or a second checkout (INS-05). The TTL is DERIVED from SUP-13's own
+ * bound (`SUPERVISOR_MAX_RUN_MIN` — past which the supervisor has already SIGKILLed the child)
+ * plus the kill grace, never chosen. A refusal is a skipped tick, exit 0, logged at `info` with
+ * the exact `lease-clear` command an operator needs (the same shape as `quota-paused`, J4.8, and
+ * for the same reason — INV-10's spirit: a refusal costs the work nothing).
  */
 export async function runNamed(job: Job, deps: PassDeps): Promise<number> {
-  if (job.exec !== undefined) {
-    await (job.exec as unknown as (deps: PassDeps) => Promise<void>)(deps);
+  const hour = deps.now().toISOString().slice(0, 13); // "2026-08-26T22"
+  const key = `${job.name}@${hour}`;
+  const got = await withLease(
+    "job",
+    key,
+    async () => {
+      if (job.exec !== undefined) {
+        await (job.exec as unknown as (deps: PassDeps) => Promise<void>)(deps);
+        return;
+      }
+      const result = await runJob(job, { runner: deps.runner, cwd: deps.root, logPath: deps.runLogPath(job.name) });
+      process.stderr.write(
+        `iterations=${result.iterations} commits=${result.commits.length} completionSignal=${result.completionSignal ?? "none"}\n`,
+      );
+    },
+    { ttlMs: SUPERVISOR_MAX_RUN_MIN * 60_000 + SUPERVISOR_KILL_GRACE_MS, maxAttempts: 3 },
+  );
+  if (!got.ran) {
+    deps.log.info("lease-held", {
+      key,
+      reason: got.reason,
+      msg: `another run of ${job.name} owns this hour — \`npm run lease-clear -- job ${key}\` to release it`,
+    });
     return 0;
   }
-  const result = await runJob(job, { runner: deps.runner, cwd: deps.root, logPath: deps.runLogPath(job.name) });
-  process.stderr.write(
-    `iterations=${result.iterations} commits=${result.commits.length} completionSignal=${result.completionSignal ?? "none"}\n`,
-  );
   return 0;
 }
 

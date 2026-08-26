@@ -4,9 +4,10 @@ import assert from "node:assert/strict";
 import { mkdtempSync, rmSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { spawnSync } from "node:child_process";
 import { closeAll } from "./db.ts";
 import { INSTANCE } from "../instance.ts";
-import { acquire, release, clear, read, list, parseOwner, type Lease } from "./lease.ts";
+import { acquire, release, clear, read, list, parseOwner, withLease, type Lease } from "./lease.ts";
 
 let dir: string;
 
@@ -235,4 +236,102 @@ test("15. the single-statement claim is real — exactly one statement execution
     1,
     `expected exactly one statement execution in acquire's body before its changes===1 check, found ${execCalls} — a read-then-write split reopens the race this primitive exists to close`,
   );
+});
+
+// ---------------------------------------------------------------------------------------------
+// J4.4 (LSE-03, LSE-04) — withLease: acquire -> run -> release.
+// ---------------------------------------------------------------------------------------------
+
+test("16. a handler that returns a value settles done", async () => {
+  const { scope, key } = fresh();
+  const got = await withLease(scope, key, async () => "value");
+  assert.deepEqual(got, { ran: true, result: "value" });
+  assert.equal(read(scope, key)?.status, "done");
+});
+
+test("17. LSE-03 — a handler that returns EARLY, having done nothing, ALSO settles done, and the key is then terminal", async () => {
+  const { scope, key } = fresh();
+  const got = await withLease(scope, key, async () => {
+    return;
+  });
+  assert.equal(got.ran, true);
+  assert.equal(read(scope, key)?.status, "done");
+  const reacquire = acquire(scope, key);
+  assert.equal(reacquire.ok, false);
+  if (!reacquire.ok) assert.equal(reacquire.reason, "done");
+});
+
+test("18. a throw releases failed and re-throws unchanged", async () => {
+  const { scope, key } = fresh();
+  const original = new Error("boom");
+  await assert.rejects(
+    () =>
+      withLease(scope, key, async () => {
+        throw original;
+      }),
+    (e: unknown) => e === original,
+  );
+  const row = read(scope, key);
+  assert.equal(row?.status, "failed");
+  // A failed claim self-expires — immediately re-acquirable.
+  const reacquire = acquire(scope, key);
+  assert.equal(reacquire.ok, true);
+});
+
+test("19. a refused key returns { ran: false, reason } and never calls fn", async () => {
+  const { scope, key } = fresh();
+  const first = await withLease(scope, key, async () => "first", { ttlMs: 60_000 });
+  assert.equal(first.ran, true);
+  // The key is "done" now (terminal), so a second attempt is refused before fn ever runs.
+  let calls = 0;
+  const second = await withLease(scope, key, async () => {
+    calls++;
+    return "second";
+  });
+  assert.deepEqual(second, { ran: false, reason: "done" });
+  assert.equal(calls, 0);
+});
+
+test("20. maxAttempts reaches exhausted through withLease, not only through acquire", async () => {
+  const { scope, key } = fresh();
+  const original = new Error("boom");
+  const attempt = () =>
+    withLease(
+      scope,
+      key,
+      async () => {
+        throw original;
+      },
+      { ttlMs: 1, maxAttempts: 2 },
+    );
+  await assert.rejects(() => attempt(), (e: unknown) => e === original);
+  await new Promise((r) => setTimeout(r, 20));
+  await assert.rejects(() => attempt(), (e: unknown) => e === original);
+  await new Promise((r) => setTimeout(r, 20));
+  const third = await withLease(scope, key, async () => "third", { ttlMs: 1, maxAttempts: 2 });
+  assert.deepEqual(third, { ran: false, reason: "exhausted" });
+});
+
+test("21. withLease opens no interval and holds nothing open — a child exits of its own accord within 5s", () => {
+  const dbPath = process.env.LEASE_DB!;
+  const script = `
+    import("./kernel/runtime/lease.ts").then(async (m) => {
+      const got = await m.withLease("test-scope-child", "child-key", async () => "ok", { ttlMs: 3_600_000 });
+      process.stdout.write(JSON.stringify(got));
+      process.exitCode = 0;
+    });
+  `;
+  const startedAt = Date.now();
+  const ROOT = new URL("../..", import.meta.url).pathname.replace(/\/$/, "");
+  const r = spawnSync(process.execPath, ["-e", script], {
+    cwd: ROOT,
+    env: { PATH: process.env.PATH ?? "", LEASE_DB: dbPath },
+    encoding: "utf8",
+    timeout: 5_000,
+  });
+  const elapsedMs = Date.now() - startedAt;
+  assert.equal(r.status, 0, `child failed: status=${r.status} signal=${r.signal} stderr=${r.stderr}`);
+  assert.match(r.stdout, /"ran":true/);
+  // Upper bound only — this guards "somebody re-added an un-unref'd timer", not machine load.
+  assert.ok(elapsedMs < 5_000, `child took ${elapsedMs}ms — expected it to exit on its own well under 5s`);
 });

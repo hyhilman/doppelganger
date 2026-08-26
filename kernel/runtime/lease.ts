@@ -202,6 +202,49 @@ export function release(lease: Lease, outcome: "done" | "failed" = "done"): bool
   return changes === 1;
 }
 
+// ---------------------------------------------------------------------------------------------
+// J4.4 (LSE-03, LSE-04, LSE-09 subject) — withLease: acquire -> run -> release, four members and
+// every one has a caller. See the header for what is CUT and why: no `settle`, no `maxConcurrent`,
+// no `heldCount`, no `renew`, no heartbeat interval, no `AbortSignal`, no `lost`, and above all no
+// `beatMs` — a test seam added to a production signature purely so a test could watch a path no
+// caller takes.
+// ---------------------------------------------------------------------------------------------
+
+export type WithLeaseResult<T> =
+  | { readonly ran: true; readonly result: T }
+  | { readonly ran: false; readonly reason: RefusedReason };
+
+/**
+ * LSE-03, stated here as a TRAP, not as a feature: `withLease` settles `done` on ANY non-throwing
+ * return, early returns included. Measured in the reference 2026-07-31: XEN-8365's plan was
+ * drafted, the post failed, `handle` returned early, the lease went `done` with the row still
+ * `routed`, and nothing would ever have retried it — 47 hours. This is documented, not silently
+ * "fixed": a handler that returns normally has told the caller it finished, and a primitive that
+ * second-guesses that would settle nothing for the handlers that genuinely did.
+ *
+ * A throw releases `failed` (which self-expires, leaving the key retryable and bounded by
+ * `maxAttempts`) and RE-THROWS the original error unchanged.
+ */
+export async function withLease<T>(
+  scope: string,
+  key: string,
+  fn: () => Promise<T>,
+  opts?: { readonly ttlMs?: number; readonly maxAttempts?: number },
+): Promise<WithLeaseResult<T>> {
+  const got = acquire(scope, key, opts);
+  if (!got.ok) {
+    return { ran: false, reason: got.reason };
+  }
+  try {
+    const result = await fn();
+    release(got.lease, "done");
+    return { ran: true, result };
+  } catch (e) {
+    release(got.lease, "failed");
+    throw e;
+  }
+}
+
 /**
  * Deletes the row at `scope`/`key`. Refuses a `held` claim unless `force` — deleting one lets a
  * second runner start beside the first, the exact race `acquire` exists to prevent. `force` is for
