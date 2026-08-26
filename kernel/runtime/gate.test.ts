@@ -5,6 +5,15 @@
 // No timer of any kind, anywhere in this file (AC6) — every wait here is either `waitMs = 0`
 // (which creates no timer at all, at this commit) or an await on an already-settled promise chain
 // driven by `drain()` on release.
+//
+// J4.15 (TST-17) — this IS the "gate contract" row TST-17 names: 24 tests over three levels (the
+// exclusion decision against a pure model over all 256 ordered request pairs; the acquisition
+// order over every caller spelling; no wait-for cycle over all 64 ordered writer pairs), all built
+// against a FIXTURE gate over `["a","b","c"]`. Nothing here is re-shipped for J4.15 — not one test
+// in this file changes. host/gate-contract.test.ts is the genuinely new half: the same contract,
+// asserted over the REAL `RESOURCE_NAMES` and the REAL `PROGRAMS`, which needed a schedule with
+// more than one program to say anything at all — an assertion over a single element is an
+// assertion about nothing, which is exactly what N2/N3 had.
 
 import { test } from "node:test";
 import assert from "node:assert/strict";

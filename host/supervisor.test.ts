@@ -35,7 +35,8 @@ import {
 import { createGate, type Gate, type Mode } from "../kernel/runtime/gate.ts";
 import { pause } from "../kernel/runtime/quota.ts";
 import { spawnSlot } from "../kernel/runtime/pool.ts";
-import { scriptCommandOf, type ScheduleEntry, type Program } from "./schedule.ts";
+import { scriptCommandOf, SCHEDULE, PROGRAMS, supervisedEntries, bootstrapEntries, type ScheduleEntry, type Program } from "./schedule.ts";
+import { RESOURCE_NAMES } from "./config.ts";
 import { parseLine, type LogLine } from "../kernel/runtime/log/parse.ts";
 import { INSTANCE } from "../kernel/instance.ts";
 import { pidNamespace } from "../kernel/runtime/proc.ts";
@@ -1197,6 +1198,22 @@ test("31. grouping: stage headers follow STAGES order, and a group's own entries
   assert.equal(todoBlock.length, 2);
   assert.match(todoBlock[0]!, /^sup {2}todo-z /);
   assert.match(todoBlock[1]!, /^sup {2}todo-a /);
+});
+
+test("47. J4.15 (TST-17, SUP-17): list(SCHEDULE, ...) over the real, three-entry schedule — two stage groups, both by-columns, both resource shapes, and a DERIVED tally", () => {
+  const out = list(SCHEDULE, { programs: PROGRAMS, resourceNames: RESOURCE_NAMES });
+  const headerLines = out.split("\n").filter((l) => l.startsWith("-- "));
+  assert.deepEqual(headerLines, ["-- nightly --", "-- ops --"]);
+  assert.match(out, /\bsup\b/, "at least one supervised entry (by=sup)");
+  assert.match(out, /\bcron\b/, "at least one bootstrap entry (by=cron) — ops-watchdog");
+  assert.match(out, /\brepo\b/, "nightly-sandcastle's own resource");
+  assert.match(out, /\bnone\b/, "the gate: \"none\" programs' own column reading");
+  const lastLine = out.trim().split("\n").at(-1)!;
+  // Derived from the SAME functions list() itself calls internally — never the literal numbers
+  // written a second time here, which is the whole point (AC6: a literal assertion stays green
+  // after a fourth entry silently changes the real counts; a derived one does not).
+  const expectedTally = `${supervisedEntries(SCHEDULE).length} supervised, ${bootstrapEntries(SCHEDULE).length} on the real crontab`;
+  assert.equal(lastLine, expectedTally);
 });
 
 test("32. resources: a reader prints \"all\" even when its program names some, a writer prints its own list in the gate's order", () => {

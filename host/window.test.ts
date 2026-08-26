@@ -161,13 +161,14 @@ const LIVE_FIXTURE_WINDOW: RefreshWindow = {
   why: "fixture: covers nightly-sandcastle's whole 16:38-21:38 firing range, every day",
 };
 
-test("8. entriesInWindow over the real SCHEDULE and PROGRAMS, inside a fixture window covering 16:00-22:00 UTC", () => {
-  // J4.14: ops-watchdog's cron (3,18,33,48 * * * *) fires every 15 minutes round the clock, so it
-  // fires inside ANY window — it joins nightly-sandcastle here. ops-cron-check's cron (15 22 * * *)
-  // fires at 22:15, one minute past this window's half-open close at 22:00, so it stays excluded.
-  // J4.15 (TST-17) is where this assertion becomes the REAL three-entry discrimination the plan
-  // calls out (a fixture window that admits/excludes each of the three by name); this update keeps
-  // the assertion honest for the schedule as J4.14 leaves it.
+test("8. entriesInWindow over the real SCHEDULE and PROGRAMS — three entries, a real discrimination (J4.15, TST-17)", () => {
+  // This is the assertion N2 called vacuous (one entry, `[] === []`) and J3.15 called half-real
+  // (one entry that fires). Three entries is what makes it a genuine three-way split:
+  // nightly-sandcastle (38 16-21 * * *) fires inside this 16:00-22:00 window; ops-watchdog
+  // (3,18,33,48 * * * *) fires every 15 minutes round the clock, so it fires inside ANY window and
+  // joins it; ops-cron-check (15 22 * * *) fires at 22:15, one minute past this window's half-open
+  // close at 22:00, and stays OUT. The exact two-name set is the discriminating claim — a set that
+  // silently admitted or dropped ops-cron-check would go unnoticed by a looser assertion.
   const result = entriesInWindow(SCHEDULE, LIVE_FIXTURE_WINDOW, PROGRAMS);
   assert.deepEqual(result, [
     { name: "nightly-sandcastle", gate: "excl" },
