@@ -26,6 +26,7 @@ import {
   SUPERVISOR_MAX_RUN_MIN_ENV,
   SUPERVISOR_KILL_GRACE_MS_ENV,
   SUPERVISOR_SPAWN_STAGGER_MS_ENV,
+  SUPERVISOR_DRAIN_MS_ENV,
 } from "../host/supervisor.ts";
 
 const ROOT = new URL("..", import.meta.url).pathname.replace(/\/$/, "");
@@ -116,6 +117,12 @@ const ROWS: readonly RowMeta[] = [
     spec: SUPERVISOR_SPAWN_STAGGER_MS_ENV,
     file: "host/supervisor.ts",
     constName: "SUPERVISOR_SPAWN_STAGGER_MS_ENV",
+    readers: ["envNum"],
+  },
+  {
+    spec: SUPERVISOR_DRAIN_MS_ENV,
+    file: "host/supervisor.ts",
+    constName: "SUPERVISOR_DRAIN_MS_ENV",
     readers: ["envNum"],
   },
   {
@@ -259,6 +266,10 @@ test("5. every defaulted row's default is the value you get, resolved in a scrub
   assert.equal(
     scrubbedChild("import('./host/supervisor.ts').then(m=>console.log(m.SUPERVISOR_SPAWN_STAGGER_MS))"),
     "2000",
+  );
+  assert.equal(
+    scrubbedChild("import('./host/supervisor.ts').then(m=>console.log(m.SUPERVISOR_DRAIN_MS))"),
+    "30000",
   );
   // INSTANCE, ENGINE_ROOT and <NAME>_DB carry no `default` — two have computed fallbacks (a
   // basename, cwd), one is a family with no single value — so they are skipped here by name.

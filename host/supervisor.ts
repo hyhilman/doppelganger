@@ -37,16 +37,17 @@
 // during the run. A flagged entry firing at 22:47 legitimately runs INTO the window — correct for
 // a job measured in seconds, wrong for a long pass, which is why a long pass keeps real day-split
 // legs instead of reaching for the flag.
-import { existsSync, readFileSync } from "node:fs";
-import { join } from "node:path";
-import { parentEnv, envNum, type EnvSpec } from "../kernel/config.ts";
+import { existsSync, readFileSync, mkdirSync, writeFileSync, createWriteStream } from "node:fs";
+import { join, dirname } from "node:path";
+import { parentEnv, envNum, errText, type EnvSpec } from "../kernel/config.ts";
+import { ROOT, projectPath } from "../kernel/paths.ts";
 import { spawnSlot } from "../kernel/runtime/pool.ts";
 import { logger, type Fields } from "../kernel/runtime/log/emit.ts";
 import { stderrTail } from "../kernel/runtime/log/cause.ts";
-import type { Gate, Mode } from "../kernel/runtime/gate.ts";
-import { programOf, type ScheduleEntry, type Program } from "./schedule.ts";
-import { inRefreshWindow, type RefreshWindow } from "./config.ts";
-import { gateWait } from "./cron.ts";
+import { createGate, type Gate, type Mode } from "../kernel/runtime/gate.ts";
+import { programOf, validate, supervisedEntries, bootstrapEntries, type ScheduleEntry, type Program } from "./schedule.ts";
+import { RESOURCE_NAMES, REFRESH_WINDOW, inRefreshWindow, type RefreshWindow } from "./config.ts";
+import { gateWait, newTimer as realNewTimer } from "./cron.ts";
 
 // §2.27's three supervisor knobs. Each is read here (envNum) so `main()`'s argv block (J2.13) can
 // pass the resolved value into `deps` without resolving anything itself — the same pattern
@@ -130,6 +131,11 @@ export interface SupervisorDeps {
 
 const sinkCache = new Map<string, Sink>();
 
+/** Every child currently in flight, across every entry — J2.13's `stop()` reads this to know who
+ *  to signal on a drain, and `snapshot()` reads its size. Module-level because `stop()` and
+ *  `spawnChild()` need to agree on the same set without threading it through every call. */
+const liveChildren = new Set<SpawnedChild>();
+
 function sinkFor(path: string, openSink: (path: string) => Sink): Sink {
   const cached = sinkCache.get(path);
   if (cached) return cached;
@@ -184,6 +190,7 @@ function spawnChild(e: ScheduleEntry, program: Program, deps: SupervisorDeps): P
       env: childEnv(e, program, deps.dotenvPath),
       stdio: ["ignore", "pipe", "pipe"],
     });
+    liveChildren.add(child);
 
     const sink = sinkFor(e.log, deps.openSink);
     const tail = stderrTail();
@@ -209,6 +216,7 @@ function spawnChild(e: ScheduleEntry, program: Program, deps: SupervisorDeps): P
       resolved = true;
       clearTimeout(killTimer);
       clearTimeout(graceTimer);
+      liveChildren.delete(child);
       resolve();
     };
 
@@ -330,4 +338,229 @@ export async function runEntry(
     hold?.release();
     releaseSelf();
   }
+}
+
+// ---------------------------------------------------------------------------------------------
+// J2.13 (SUP-06, SUP-14, SUP-15, SUP-18) — main(): boot, timers, heartbeat, drain, the loud
+// refusal. The boot sequence, in order: validate (throws → bootOrDie prints every line and sets
+// process.exitCode) → reapOnBoot (non-fatal; SUP-15's whole content is "before the timers", so a
+// sweep never races the ticks it exists to unblock) → one newTimer per SUPERVISED entry (SUP-03)
+// → beat() once, then every 60s, unref'd (SUP-14) → the `supervisor-up` line → SIGTERM/SIGINT ->
+// stop(), and an unhandledRejection handler that logs and does not exit.
+// ---------------------------------------------------------------------------------------------
+
+export const SUPERVISOR_DRAIN_MS_ENV: EnvSpec = {
+  key: "SUPERVISOR_DRAIN_MS",
+  default: "30000",
+  why: "how long a child gets to exit on shutdown before it is killed; a process manager's own stop timeout must exceed it",
+};
+export const SUPERVISOR_DRAIN_MS: number = envNum(SUPERVISOR_DRAIN_MS_ENV);
+
+export interface BootDeps extends SupervisorDeps {
+  readonly newTimer: (e: ScheduleEntry, fn: () => void) => { stop(): void };
+  readonly heartbeatPath: string;
+  readonly statusPath: string;
+  readonly bootLog: string;
+  readonly drainMs: number;
+  /** LSE-09 lands here at N4. Absent at N2 — the ordering (before the timers) is asserted with a
+   *  fake, which is exactly what LSE-09 needs to be able to rely on later. */
+  readonly reapOnBoot?: () => Iterable<Record<string, string | number>>;
+  /**
+   * Production is `process.exit`; a test supplies a recorder instead. NOT part of the interface
+   * sketch in plan/N2-uac.md J2.13 — added here because the plan's own "Risks" section requires
+   * it verbatim ("stop() taking its exit function through deps... is also the seam a test
+   * needs"), which the sketch omitted. Required, not defaulted, like every other impure field
+   * (ruling 2).
+   */
+  readonly exit: (code: number) => void;
+}
+
+export interface Supervisor {
+  readonly stop: (sig: string) => Promise<void>;
+  readonly draining: () => boolean;
+}
+
+export function snapshot(deps: BootDeps): Record<string, unknown> {
+  return {
+    pid: process.pid,
+    at: Math.floor(deps.now().getTime() / 1000),
+    gate: deps.gate.state(),
+    children: liveChildren.size,
+  };
+}
+
+/** Never throws: a supervisor that dies because it could not write its own liveness stamp turns a
+ *  full disk into a dead fleet, which is strictly worse than the watchdog firing. */
+export function beat(deps: BootDeps): void {
+  const log = logger("supervisor");
+  try {
+    mkdirSync(dirname(deps.heartbeatPath), { recursive: true });
+    writeFileSync(deps.heartbeatPath, `${Math.floor(deps.now().getTime() / 1000)}\n`);
+    mkdirSync(dirname(deps.statusPath), { recursive: true });
+    writeFileSync(deps.statusPath, JSON.stringify(snapshot(deps)));
+  } catch (e) {
+    log.warn("heartbeat-failed", { msg: errText(e) });
+  }
+}
+
+/** One process, one tick owner. See the module header above for the boot order. */
+export async function main(schedule: readonly ScheduleEntry[], deps: BootDeps): Promise<Supervisor> {
+  const log = logger("supervisor");
+
+  // 1. validate (SUP-05, SUP-06) — throws before a single timer registers.
+  validate(schedule, {
+    programs: deps.programs,
+    resourceNames: deps.gate.resources,
+    refreshWindow: deps.refreshWindow,
+    logRoots: [join(deps.root, ".doppelganger/logs"), join(deps.root, "logs")],
+    jobsDir: join(deps.root, "host/jobs"),
+    root: deps.root,
+  });
+
+  // 2. reapOnBoot (SUP-15) — before the timers; non-fatal.
+  if (deps.reapOnBoot) {
+    try {
+      for (const row of deps.reapOnBoot()) {
+        log.info("lease-reaped", row as Fields);
+      }
+    } catch (e) {
+      log.warn("lease-reap-failed", { msg: errText(e) });
+    }
+  }
+
+  let draining = false;
+  const isDraining = (): boolean => draining;
+
+  // 3. one newTimer per supervised entry (SUP-03).
+  const supervised = supervisedEntries(schedule);
+  const timers = supervised.map((e) =>
+    deps.newTimer(e, () => {
+      // 11. a tick that throws is caught — no other timer is affected.
+      runEntry(e, deps, isDraining).catch((err: unknown) => {
+        log.error("tick-crashed", { msg: errText(err), job: programOf(e) });
+      });
+    }),
+  );
+
+  // 4. beat() once, then every 60s, unref'd (SUP-14).
+  beat(deps);
+  const beatTimer = setInterval(() => beat(deps), 60_000);
+  beatTimer.unref?.();
+
+  // 5. supervisor-up.
+  const unsupervised = bootstrapEntries(schedule).length;
+  log.info("supervisor-up", {
+    entries: supervised.length,
+    unsupervised,
+    heartbeat: deps.heartbeatPath,
+    pid: process.pid,
+  });
+
+  // 6. SIGTERM/SIGINT -> stop(); unhandledRejection logs and does not exit.
+  const stop = async (sig: string): Promise<void> => {
+    if (draining) return; // idempotent — a second signal must not double-drain
+    draining = true;
+    process.off("SIGTERM", onTerm);
+    process.off("SIGINT", onInt);
+    process.off("unhandledRejection", onUnhandled);
+    clearInterval(beatTimer);
+    for (const t of timers) t.stop();
+
+    const children = [...liveChildren];
+    log.info("supervisor-draining", { signal: sig, children: children.length });
+    for (const c of children) c.kill("SIGTERM");
+
+    // DEVIATION from plan/N2-uac.md's "both timers unref'd", recorded here: this Promise IS
+    // stop()'s own await — it is not background work, it is the mechanism stop() uses to know
+    // when to proceed. Unref'ing a timer stop() is itself waiting on lets Node consider the event
+    // loop drained (and, in a process with nothing else running — every test in this file that
+    // exercises drain — end the run) before the timer ever gets a chance to fire, which measured
+    // as exactly this: "Promise resolution is still pending but the event loop has already
+    // resolved". The REAL point behind "unref'd" — this must never hold a shutdown open beyond
+    // what draining needs — is met anyway: the drain waits at most `drainMs` (children that never
+    // exit are SIGKILLed and the poll then finds an empty set within one more 200ms tick), and
+    // stop() calls `deps.exit()` explicitly the moment it is done either way.
+    await new Promise<void>((resolve) => {
+      const killTimer = setTimeout(() => {
+        for (const c of liveChildren) c.kill("SIGKILL");
+      }, deps.drainMs);
+
+      const pollTimer = setInterval(() => {
+        if (liveChildren.size === 0) {
+          clearInterval(pollTimer);
+          clearTimeout(killTimer);
+          resolve();
+        }
+      }, 200);
+    });
+
+    deps.exit(0);
+  };
+  const onTerm = (): void => {
+    void stop("SIGTERM");
+  };
+  const onInt = (): void => {
+    void stop("SIGINT");
+  };
+  const onUnhandled = (reason: unknown): void => {
+    log.error("unhandled-rejection", { msg: errText(reason) });
+  };
+  process.on("SIGTERM", onTerm);
+  process.on("SIGINT", onInt);
+  process.on("unhandledRejection", onUnhandled);
+
+  return { stop, draining: isDraining };
+}
+
+/** SUP-06's loud refusal: catches validate()'s throw (via main()), writes every problem line to
+ *  stderr through the log emitter, and sets `process.exitCode = 1`. The other two halves of
+ *  SUP-06 — a restart loop and a watchdog report within 15 minutes — are DECLINED: the restart
+ *  policy is SUP-19 (moved to M9 with the fleet) and the watchdog is JOB-O10 (N4). N2 ships the
+ *  exit code and the message; this comment names which phase owns the rest. */
+export async function bootOrDie(schedule: readonly ScheduleEntry[], deps: BootDeps): Promise<Supervisor> {
+  try {
+    return await main(schedule, deps);
+  } catch (e) {
+    const log = logger("supervisor");
+    const problems = errText(e)
+      .split("\n")
+      .map((l) => l.trim())
+      .filter((l) => l.startsWith("- "));
+    for (const line of problems) {
+      log.error("boot-failed", { msg: line.replace(/^-\s*/, "") });
+    }
+    process.exitCode = 1;
+    return { stop: async () => {}, draining: () => true };
+  }
+}
+
+// ---------------------------------------------------------------------------------------------
+// The argv block. UNTESTED BY CONSTRUCTION (plan/N2-uac.md ruling 1) — no test imports this file
+// in a way that reaches it. It assembles the real deps and dispatches --list / --gate / boot.
+// `supervisor --list` is SUP-17 (J2.14); until that job lands, only boot runs.
+// ---------------------------------------------------------------------------------------------
+if (import.meta.filename === process.argv[1]) {
+  const { SCHEDULE, PROGRAMS } = await import("./schedule.ts");
+  const deps: BootDeps = {
+    root: ROOT,
+    gate: createGate(RESOURCE_NAMES),
+    programs: PROGRAMS,
+    refreshWindow: REFRESH_WINDOW,
+    spawn: (await import("node:child_process")).spawn as unknown as SpawnFn,
+    openSink: (path: string) => createWriteStream(path, { flags: "a" }),
+    dotenvPath: projectPath(".env"),
+    now: () => new Date(),
+    shouldShed: () => ({ skip: false }),
+    maxRunMin: () => SUPERVISOR_MAX_RUN_MIN,
+    killGraceMs: SUPERVISOR_KILL_GRACE_MS,
+    spawnStaggerMs: SUPERVISOR_SPAWN_STAGGER_MS,
+    jobRunner: (job: string) => [process.execPath, [projectPath(`host/jobs/${job}.ts`)]],
+    newTimer: realNewTimer,
+    heartbeatPath: projectPath(".doppelganger/supervisor.heartbeat"),
+    statusPath: projectPath(".doppelganger/supervisor.status.json"),
+    bootLog: projectPath(".doppelganger/logs/supervisor.log"),
+    drainMs: SUPERVISOR_DRAIN_MS,
+    exit: (code: number) => process.exit(code),
+  };
+  await bootOrDie(SCHEDULE, deps);
 }

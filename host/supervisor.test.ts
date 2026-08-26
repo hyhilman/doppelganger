@@ -15,10 +15,19 @@ import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
 import { spawn as realSpawn, spawnSync } from "node:child_process";
-import { mkdtempSync, writeFileSync, chmodSync, readFileSync, appendFileSync } from "node:fs";
+import { mkdtempSync, writeFileSync, chmodSync, readFileSync, appendFileSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { runEntry, type SupervisorDeps, type SpawnedChild, type SpawnFn, type Sink } from "./supervisor.ts";
+import {
+  runEntry,
+  main,
+  bootOrDie,
+  type SupervisorDeps,
+  type BootDeps,
+  type SpawnedChild,
+  type SpawnFn,
+  type Sink,
+} from "./supervisor.ts";
 import { createGate, type Gate, type Mode } from "../kernel/runtime/gate.ts";
 import type { ScheduleEntry, Program } from "./schedule.ts";
 import { parseLine, type LogLine } from "../kernel/runtime/log/parse.ts";
@@ -115,6 +124,73 @@ function makeHarness(
   };
 
   return { deps, spawnCalls, children, openSinkCalls, sinkContents, root };
+}
+
+/** Creates an empty stub job file for each name, under `<root>/host/jobs/` — validate() (called by
+ *  main(), rule 10) refuses a `job:` entry whose file does not exist. */
+function stubJobFiles(root: string, jobs: readonly string[]): void {
+  const dir = join(root, "host/jobs");
+  mkdirSync(dir, { recursive: true });
+  for (const job of jobs) writeFileSync(join(dir, `${job}.ts`), "export {};\n");
+}
+
+/** A schedule-entry fixture whose `log` sits under one of main()'s own logRoots for `root`
+ *  (`<root>/.doppelganger/logs`), so a J2.13 test's schedule validates without extra plumbing. */
+function bootEntry(root: string, over: Partial<ScheduleEntry> = {}): ScheduleEntry {
+  return {
+    name: "watch-probe",
+    cron: "* * * * *",
+    log: join(root, ".doppelganger/logs/probe.log"),
+    job: "probe",
+    why: "fixture entry for main()/bootOrDie() tests",
+    ...over,
+  };
+}
+
+interface FakeTimer {
+  readonly entry: ScheduleEntry;
+  readonly fn: () => void;
+  stopped: boolean;
+}
+
+interface BootHarness extends Harness {
+  readonly deps: BootDeps;
+  readonly newTimerCalls: FakeTimer[];
+  readonly exitCalls: number[];
+}
+
+/** Builds on makeHarness for spawn/openSink/gate, adding the BootDeps-only fields. `newTimer` is
+ *  faked so a test can invoke a tick's callback directly (test 11) instead of waiting on croner. */
+function makeBootHarness(
+  overrides: Partial<BootDeps> = {},
+  onChild: (child: FakeChild) => void = (c) => setImmediate(() => c.emit("close", 0, null)),
+): BootHarness {
+  const h = makeHarness(undefined, onChild);
+  const newTimerCalls: FakeTimer[] = [];
+  const exitCalls: number[] = [];
+  const newTimer = (e: ScheduleEntry, fn: () => void): { stop(): void } => {
+    const timer: FakeTimer = { entry: e, fn, stopped: false };
+    newTimerCalls.push(timer);
+    return {
+      stop: () => {
+        timer.stopped = true;
+      },
+    };
+  };
+  const deps: BootDeps = {
+    ...h.deps,
+    programs: {},
+    newTimer,
+    heartbeatPath: join(h.root, ".doppelganger/supervisor.heartbeat"),
+    statusPath: join(h.root, ".doppelganger/supervisor.status.json"),
+    bootLog: join(h.root, ".doppelganger/logs/supervisor.log"),
+    drainMs: 30,
+    exit: (code: number) => {
+      exitCalls.push(code);
+    },
+    ...overrides,
+  };
+  return { ...h, deps, newTimerCalls, exitCalls };
 }
 
 /** Captures every line written to stderr (where kernel/runtime/log/emit.ts's logger writes)
@@ -564,4 +640,285 @@ test("16. GAT-10: job= is the PROGRAM, not the entry — splitting the counter w
   assert.equal(lockHeld[0]!.job, "todo-triage");
   assert.equal(lockHeld[1]!.job, "todo-triage");
   releaseSelf();
+});
+
+// -------------------------------------------------------------------------------------------
+// J2.13 (SUP-06, SUP-14, SUP-15, SUP-18) — main(): boot, timers, heartbeat, drain, the loud
+// refusal.
+// -------------------------------------------------------------------------------------------
+
+test("17. one newTimer per supervised entry", async () => {
+  // DEVIATION from plan/N2-uac.md's literal fixture ("two supervised: false"), recorded here:
+  // SUP-09 (validate() rule 22, J2.9) refuses more than one entry with supervised: false — a
+  // five-entry fixture with two would never pass validate() at all. Four supervised, one
+  // bootstrap still proves the same point: newTimer fires for the supervised ones and never for
+  // the bootstrap one.
+  const h = makeBootHarness();
+  stubJobFiles(h.root, ["watch-a", "watch-b", "watch-c", "ops-a"]);
+  const schedule = [
+    bootEntry(h.root, { name: "watch-a", job: "watch-a" }),
+    bootEntry(h.root, { name: "watch-b", job: "watch-b" }),
+    bootEntry(h.root, { name: "watch-c", job: "watch-c" }),
+    bootEntry(h.root, { name: "ops-a", job: "ops-a", supervised: false }),
+  ];
+  const programs = Object.fromEntries(schedule.map((e) => [e.job as string, program()]));
+  const deps = { ...h.deps, programs };
+  const sup = await main(schedule, deps);
+  try {
+    assert.equal(h.newTimerCalls.length, 3, "newTimer must be called once per SUPERVISED entry");
+    const names = h.newTimerCalls.map((c) => c.entry.name).sort();
+    assert.deepEqual(names, ["watch-a", "watch-b", "watch-c"]);
+    for (const c of h.newTimerCalls) assert.equal(c.entry.cron, "* * * * *");
+  } finally {
+    await sup.stop("SIGTERM");
+  }
+});
+
+test("18. validate runs before any timer", async () => {
+  const h = makeBootHarness();
+  const broken = [bootEntry(h.root, { cron: "not a cron" })];
+  await assert.rejects(() => main(broken, { ...h.deps, programs: { probe: program() } }));
+  assert.equal(h.newTimerCalls.length, 0, "validate must throw before a single timer registers");
+});
+
+test("19. SUP-15's ordering: reapOnBoot runs, and before the first newTimer call", async () => {
+  const h = makeBootHarness();
+  stubJobFiles(h.root, ["probe"]);
+  const callOrder: string[] = [];
+  const reapOnBoot = (): Iterable<Record<string, string | number>> => {
+    callOrder.push("reap");
+    return [{ key: "a:1" }, { key: "b:2" }];
+  };
+  const newTimer = (e: ScheduleEntry, fn: () => void): { stop(): void } => {
+    callOrder.push("newTimer");
+    return h.deps.newTimer(e, fn);
+  };
+  const schedule = [bootEntry(h.root)];
+  const { lines } = await withLog(async () => {
+    const sup = await main(schedule, { ...h.deps, programs: { probe: program() }, reapOnBoot, newTimer });
+    await sup.stop("SIGTERM");
+  });
+  const reapIndex = callOrder.indexOf("reap");
+  const timerIndex = callOrder.indexOf("newTimer");
+  assert.ok(reapIndex >= 0 && timerIndex >= 0 && reapIndex < timerIndex, `reap (${reapIndex}) must come before newTimer (${timerIndex})`);
+  const reaped = lines.filter((l) => l.event === "lease-reaped");
+  assert.equal(reaped.length, 2);
+});
+
+test("20. a throwing reaper does not stop the boot", async () => {
+  const h = makeBootHarness();
+  stubJobFiles(h.root, ["probe"]);
+  const reapOnBoot = (): Iterable<Record<string, string | number>> => {
+    throw new Error("lease db busy");
+  };
+  const schedule = [bootEntry(h.root)];
+  const { lines } = await withLog(async () => {
+    const sup = await main(schedule, { ...h.deps, programs: { probe: program() }, reapOnBoot });
+    await sup.stop("SIGTERM");
+  });
+  const failed = lines.filter((l) => l.event === "lease-reap-failed");
+  assert.equal(failed.length, 1);
+  assert.equal(failed[0]!.level, "warn");
+  assert.equal(h.newTimerCalls.length, 1, "the timers must still be registered after a reap failure");
+});
+
+test("21. SUP-06: bootOrDie sets process.exitCode and writes one stderr line per problem", async () => {
+  const h = makeBootHarness();
+  stubJobFiles(h.root, ["probe"]);
+  const broken = [
+    bootEntry(h.root, { name: "nostage" }), // rule 2
+    bootEntry(h.root, { name: "watch-other", why: "  " }), // rule 7
+  ];
+  const prevExitCode = process.exitCode;
+  process.exitCode = undefined;
+  try {
+    const { lines } = await withLog(() => bootOrDie(broken, { ...h.deps, programs: { probe: program() } }));
+    assert.equal(process.exitCode, 1);
+    const failed = lines.filter((l) => l.event === "boot-failed");
+    assert.equal(failed.length, 2, "one stderr line per broken field");
+    assert.ok(failed.some((l) => l.msg.includes('entry "nostage"')));
+    assert.ok(failed.some((l) => l.msg.includes('entry "watch-other"')));
+  } finally {
+    process.exitCode = prevExitCode;
+  }
+});
+
+test("22. SUP-06 in a real child, so the exit code is real", () => {
+  const script = `
+    import { bootOrDie } from ${JSON.stringify(join(ROOT, "host/supervisor.ts"))};
+    import { createGate } from ${JSON.stringify(join(ROOT, "kernel/runtime/gate.ts"))};
+    const deps = {
+      root: "/tmp",
+      gate: createGate(["a"]),
+      programs: {},
+      refreshWindow: null,
+      spawn: () => { throw new Error("must not spawn"); },
+      openSink: () => ({ write: () => {} }),
+      dotenvPath: "/tmp/.env-not-present",
+      now: () => new Date(),
+      shouldShed: () => ({ skip: false }),
+      maxRunMin: () => 180,
+      killGraceMs: 20,
+      spawnStaggerMs: 0,
+      jobRunner: (job) => [process.execPath, ["-e", "1"]],
+      newTimer: () => ({ stop() {} }),
+      heartbeatPath: "/tmp/dg-boot-probe.heartbeat",
+      statusPath: "/tmp/dg-boot-probe.status.json",
+      bootLog: "/tmp/dg-boot-probe.log",
+      drainMs: 30,
+      exit: (c) => process.exit(c),
+    };
+    await bootOrDie([{ name: "ops-x", cron: "bad", log: "/tmp/x.log", why: "w", script: "nope.sh" }], deps);
+  `;
+  const r = spawnSync(process.execPath, ["--experimental-strip-types", "-e", script], { encoding: "utf8" });
+  assert.notEqual(r.status, 0, `expected a non-zero exit; stderr: ${r.stderr}`);
+  // logfmt escapes the quotes around the entry name inside msg="..." (kernel/runtime/log/emit.ts's
+  // renderValue), so the raw (unparsed) stderr text carries \"ops-x\", not "ops-x" — check for the
+  // bare name instead of re-deriving the escaping rule here.
+  assert.match(r.stderr, /ops-x/);
+});
+
+test("23. SUP-14: beat() writes both files, and the stamp changes across calls", async () => {
+  const h = makeBootHarness();
+  let now = new Date(Date.UTC(2026, 0, 1, 0, 0, 0));
+  const deps = { ...h.deps, now: () => now };
+
+  const { beat } = await import("./supervisor.ts");
+  beat(deps);
+  const heartbeat1 = readFileSync(deps.heartbeatPath, "utf8");
+  assert.match(heartbeat1, /^\d+\n$/);
+  const status1 = JSON.parse(readFileSync(deps.statusPath, "utf8"));
+  assert.equal(status1.pid, process.pid);
+  assert.equal(typeof status1.at, "number");
+  assert.ok(status1.gate);
+  assert.equal(typeof status1.children, "number");
+
+  now = new Date(Date.UTC(2026, 0, 1, 0, 1, 0));
+  beat(deps);
+  const heartbeat2 = readFileSync(deps.heartbeatPath, "utf8");
+  assert.notEqual(heartbeat1, heartbeat2, "the stamp must change across calls with a different now()");
+});
+
+test("24. a failing beat is not fatal", async () => {
+  const h = makeBootHarness();
+  // heartbeatPath points INSIDE a file, so mkdirSync(dirname(...)) fails.
+  const blocker = join(h.root, "not-a-dir");
+  writeFileSync(blocker, "x");
+  const deps = { ...h.deps, heartbeatPath: join(blocker, "sub", "heartbeat") };
+
+  const { beat } = await import("./supervisor.ts");
+  const { lines } = await withLog(async () => {
+    assert.doesNotThrow(() => beat(deps));
+  });
+  const failed = lines.filter((l) => l.event === "heartbeat-failed");
+  assert.equal(failed.length, 1);
+  assert.equal(failed[0]!.level, "warn");
+});
+
+test("25. supervisor-up names entries, unsupervised, heartbeat and pid", async () => {
+  const h = makeBootHarness();
+  stubJobFiles(h.root, ["watch-a", "ops-a"]);
+  const schedule = [
+    bootEntry(h.root, { name: "watch-a", job: "watch-a" }),
+    bootEntry(h.root, { name: "ops-a", job: "ops-a", supervised: false }),
+  ];
+  const programs = { "watch-a": program(), "ops-a": program() };
+  const { lines } = await withLog(async () => {
+    const sup = await main(schedule, { ...h.deps, programs });
+    await sup.stop("SIGTERM");
+  });
+  const up = lines.filter((l) => l.event === "supervisor-up");
+  assert.equal(up.length, 1);
+  assert.equal(up[0]!.fields.entries, "1");
+  assert.equal(up[0]!.fields.unsupervised, "1");
+  assert.equal(up[0]!.fields.heartbeat, h.deps.heartbeatPath);
+  assert.equal(up[0]!.fields.pid, String(process.pid));
+  assert.equal(Number(up[0]!.fields.entries) + Number(up[0]!.fields.unsupervised), schedule.length);
+});
+
+test("26. drain: SIGTERM every live child, then SIGKILL the stragglers after drainMs", async () => {
+  // Children never exit ON THEIR OWN — but a SIGKILL always terminates a REAL process, which
+  // fires "close" and is what lets spawnChild()'s own promise resolve (and liveChildren delete
+  // the entry). A "dumb" fake whose kill() only records the call, with nothing ever emitting
+  // "close", would leave stop()'s poll loop (liveChildren.size === 0) waiting forever — so this
+  // fake's kill() simulates that one real consequence.
+  const h = makeBootHarness(undefined, (c) => {
+    const rawKill = c.kill.bind(c);
+    c.kill = (signal?: NodeJS.Signals): boolean => {
+      const ok = rawKill(signal);
+      if (signal === "SIGKILL") setImmediate(() => c.emit("close", null, "SIGKILL"));
+      return ok;
+    };
+  });
+  stubJobFiles(h.root, ["watch-a", "watch-b"]);
+  const schedule = [
+    bootEntry(h.root, { name: "watch-a", job: "watch-a" }),
+    bootEntry(h.root, { name: "watch-b", job: "watch-b" }),
+  ];
+  const programs = { "watch-a": program({ resources: ["a"] }), "watch-b": program({ resources: ["b"] }) };
+  const { lines } = await withLog(async () => {
+    const sup = await main(schedule, { ...h.deps, programs, drainMs: 30 });
+    // fire both ticks directly, so both entries have a real child in flight. A real (small) delay,
+    // not a bare setImmediate: kernel/runtime/pool.ts's spawnSlot chains through a real
+    // setTimeout(..., spawnStaggerMs) even at spawnStaggerMs = 0, which is not guaranteed to have
+    // settled for BOTH entries within a single setImmediate tick.
+    for (const c of h.newTimerCalls) c.fn();
+    await new Promise((r) => setTimeout(r, 10));
+    await sup.stop("SIGTERM");
+  });
+  assert.equal(h.children.length, 2);
+  for (const c of h.children) {
+    assert.deepEqual(c.killCalls, ["SIGTERM", "SIGKILL"]);
+  }
+  const draining = lines.filter((l) => l.event === "supervisor-draining");
+  assert.equal(draining.length, 1);
+  assert.equal(draining[0]!.fields.signal, "SIGTERM");
+  assert.equal(draining[0]!.fields.children, "2");
+  assert.deepEqual(h.exitCalls, [0]);
+});
+
+test("27. a tick that throws is caught, and no other timer is affected", async () => {
+  const h = makeBootHarness();
+  stubJobFiles(h.root, ["watch-a", "watch-b"]);
+  const schedule = [
+    bootEntry(h.root, { name: "watch-a", job: "watch-a" }),
+    bootEntry(h.root, { name: "watch-b", job: "watch-b" }),
+  ];
+  const programs = { "watch-a": program(), "watch-b": program() };
+  const shouldShed = (p: string): { skip: boolean } => {
+    if (p === "watch-a") throw new Error("boom");
+    return { skip: false };
+  };
+  const { lines } = await withLog(async () => {
+    const sup = await main(schedule, { ...h.deps, programs, shouldShed });
+    for (const c of h.newTimerCalls) c.fn();
+    await new Promise((r) => setTimeout(r, 10)); // see test 26's comment on spawnSlot's real timer
+    await sup.stop("SIGTERM");
+  });
+  const crashed = lines.filter((l) => l.event === "tick-crashed");
+  assert.equal(crashed.length, 1);
+  assert.equal(crashed[0]!.level, "error");
+  const ok = lines.filter((l) => l.event === "job-ok");
+  assert.equal(ok.length, 1, "the OTHER timer's tick must still have run to completion");
+});
+
+test("28. the empty schedule boots", async () => {
+  const h = makeBootHarness();
+  const { lines } = await withLog(async () => {
+    const sup = await main([], { ...h.deps, programs: {} });
+    assert.equal(h.newTimerCalls.length, 0);
+    await sup.stop("SIGTERM");
+  });
+  const up = lines.filter((l) => l.event === "supervisor-up");
+  assert.equal(up.length, 1);
+  assert.equal(up[0]!.fields.entries, "0");
+  assert.equal(up[0]!.fields.unsupervised, "0");
+});
+
+test("29. the argv guard exists", () => {
+  const src = readFileSync(join(ROOT, "host/supervisor.ts"), "utf8");
+  assert.match(src, /import\.meta\.filename === process\.argv\[1\]/);
+  // every test above this one already imported host/supervisor.ts without running a command —
+  // structural proof by the fact that this whole file's earlier tests never spawned a real
+  // supervisor process as a side effect of the import itself.
 });

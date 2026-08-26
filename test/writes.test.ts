@@ -178,6 +178,10 @@ const REGISTER: Record<string, RegisterEntry> = {
     category: "project-relative",
     reason: "copy-then-truncate rotation under LOG_ROOTS (LOG-08)",
   },
+  "host/supervisor.ts": {
+    category: "project-relative",
+    reason: "log sinks, the heartbeat stamp and the gate snapshot, all under ROOT (SUP-03, SUP-14)",
+  },
 };
 
 // Shapes that reach node:fs / node:fs/promises WITHOUT naming a member: a namespace import, a
