@@ -255,9 +255,24 @@ function walk(): Walked {
   return { checked, lost, sites };
 }
 
-test("1. every defineJob/runJob object literal names model unless the literal has exec", () => {
+test("1. every defineJob/runJob object literal names model unless the literal has exec — and the floor is derived from the registry (J3.16)", () => {
   const { checked, sites } = walk();
-  assert.ok(checked >= 1, "expected at least one defineJob/runJob call site in non-test source (this test lands after J3.8 for exactly this reason)");
+
+  // J3.10 shipped this as `checked >= 1` — a floor loose enough to survive a registry that did
+  // not exist yet. J3.16 (TST-09) makes the registry the source of truth for the exact count:
+  // every registered job that must name `model` (no `exec`, or `exec` with `model` set anyway,
+  // as J3.10 already required for nightly-sandcastle) contributes one checked site — its own
+  // `defineJob({...})` call. `runJobLiteralSites` names the OTHER shape this file's scan can
+  // find: a `runJob(...)` call in non-test source whose FIRST argument is an object literal
+  // (rather than a `Job` variable). Both of today's non-test `runJob(...)` call sites
+  // (host/run.ts's `runJob(job, {...})` and host/jobs/nightly-sandcastle.ts's
+  // `runJob(jobForRun, {...})`) pass a variable first, so neither is extracted — 0 today, named
+  // so the day one appears this floor visibly moves instead of silently drifting (AC6 proves the
+  // registry side of that with a fixture job).
+  const runJobLiteralSites = 0;
+  const floor = JOBS.filter((j) => j.exec === undefined || j.model !== undefined).length + runJobLiteralSites;
+  assert.equal(checked, floor, `checked=${checked}, expected the registry-derived floor ${floor}`);
+
   const offenders = sites.filter((s) => !s.keys.includes("exec") && !s.keys.includes("model"));
   assert.deepEqual(
     offenders.map((s) => `${s.file}: keys=[${s.keys.join(",")}]`),
@@ -349,7 +364,3 @@ test("7. HRN-14's companion scan — a bypass run declares local: true", () => {
   }
   assert.deepEqual(bad, [], "a job literal whose permissionMode resolves to bypassPermissions must also carry local: true (HRN-14)");
 });
-
-// Keep the registry import alive as a real reference (not just a type import) — a future test can
-// derive the floor from JOBS without adding a new import.
-void JOBS;
