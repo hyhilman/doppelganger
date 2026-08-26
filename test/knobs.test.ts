@@ -104,9 +104,20 @@ function findEnvSpecKeys(): string[] {
   return keys;
 }
 
-test("2. no duplicate keys across every module's rows", () => {
+test("2. every scanned EnvSpec row is in ROWS, and every ROWS key is scanned — no duplicates either way", () => {
   const keys = findEnvSpecKeys();
-  assert.ok(keys.length >= ROWS.length, `expected to find at least ${ROWS.length} rows, found ${keys.length}`);
+  // `>=` only ever caught extra rows if they happened to duplicate an existing key (assertion 2's
+  // second half). A brand-new key with no matching ROWS entry — a knob that exists with no roadmap
+  // row, no test coverage, nothing — passed `>=` outright. `deepEqual` closes that: the scanned set
+  // and the curated set must be the SAME set, not merely the same size or a superset. The <NAME>_DB
+  // family exception still works here because ROWS already carries a `NAME_DB_ENV` entry whose
+  // `spec.key` is the literal `"<NAME>_DB"`, and the scanner finds that same literal in paths.ts —
+  // there is nothing special-cased about it in this assertion.
+  assert.deepEqual(
+    keys.slice().sort(),
+    ROWS.map((r) => r.spec.key).sort(),
+    `scanned EnvSpec keys and the curated ROWS list disagree.\nscanned: ${keys.slice().sort().join(", ")}\nROWS:    ${ROWS.map((r) => r.spec.key).slice().sort().join(", ")}`,
+  );
   assert.equal(new Set(keys).size, keys.length, `duplicate keys among: ${keys.join(", ")}`);
 });
 
