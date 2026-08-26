@@ -43,16 +43,14 @@ function allTsFiles(): string[] {
 // without it, a regex literal like /"/g or /\\"/g reads as a quote-then-slash and false-positives
 // on kernel/runtime/log/{emit,parse}.ts's own escaping code.
 //
-// ONE narrow, named exception (J2.16): `cli/crontab.ts`'s `CRONTAB_CMD_ENV` default is
-// `"/usr/bin/crontab"` — an absolute path to an EXTERNAL SYSTEM BINARY, not a project write path
-// INS-02 governs, and layer 0 (plan/N2-uac.md J2.16) requires this default to be exactly this:
-// absolute, never a bare name a PATH lookup could resolve onto the wrong crontab. Scoped to the
-// literal itself, not the whole file — the allowed substring is stripped from a COPY of the source
-// before scanning, so any OTHER hardcoded path added to this file still trips the door.
+// NO EXCEPTION (F1/F2, N2 VERIFY): `cli/crontab.ts`'s `CRONTAB_CMD_ENV` used to carry
+// `default: "/usr/bin/crontab"` — a real, absolute crontab binary on most hosts, which meant a
+// caller who forgot to set `CRONTAB_CMD` sailed past layer 0 (it only refuses a non-absolute
+// command) and reached the developer's real crontab. F1 dropped the default and made the row
+// `required: true`, so the literal no longer exists in that file at all — this door needed a
+// scoped exception before and needs none now. If a hardcoded absolute path ever reappears in
+// `cli/crontab.ts`, this door must trip on it like anywhere else.
 const HARDCODED_PATH = /(?<=[=(\[{,:\s])(["'])[/~]/;
-const DOOR1_ALLOWED_LITERAL: Readonly<Record<string, string>> = {
-  "cli/crontab.ts": '"/usr/bin/crontab"',
-};
 
 test("1. door 1 — no hardcoded path literal, no homedir()/tmpdir() in kernel/, host/, cli/", () => {
   const files = allTsFiles();
@@ -60,9 +58,7 @@ test("1. door 1 — no hardcoded path literal, no homedir()/tmpdir() in kernel/,
   for (const f of files) {
     const src = readFileSync(f, "utf8");
     const rel = f.slice(ROOT.length + 1);
-    const allowed = DOOR1_ALLOWED_LITERAL[rel];
-    const scanned = allowed !== undefined ? src.split(allowed).join("") : src;
-    if (HARDCODED_PATH.test(scanned) || /\bhomedir\(|\bos\.homedir\b|\btmpdir\(|\bos\.tmpdir\b/.test(src)) {
+    if (HARDCODED_PATH.test(src) || /\bhomedir\(|\bos\.homedir\b|\btmpdir\(|\bos\.tmpdir\b/.test(src)) {
       offenders.push(rel);
     }
   }
