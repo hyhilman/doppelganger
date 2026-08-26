@@ -5,10 +5,13 @@
 //
 // `cli/` is `private: true` — this is an app-internal path, not a published import (ADO-01 stays
 // open; that decision belongs there, not here).
-import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, relative, sep } from "node:path";
 import type { Job } from "../kernel/ports/job.ts";
 import { skillOf } from "../kernel/ports/job.ts";
+import { envStr, type EnvSpec } from "../kernel/config.ts";
+import { ROOT, projectPath } from "../kernel/paths.ts";
+import { JOBS } from "../host/jobs/index.ts";
 
 // ---------------------------------------------------------------------------------------------
 // render — lifted from test/skills-example.test.ts's local helper (J0.10), unchanged. A second
@@ -157,6 +160,13 @@ const POSIX_SEP = "\u002F";
 /** POSIX-separated, whatever the platform. */
 const toPosix = (p: string): string => p.split(sep).join(POSIX_SEP);
 
+/** Where a job's source lives — shared by `check` and `sync`/`render` so the two can never
+ *  disagree about a path. */
+const sourceDirFor = (tree: SkillsTree, job: Job): string => join(tree.sourceRoot, job.plugin, "skills", skillOf(job));
+
+/** The marker's `src=` value for a job's source directory — repo-relative, POSIX-separated. */
+const srcDirPosixFor = (tree: SkillsTree, sourceDir: string): string => toPosix(relative(dirname(tree.sourceRoot), sourceDir));
+
 /**
  * Every registered job, checked against the tree, plus every `ours` directory found under
  * `tree.renderedRoot` (for `orphan`/`stray`, which have no registered job to anchor the per-job
@@ -168,7 +178,7 @@ export function check(jobs: readonly Job[], tree: SkillsTree): readonly Finding[
 
   for (const job of jobs) {
     const name = skillOf(job);
-    const sourceDir = join(tree.sourceRoot, job.plugin, "skills", name);
+    const sourceDir = sourceDirFor(tree, job);
     const sourceFile = join(sourceDir, "SKILL.md");
     const renderedDir = join(tree.renderedRoot, name);
 
@@ -189,7 +199,7 @@ export function check(jobs: readonly Job[], tree: SkillsTree): readonly Finding[
     }
 
     const sourceText = readFileSync(sourceFile, "utf8");
-    const srcDirPosix = toPosix(relative(dirname(tree.sourceRoot), sourceDir));
+    const srcDirPosix = srcDirPosixFor(tree, sourceDir);
     const expected = render(sourceText, srcDirPosix);
     const actual = readFileSync(join(renderedDir, "SKILL.md"), "utf8");
     if (actual !== expected) {
@@ -220,4 +230,155 @@ export function check(jobs: readonly Job[], tree: SkillsTree): readonly Finding[
     return an < bn ? -1 : an > bn ? 1 : 0;
   });
   return findings;
+}
+
+// ---------------------------------------------------------------------------------------------
+// J3.9 (SKL-04, SKL-10, SAF-01, TST-23) — the impure half: `render` (prints, writes nothing),
+// `sync` (writes `missing`, rewrites `drift`, removes `orphan`, REFUSES `stray`/`collision`/
+// `source-missing`), `check` (prints every finding, never writes). Every verb calls
+// `assertSafeTree` first — layer 0, before any read and long before any prune.
+//
+// Where the crontab precedent does NOT survive, because SKL-10 says so: a crontab is one file
+// with a delimited block, so "foreign lines untouched" is a splice; `.claude/skills/` is a tree
+// with nowhere to put a block marker, so the unit of ownership is a DIRECTORY, decided by
+// `ownerOf`. `sync` never edits, renames or deletes a foreign directory.
+// ---------------------------------------------------------------------------------------------
+
+export const SKILLS_DRY_RUN_ENV: EnvSpec = {
+  key: "SKILLS_DRY_RUN",
+  default: "0",
+  why: "sync prints the plan it would execute and writes nothing (SAF-01); still reads, since the read is what makes the printed plan true",
+};
+
+export interface SkillsDeps {
+  readonly jobs: readonly Job[];
+  readonly tree: SkillsTree;
+  readonly root: string;
+  readonly dryRun: boolean;
+}
+
+type VerbResult = { readonly out: string; readonly err: string; readonly code: number };
+
+function describeFinding(f: Finding): string {
+  switch (f.kind) {
+    case "missing":
+      return `missing: ${f.job} wants ${f.want}`;
+    case "drift":
+      return `drift: ${f.job} at ${f.path}, first differing line ${f.line}`;
+    case "orphan":
+      return `orphan: ${f.name} at ${f.path}`;
+    case "collision":
+      return `collision: ${f.job} at ${f.path} is occupied by a foreign entry`;
+    case "stray":
+      return `stray: ${f.name} at ${f.path} holds extra file(s): ${f.extra.join(", ")}`;
+    case "source-missing":
+      return `source-missing: ${f.job} wants ${f.want}`;
+  }
+}
+
+function renderedFor(job: Job, tree: SkillsTree): string {
+  const sourceDir = sourceDirFor(tree, job);
+  const sourceText = readFileSync(join(sourceDir, "SKILL.md"), "utf8");
+  return render(sourceText, srcDirPosixFor(tree, sourceDir));
+}
+
+function cmdRender(deps: SkillsDeps): VerbResult {
+  assertSafeTree(deps.tree, deps.root);
+  const parts: string[] = [];
+  for (const job of deps.jobs) {
+    const sourceFile = join(sourceDirFor(deps.tree, job), "SKILL.md");
+    if (!existsSync(sourceFile)) continue; // check reports source-missing; render has nothing to show
+    parts.push(`--- ${skillOf(job)} ---\n${renderedFor(job, deps.tree)}`);
+  }
+  return { out: parts.join("\n"), err: "", code: 0 };
+}
+
+/** Refuse first, write second, prune third (SKL-10) — a run with any refusal writes nothing at
+ *  all. The directory is removed, not its contents: an orphan that is ALSO stray is caught by the
+ *  refuse-first step (both findings fire for the same directory), so prune never reaches one that
+ *  still holds extra content. */
+function cmdSync(deps: SkillsDeps): VerbResult {
+  assertSafeTree(deps.tree, deps.root);
+  const findings = check(deps.jobs, deps.tree);
+
+  const refusals = findings.filter((f) => f.kind === "stray" || f.kind === "collision" || f.kind === "source-missing");
+  if (refusals.length > 0) {
+    return { out: "", err: ["sync refused:", ...refusals.map(describeFinding)].join("\n"), code: 1 };
+  }
+
+  const missing = findings.filter((f) => f.kind === "missing");
+  const drift = findings.filter((f) => f.kind === "drift");
+  const orphan = findings.filter((f) => f.kind === "orphan");
+
+  if (missing.length === 0 && drift.length === 0 && orphan.length === 0) {
+    return { out: "already in sync — nothing written\n", err: "", code: 0 };
+  }
+
+  const plan = [
+    ...missing.map((f) => `wrote ${f.job}`),
+    ...drift.map((f) => `rewrote ${f.job}`),
+    ...orphan.map((f) => `pruned ${f.name}`),
+  ];
+  const tally = `${missing.length} wrote, ${drift.length} rewrote, ${orphan.length} pruned`;
+
+  if (deps.dryRun) {
+    return { out: `${plan.join("\n")}\n${tally}\n`, err: "", code: 0 };
+  }
+
+  for (const f of missing) {
+    const job = deps.jobs.find((j) => j.name === f.job)!;
+    const renderedDir = join(deps.tree.renderedRoot, skillOf(job));
+    mkdirSync(renderedDir, { recursive: true });
+    writeFileSync(join(renderedDir, "SKILL.md"), renderedFor(job, deps.tree));
+  }
+  for (const f of drift) {
+    const job = deps.jobs.find((j) => j.name === f.job)!;
+    writeFileSync(join(deps.tree.renderedRoot, skillOf(job), "SKILL.md"), renderedFor(job, deps.tree));
+  }
+  for (const f of orphan) {
+    rmSync(join(deps.tree.renderedRoot, f.name), { recursive: true, force: true });
+  }
+
+  return { out: `${plan.join("\n")}\n${tally}\n`, err: "", code: 0 };
+}
+
+function cmdCheck(deps: SkillsDeps): VerbResult {
+  assertSafeTree(deps.tree, deps.root);
+  const findings = check(deps.jobs, deps.tree);
+  if (findings.length === 0) {
+    return { out: `skills check: in sync — ${deps.jobs.length} skill(s)\n`, err: "", code: 0 };
+  }
+  return { out: "", err: ["skills check: drift detected", ...findings.map(describeFinding)].join("\n"), code: 1 };
+}
+
+/** The same `run(argv, deps)` shape `cli/crontab.ts` uses, so an operator learns one tool and gets
+ *  two. Every path through this function is caught, so a thrown `assertSafeTree` refusal becomes
+ *  `{ code: 1 }` rather than an uncaught rejection. */
+export function run(argv: readonly string[], deps: SkillsDeps): VerbResult {
+  try {
+    const [name] = argv;
+    if (name === "render") return cmdRender(deps);
+    if (name === "sync") return cmdSync(deps);
+    if (name === "check") return cmdCheck(deps);
+    return { out: "", err: `unknown command ${JSON.stringify(name ?? "")} — expected one of: render, sync, check`, code: 1 };
+  } catch (e) {
+    return { out: "", err: e instanceof Error ? e.message : String(e), code: 1 };
+  }
+}
+
+// ---------------------------------------------------------------------------------------------
+// The argv block. UNTESTED BY CONSTRUCTION (ruling 1) — no test imports this file in a way that
+// reaches it; cli/skills-cli.test.ts's two smoke checks drive it as a real child process instead.
+// ---------------------------------------------------------------------------------------------
+if (import.meta.filename === process.argv[1]) {
+  const deps: SkillsDeps = {
+    jobs: JOBS,
+    tree: { renderedRoot: projectPath(".claude/skills"), sourceRoot: projectPath("plugins") },
+    root: ROOT,
+    dryRun: envStr(SKILLS_DRY_RUN_ENV) === "1",
+  };
+  const result = run(process.argv.slice(2), deps);
+  if (result.out) process.stdout.write(result.out);
+  if (result.err) process.stderr.write(result.err.endsWith("\n") ? result.err : `${result.err}\n`);
+  process.exitCode = result.code;
 }

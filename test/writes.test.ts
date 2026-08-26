@@ -215,6 +215,10 @@ const REGISTER: Record<string, RegisterEntry> = {
     category: "project-relative",
     reason: "mkdirSync for GIT_CONFIG_GLOBAL's parent directory — a fresh checkout must not die on 'could not lock config file' (ruling 6, J3.3)",
   },
+  "cli/skills.ts": {
+    category: "project-relative",
+    reason: "sync writes/rewrites a rendered SKILL.md and prunes an orphan directory, all under .claude/skills (SKL-04, J3.9)",
+  },
 };
 
 // Shapes that reach node:fs / node:fs/promises WITHOUT naming a member: a namespace import, a

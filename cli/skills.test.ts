@@ -3,11 +3,11 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, readdirSync, rmSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Job } from "../kernel/ports/job.ts";
-import { render, ownerOf, check, assertSafeTree, type SkillsTree } from "./skills.ts";
+import { render, ownerOf, check, assertSafeTree, run, type SkillsTree } from "./skills.ts";
 
 const ROOT = new URL("..", import.meta.url).pathname.replace(/\/$/, "");
 
@@ -222,4 +222,189 @@ test("14. layer 0 refuses four ways — relative renderedRoot, outside root, equ
   assert.throws(() => assertSafeTree({ ...tree, renderedRoot: join(root, "host") }, root), /basename/);
   assert.doesNotThrow(() => assertSafeTree(tree, root));
   rmSync(root, { recursive: true, force: true });
+});
+
+// ---------------------------------------------------------------------------------------------
+// J3.9 (SKL-04, SKL-10, SAF-01, TST-23) — render/sync/check through run(argv, deps).
+// ---------------------------------------------------------------------------------------------
+
+function deps(tree: SkillsTree, root: string, jobs: readonly Job[] = [job()], dryRun = false) {
+  return { jobs, tree, root, dryRun };
+}
+
+test("15. render writes nothing", () => {
+  const { tree, root } = makeTree();
+  const sourceDir = writeSource(tree, "nightly", "nightly-probe");
+  renderInto(tree, sourceDir, "nightly-probe", "plugins/nightly/skills/nightly-probe");
+  const before = readdirSync(tree.renderedRoot);
+  run(["render"], deps(tree, root));
+  assert.deepEqual(readdirSync(tree.renderedRoot), before);
+});
+
+test("16. sync on an empty rendered root writes the file, bytes equal render(source)", () => {
+  const { tree, root } = makeTree();
+  const sourceDir = writeSource(tree, "nightly", "nightly-probe");
+  const result = run(["sync"], deps(tree, root));
+  assert.equal(result.code, 0);
+  assert.match(result.out, /wrote nightly-probe/);
+  const written = readFileSync(join(tree.renderedRoot, "nightly-probe", "SKILL.md"), "utf8");
+  const expected = render(readFileSync(join(sourceDir, "SKILL.md"), "utf8"), "plugins/nightly/skills/nightly-probe");
+  assert.equal(written, expected);
+});
+
+test("17. sync on drift rewrites and reports rewrote", () => {
+  const { tree, root } = makeTree();
+  const sourceDir = writeSource(tree, "nightly", "nightly-probe");
+  const renderedDir = renderInto(tree, sourceDir, "nightly-probe", "plugins/nightly/skills/nightly-probe");
+  writeFileSync(join(renderedDir, "SKILL.md"), `${readFileSync(join(renderedDir, "SKILL.md"), "utf8")}\nEXTRA\n`);
+  const result = run(["sync"], deps(tree, root));
+  assert.equal(result.code, 0);
+  assert.match(result.out, /rewrote nightly-probe/);
+  const written = readFileSync(join(renderedDir, "SKILL.md"), "utf8");
+  assert.equal(written, render(readFileSync(join(sourceDir, "SKILL.md"), "utf8"), "plugins/nightly/skills/nightly-probe"));
+});
+
+test("18. sync prunes an orphan and reports pruned; the directory is gone", () => {
+  const { tree, root } = makeTree();
+  const orphanSrc = writeSource(tree, "nightly", "orphan-one");
+  renderInto(tree, orphanSrc, "orphan-one", "plugins/nightly/skills/orphan-one");
+  const result = run(["sync"], deps(tree, root, []));
+  assert.equal(result.code, 0);
+  assert.match(result.out, /pruned orphan-one/);
+  assert.equal(existsSync(join(tree.renderedRoot, "orphan-one")), false);
+});
+
+test("19. sync refuses a collision: exit 1, nothing written, nothing pruned — byte-identical afterwards including a would-be-pruned orphan", () => {
+  const { tree, root } = makeTree();
+  writeSource(tree, "nightly", "nightly-probe");
+  const collisionDir = join(tree.renderedRoot, "nightly-probe");
+  mkdirSync(collisionDir, { recursive: true });
+  writeFileSync(join(collisionDir, "SKILL.md"), "foreign content");
+  const orphanSrc = writeSource(tree, "nightly", "orphan-one");
+  renderInto(tree, orphanSrc, "orphan-one", "plugins/nightly/skills/orphan-one");
+  const before = readdirSync(tree.renderedRoot).sort();
+  const beforeCollision = readFileSync(join(collisionDir, "SKILL.md"), "utf8");
+  const result = run(["sync"], deps(tree, root));
+  assert.equal(result.code, 1);
+  assert.match(result.err, /collision/);
+  assert.deepEqual(readdirSync(tree.renderedRoot).sort(), before);
+  assert.equal(readFileSync(join(collisionDir, "SKILL.md"), "utf8"), beforeCollision);
+  assert.ok(existsSync(join(tree.renderedRoot, "orphan-one")), "the orphan must survive — refuse-first");
+});
+
+test("20. sync refuses a stray, and the stray file survives", () => {
+  const { tree, root } = makeTree();
+  const sourceDir = writeSource(tree, "nightly", "nightly-probe");
+  const renderedDir = renderInto(tree, sourceDir, "nightly-probe", "plugins/nightly/skills/nightly-probe");
+  writeFileSync(join(renderedDir, "NOTES.md"), "extra");
+  const result = run(["sync"], deps(tree, root));
+  assert.equal(result.code, 1);
+  assert.match(result.err, /stray/);
+  assert.ok(existsSync(join(renderedDir, "NOTES.md")));
+});
+
+test("21. sync is idempotent — twice; the second prints already in sync and writes nothing", () => {
+  const { tree, root } = makeTree();
+  writeSource(tree, "nightly", "nightly-probe");
+  run(["sync"], deps(tree, root));
+  const before = readFileSync(join(tree.renderedRoot, "nightly-probe", "SKILL.md"), "utf8");
+  const second = run(["sync"], deps(tree, root));
+  assert.equal(second.code, 0);
+  assert.match(second.out, /already in sync/);
+  assert.equal(readFileSync(join(tree.renderedRoot, "nightly-probe", "SKILL.md"), "utf8"), before);
+});
+
+test("22. deps.dryRun: true prints the same plan and writes nothing", () => {
+  const { tree, root } = makeTree();
+  writeSource(tree, "nightly", "nightly-probe");
+  const wet = run(["sync"], deps(tree, root)).out;
+  const { tree: tree2, root: root2 } = makeTree();
+  writeSource(tree2, "nightly", "nightly-probe");
+  const dry = run(["sync"], deps(tree2, root2, [job()], true));
+  assert.equal(dry.code, 0);
+  assert.equal(dry.out, wet);
+  assert.equal(existsSync(join(tree2.renderedRoot, "nightly-probe")), false);
+});
+
+test("23. check on a clean tree exits 0; on each of the six findings exits 1 and names it", () => {
+  const { tree, root } = makeTree();
+  const sourceDir = writeSource(tree, "nightly", "nightly-probe");
+  renderInto(tree, sourceDir, "nightly-probe", "plugins/nightly/skills/nightly-probe");
+  assert.equal(run(["check"], deps(tree, root)).code, 0);
+
+  // missing
+  {
+    const { tree: t, root: r } = makeTree();
+    writeSource(t, "nightly", "nightly-probe");
+    const result = run(["check"], deps(t, r));
+    assert.equal(result.code, 1);
+    assert.match(result.err, /missing/);
+  }
+  // drift
+  {
+    const { tree: t, root: r } = makeTree();
+    const s = writeSource(t, "nightly", "nightly-probe");
+    const rd = renderInto(t, s, "nightly-probe", "plugins/nightly/skills/nightly-probe");
+    writeFileSync(join(rd, "SKILL.md"), `${readFileSync(join(rd, "SKILL.md"), "utf8")}\nX\n`);
+    const result = run(["check"], deps(t, r));
+    assert.equal(result.code, 1);
+    assert.match(result.err, /drift/);
+  }
+  // orphan
+  {
+    const { tree: t, root: r } = makeTree();
+    const s = writeSource(t, "nightly", "orphan-one");
+    renderInto(t, s, "orphan-one", "plugins/nightly/skills/orphan-one");
+    const result = run(["check"], deps(t, r, []));
+    assert.equal(result.code, 1);
+    assert.match(result.err, /orphan/);
+  }
+  // collision
+  {
+    const { tree: t, root: r } = makeTree();
+    writeSource(t, "nightly", "nightly-probe");
+    mkdirSync(join(t.renderedRoot, "nightly-probe"), { recursive: true });
+    writeFileSync(join(t.renderedRoot, "nightly-probe", "SKILL.md"), "foreign");
+    const result = run(["check"], deps(t, r));
+    assert.equal(result.code, 1);
+    assert.match(result.err, /collision/);
+  }
+  // stray
+  {
+    const { tree: t, root: r } = makeTree();
+    const s = writeSource(t, "nightly", "nightly-probe");
+    const rd = renderInto(t, s, "nightly-probe", "plugins/nightly/skills/nightly-probe");
+    writeFileSync(join(rd, "NOTES.md"), "x");
+    const result = run(["check"], deps(t, r));
+    assert.equal(result.code, 1);
+    assert.match(result.err, /stray/);
+  }
+  // source-missing
+  {
+    const { tree: t, root: r } = makeTree();
+    const result = run(["check"], deps(t, r));
+    assert.equal(result.code, 1);
+    assert.match(result.err, /source-missing/);
+  }
+});
+
+test("24. sync never touches a foreign directory that is not a registered job's name", () => {
+  const { tree, root } = makeTree();
+  writeSource(tree, "nightly", "nightly-probe");
+  const foreignDir = join(tree.renderedRoot, "some-other-tool");
+  mkdirSync(foreignDir, { recursive: true });
+  writeFileSync(join(foreignDir, "SKILL.md"), "not ours, no marker");
+  const before = readFileSync(join(foreignDir, "SKILL.md"), "utf8");
+  run(["sync"], deps(tree, root));
+  assert.equal(readFileSync(join(foreignDir, "SKILL.md"), "utf8"), before);
+});
+
+test("25. every verb refuses an unsafe tree, reached through run(argv, deps)", () => {
+  const { tree, root } = makeTree();
+  const unsafe = { ...tree, renderedRoot: join(root, "not-skills") };
+  for (const verb of ["render", "sync", "check"]) {
+    const result = run([verb], deps(unsafe, root));
+    assert.equal(result.code, 1);
+    assert.match(result.err, /basename/);
+  }
 });
