@@ -138,26 +138,106 @@ test("11. tsconfig.json include names kernel, plugins, host, cli and test", () =
   }
 });
 
-// J1.19 (INS-02, §1) — the §1 module map. Reads what J1.1 wrote nineteen commits earlier, so no
-// commit both writes the map and asserts it.
+// J1.19 (INS-02, §1) / J2.2 (§1, ADO-14) — the §1 module map. Reads what J1.1 and J2.1 wrote
+// earlier, so no commit both writes the map and asserts it.
 
-interface KernelMapEntry {
-  path: string; // relative to kernel/
+interface MapEntry {
+  path: string; // relative to <dir>/
   tags: string[];
 }
 
-/** Parse §1's kernel/ block (from the fenced layout diagram) into one entry per named file, each
- *  carrying its milestone tag(s) (N1, N2, N4, N5, v0, v1 — a row can carry more than one, e.g.
- *  "v0 · N1"). Directory-only lines (ports/, runtime/, contracts/) update the current prefix and
- *  produce no entry of their own; contracts/ names no files at all. */
-function parseKernelBlock(): KernelMapEntry[] {
-  const roadmap = readFileSync(join(ROOT, "roadmap.md"), "utf8");
-  const start = roadmap.indexOf("kernel/                   the framework");
-  const end = roadmap.indexOf("\nplugins/", start);
-  const block = roadmap.slice(start, end);
+const PHASE_TAGS = ["N1", "N2", "N3", "N4", "N5"] as const;
 
-  const TAG_RE = /\b(N1|N2|N4|N5|v0|v1)\b/g;
-  const entries: KernelMapEntry[] = [];
+/**
+ * Phase state derived from WORK.md, which owns it (J2.2, ADO-14) — so this rule need not be
+ * hand-edited every phase.
+ *
+ * A phase is SHIPPED when it has at least one `- [ ]`/`- [x]` bullet and every bullet is ticked.
+ * The first phase with an unticked bullet is CURRENT; everything after it is FUTURE (named by
+ * neither set). A phase's bullet run stops at the next line starting with `#` at ANY level, so the
+ * `# ✅ MVP READY` banner between N4 and N5 closes N4's run instead of being read as more of it,
+ * and a `<details>` block's strike-through rows carry no checkbox so they are never counted.
+ */
+function shippedPhases(): { shipped: Set<string>; current: string | null } {
+  const workMd = readFileSync(join(ROOT, "WORK.md"), "utf8");
+  const PHASE_HEADING = /^##\s+(N\d+)\s+—/;
+  const BULLET = /^- \[( |x)\]/;
+
+  const phases: { name: string; ticked: number; total: number }[] = [];
+  let cur: { name: string; ticked: number; total: number } | null = null;
+
+  for (const line of workMd.split("\n")) {
+    const heading = PHASE_HEADING.exec(line);
+    if (heading) {
+      if (cur) phases.push(cur);
+      cur = { name: heading[1]!, ticked: 0, total: 0 };
+      continue;
+    }
+    if (line.startsWith("#")) {
+      if (cur) phases.push(cur);
+      cur = null;
+      continue;
+    }
+    if (!cur) continue;
+    const bullet = BULLET.exec(line);
+    if (bullet) {
+      cur.total++;
+      if (bullet[1] === "x") cur.ticked++;
+    }
+  }
+  if (cur) phases.push(cur);
+
+  const shipped = new Set<string>();
+  let current: string | null = null;
+  for (const p of phases) {
+    if (current !== null) continue; // everything after the first CURRENT phase is FUTURE
+    if (p.total > 0 && p.ticked === p.total) shipped.add(p.name);
+    else current = p.name;
+  }
+  return { shipped, current };
+}
+
+/**
+ * Whether a §1 row must exist, must be absent, or is exempt, given WORK.md's phase state:
+ * - a row naming the CURRENT phase is exempt from both existence clauses (mid-phase it may or may
+ *   not be there yet);
+ * - a row naming a SHIPPED phase must exist;
+ * - a row naming no phase at all (`v0`/`v1` alone) or only FUTURE phases must be absent.
+ */
+function classifyRow(
+  tags: string[],
+  shipped: ReadonlySet<string>,
+  current: string | null,
+): "must-exist" | "must-be-absent" | "exempt" {
+  const phaseTags = tags.filter((t) => (PHASE_TAGS as readonly string[]).includes(t));
+  if (current !== null && phaseTags.includes(current)) return "exempt";
+  if (phaseTags.some((t) => shipped.has(t))) return "must-exist";
+  return "must-be-absent";
+}
+
+const TAG_RE = /\b(N1|N2|N3|N4|N5|v0|v1)\b/g;
+
+/** Parse §1's `<dir>/` block (from the fenced layout diagram) into one entry per named file, each
+ *  carrying its milestone tag(s) (N1..N5, v0, v1 — a row can carry more than one, e.g. "v0 · N1").
+ *  Directory-only lines (ports/, runtime/, contracts/, jobs/) update the current prefix and produce
+ *  no entry of their own; a bare prose line (contracts/, jobs/) names no files at all. Generalised
+ *  from J1.19's kernel-only parser (J2.2) so the same logic reads host/ and cli/ too — the anchor is
+ *  the first line beginning `<dir>/`, and the block ends at the next line starting at indent 0. */
+function parseBlock(dir: string): MapEntry[] {
+  const roadmap = readFileSync(join(ROOT, "roadmap.md"), "utf8");
+  const lines = roadmap.split("\n");
+  const anchor = lines.findIndex((l) => l.startsWith(`${dir}/`));
+  if (anchor === -1) return [];
+  let end = lines.length;
+  for (let i = anchor + 1; i < lines.length; i++) {
+    if (lines[i]!.length > 0 && !/^\s/.test(lines[i]!)) {
+      end = i;
+      break;
+    }
+  }
+  const block = lines.slice(anchor, end).join("\n");
+
+  const entries: MapEntry[] = [];
   let currentDir = "";
 
   for (const line of block.split("\n").slice(1)) {
@@ -171,7 +251,7 @@ function parseKernelBlock(): KernelMapEntry[] {
         currentDir = `${dirOnly[1]}/`;
         continue;
       }
-      if (!/^\S+\.(?:ts|sh)\s/.test(content)) continue; // e.g. contracts/'s bare prose line
+      if (!/^\S+\.(?:ts|sh)\s/.test(content)) continue; // e.g. contracts/'s, jobs/'s bare prose line
       const [name] = content.split(/\s+/);
       const tags = [...content.matchAll(TAG_RE)].map((m) => m[1]!);
       entries.push({ path: name!, tags });
@@ -199,14 +279,18 @@ function parseKernelBlock(): KernelMapEntry[] {
   return entries;
 }
 
-/** Every real *.ts/*.sh file under kernel/, excluding *.test.ts and fixtures (values.fixture.ts,
- *  and anything under a directory literally named fixtures/ — a fixture is not shipped behaviour). */
-function realKernelFiles(): string[] {
+/** Every real *.ts/*.sh file under `<dir>/`, excluding *.test.ts and fixtures (values.fixture.ts,
+ *  and anything under a directory literally named fixtures/ — a fixture is not shipped behaviour).
+ *  `[]` for a directory that does not exist yet — host/ has no .ts file at N2's first commits, and
+ *  readdirSync on a missing path throws. */
+function realFiles(dir: string): string[] {
+  const top = join(ROOT, dir);
+  if (!existsSync(top)) return [];
   const out: string[] = [];
-  const walk = (dir: string, rel: string): void => {
-    for (const entry of readdirSync(dir)) {
+  const walk = (abs: string, rel: string): void => {
+    for (const entry of readdirSync(abs)) {
       if (entry === "fixtures") continue;
-      const full = join(dir, entry);
+      const full = join(abs, entry);
       const nextRel = rel === "" ? entry : `${rel}/${entry}`;
       if (statSync(full).isDirectory()) {
         walk(full, nextRel);
@@ -219,29 +303,36 @@ function realKernelFiles(): string[] {
       }
     }
   };
-  walk(join(ROOT, "kernel"), "");
+  walk(top, "");
   return out;
 }
 
-test("12. every real kernel/ file is named in §1, and every §1 row matches disk (N1 present, N2/N4/N5/v1 absent)", () => {
-  const entries = parseKernelBlock();
-  const named = new Set(entries.map((e) => e.path));
-  const real = new Set(realKernelFiles());
+test("12. every real kernel/, host/, cli/ file is named in §1, and every §1 row matches WORK.md's phase state", () => {
+  const { shipped, current } = shippedPhases();
 
-  for (const path of real) {
-    assert.ok(named.has(path), `kernel/${path} exists on disk but is not named in §1's layout block`);
-  }
+  for (const dir of ["kernel", "host", "cli"]) {
+    const entries = parseBlock(dir);
+    const named = new Set(entries.map((e) => e.path));
+    const real = new Set(realFiles(dir));
 
-  for (const entry of entries) {
-    const shouldExist = entry.tags.includes("N1");
-    const exists = real.has(entry.path);
-    if (shouldExist) {
-      assert.ok(exists, `§1 names kernel/${entry.path} as N1 (${entry.tags.join(",")}), but it is absent from disk`);
-    } else {
-      assert.ok(
-        !exists,
-        `§1 names kernel/${entry.path} as ${entry.tags.join(",")} (not N1), but it exists on disk — a §1 row must be absent or real, never a placeholder for the wrong milestone`,
-      );
+    for (const path of real) {
+      assert.ok(named.has(path), `${dir}/${path} exists on disk but is not named in §1's layout block`);
+    }
+
+    for (const entry of entries) {
+      const cls = classifyRow(entry.tags, shipped, current);
+      const exists = real.has(entry.path);
+      const tagsStr = entry.tags.join(",");
+      if (cls === "must-exist") {
+        assert.ok(exists, `§1 names ${dir}/${entry.path} as ${tagsStr}, but it is absent from disk`);
+      } else if (cls === "must-be-absent") {
+        assert.ok(
+          !exists,
+          `§1 names ${dir}/${entry.path} as ${tagsStr} (not shipped, not current), but it exists on disk`,
+        );
+      }
+      // "exempt": the CURRENT phase's row may or may not exist yet; clause 1 above still covers it
+      // if it IS on disk.
     }
   }
 });
