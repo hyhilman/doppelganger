@@ -7,6 +7,7 @@ import { mkdtempSync, writeFileSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { extractBlock } from "../../kernel/runtime/payload.ts";
+import type { Job } from "../../kernel/ports/job.ts";
 import {
   parseVerdict,
   blockedBy,
@@ -16,6 +17,9 @@ import {
   importSmoke,
   head,
   tail,
+  gate,
+  DB_NAMESPACES,
+  type GateDeps,
 } from "./nightly-sandcastle.ts";
 
 const ROOT = new URL("../..", import.meta.url).pathname.replace(/\/$/, "");
@@ -194,4 +198,95 @@ test("14. head leads with the error class, drops at-frames and the Node.js banne
   const suiteOut = Array.from({ length: 30 }, (_, i) => `line ${i}`).join("\n") + "\n# pass 30\n# fail 0";
   const t = tail(suiteOut, 3);
   assert.equal(t, "line 29\n# pass 30\n# fail 0");
+});
+
+// ---------------------------------------------------------------------------------------------
+// J3.11 (JOB-C15, SAF-05, TST-19) — the three-tier ship gate. `runIn` is a recording fake — no
+// test in this group spawns a process.
+// ---------------------------------------------------------------------------------------------
+
+interface RunInCall {
+  readonly dir: string;
+  readonly cmd: string;
+  readonly args: readonly string[];
+  readonly env?: Record<string, string>;
+}
+
+function makeRunIn(script: (cmd: string, args: readonly string[]) => { ok: boolean; out: string }) {
+  const calls: RunInCall[] = [];
+  const runIn: GateDeps["runIn"] = (dir, cmd, args, env) => {
+    calls.push({ dir, cmd, args, env });
+    return script(cmd, args);
+  };
+  return { runIn, calls };
+}
+
+function testJob(name: string): Job {
+  return { name, description: "d", plugin: "nightly", skill: name, permissionMode: "bypassPermissions", local: true };
+}
+
+test("16. tier 1 refuses and returns first — a list containing host/supervisor.ts, and the fake recorded zero calls", () => {
+  const { runIn, calls } = makeRunIn(() => ({ ok: true, out: "" }));
+  const result = gate(["host/supervisor.ts"], { work: "/work", runIn, scratch: "/scratch", jobs: [] });
+  assert.equal(result.ok, false);
+  assert.ok(result.detail.includes("one process owns every tick"), result.detail);
+  assert.equal(calls.length, 0);
+});
+
+test("17. tier order — a clean list with a failing npm test: the fake was called once, no import smoke ran", () => {
+  const { runIn, calls } = makeRunIn((cmd) => (cmd === "npm" ? { ok: false, out: "FAIL\n1 failing" } : { ok: true, out: "" }));
+  const result = gate(["a.ts"], { work: "/work", runIn, scratch: "/scratch", jobs: [] });
+  assert.equal(result.ok, false);
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0]!.cmd, "npm");
+});
+
+test("18. tier 3 runs once per changed non-test source file, skipping .test.ts and non-.ts", () => {
+  const { runIn, calls } = makeRunIn(() => ({ ok: true, out: "" }));
+  gate(["a.ts", "a.test.ts", "README.md", "b.ts"], { work: "/work", runIn, scratch: "/scratch", jobs: [] });
+  const smokeCalls = calls.filter((c) => c.cmd === process.execPath);
+  assert.equal(smokeCalls.length, 2);
+});
+
+test("19. tier 4 runs only for changed registry jobs, and the env carries <NAME>_DRY_RUN=1 and one <NS>_DB per DB_NAMESPACES, every value under deps.scratch", () => {
+  const { runIn, calls } = makeRunIn(() => ({ ok: true, out: "" }));
+  const job = testJob("nightly-probe");
+  gate(["host/jobs/nightly-probe.ts"], { work: "/work", runIn, scratch: "/scratch", jobs: [job] });
+  const dryRunCalls = calls.filter((c) => c.cmd === "node");
+  assert.equal(dryRunCalls.length, 1);
+  assert.equal(dryRunCalls[0]!.env?.NIGHTLY_PROBE_DRY_RUN, "1");
+  for (const ns of DB_NAMESPACES) {
+    assert.equal(dryRunCalls[0]!.env?.[`${ns.toUpperCase()}_DB`], join("/scratch", `${ns}.db`));
+  }
+});
+
+test("20. tier 4 skips a changed host/jobs/*.ts file that is not a registered job", () => {
+  const { runIn, calls } = makeRunIn(() => ({ ok: true, out: "" }));
+  gate(["host/jobs/ghost.ts"], { work: "/work", runIn, scratch: "/scratch", jobs: [] });
+  const dryRunCalls = calls.filter((c) => c.cmd === "node");
+  assert.equal(dryRunCalls.length, 0);
+});
+
+test("21. a passing gate's detail counts what ran, derived from the arrays", () => {
+  const { runIn } = makeRunIn(() => ({ ok: true, out: "" }));
+  const job = testJob("nightly-probe");
+  const result = gate(["a.ts", "b.ts", "host/jobs/nightly-probe.ts"], { work: "/work", runIn, scratch: "/scratch", jobs: [job] });
+  assert.equal(result.ok, true);
+  assert.equal(result.detail, "npm test, 3 import smoke(s), 1 dry run(s)");
+});
+
+test("22. a docs-only change runs npm test, no smoke, no dry run", () => {
+  const { runIn, calls } = makeRunIn(() => ({ ok: true, out: "" }));
+  const result = gate(["README.md"], { work: "/work", runIn, scratch: "/scratch", jobs: [] });
+  assert.equal(result.ok, true);
+  assert.equal(calls.length, 1);
+  assert.equal(result.detail, "npm test, 0 import smoke(s), 0 dry run(s)");
+});
+
+test("23. gate([]) returns ok: true with a detail saying so, and runs nothing", () => {
+  const { runIn, calls } = makeRunIn(() => ({ ok: true, out: "" }));
+  const result = gate([], { work: "/work", runIn, scratch: "/scratch", jobs: [] });
+  assert.equal(result.ok, true);
+  assert.match(result.detail, /nothing to gate/);
+  assert.equal(calls.length, 0);
 });
