@@ -116,13 +116,26 @@ const REGISTER: Record<string, RegisterEntry> = {
   },
 };
 
+// Shapes that reach node:fs / node:fs/promises WITHOUT naming a member: a namespace import, a
+// default import used as a namespace (`import fs from …` then `fs.writeFileSync(...)`), the named
+// `promises` binding used the same way (`import { promises } from "node:fs"` then
+// `promises.writeFile(...)`), and a dynamic `import(...)` (static or `await`-ed). None of these
+// name which member is called at the import site, so the register cannot decide their category —
+// every one of them is an automatic offender, whatever it turns out to call.
+const NAMESPACE_SHAPES: readonly RegExp[] = [
+  /import\s*\*\s*as\s+\w+\s+from\s+["']node:fs(\/promises)?["']/, // import * as fs from "node:fs"
+  /import\s+[A-Za-z_$][\w$]*\s*(,\s*\{[^}]*\})?\s*from\s+["']node:fs(\/promises)?["']/, // default import
+  /import\s*\{[^}]*\bpromises\b[^}]*\}\s*from\s+["']node:fs["']/, // named `promises`, used as a namespace
+  /\bimport\(\s*["']node:fs(\/promises)?["']\s*\)/, // await import("node:fs") / import("node:fs/promises")
+];
+
 function findFsWriters(): string[] {
   const files: string[] = [];
   walkTsFiles(KERNEL, files);
   const offenders: string[] = [];
   for (const f of files) {
     const src = readFileSync(f, "utf8");
-    if (/import\s*\*\s*as\s+\w+\s+from\s+["']node:fs(\/promises)?["']/.test(src)) {
+    if (NAMESPACE_SHAPES.some((re) => re.test(src))) {
       offenders.push(f);
       continue;
     }
