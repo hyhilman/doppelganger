@@ -72,6 +72,38 @@ export interface Job {
   readonly local?: boolean;
 }
 
+/**
+ * "Pinned" (HRN-11, J3.10): names a generation and cannot silently become a different one. Current
+ * Anthropic model IDs carry no date suffix and are complete as written (DEFAULTS.model above is
+ * one); a dated snapshot is ALSO pinned — this regex accepts both shapes and pins no exact value,
+ * because pinning something outside this repo is exactly the thing that rots.
+ */
+export const PINNED = /^claude-[a-z][a-z0-9]*(?:-\d+)+$/;
+
+/** The belt: spellings PINNED alone might one day be loosened to admit by accident. Every model
+ *  literal in this repo must fail every one of these. */
+export const ALIASES: readonly RegExp[] = [
+  /(^|-)latest$/,
+  /^(opus|sonnet|haiku|fable|mythos|default|opusplan)$/,
+  /^claude$/,
+];
+
+/**
+ * The runtime half of HRN-11 — J3.10's static scan cannot see a model an environment variable
+ * supplies (`NIGHTLY_SANDCASTLE_MODEL=opus` in `.env` is exactly the floating alias the build gate
+ * bans), so this runs at the one place `RunRequest.model` is actually built
+ * (`kernel/runtime/runjob.ts`'s `runJob`, J3.6) — the SAME predicate the static scan imports, so the
+ * two can never disagree.
+ */
+export function assertPinned(model: string): void {
+  const isAlias = ALIASES.some((re) => re.test(model));
+  if (!PINNED.test(model) || isAlias) {
+    throw new Error(
+      `model ${JSON.stringify(model)} is not pinned (HRN-11): a pinned model names a generation and cannot silently become a different one — got a floating alias or an unrecognised shape`,
+    );
+  }
+}
+
 /** HRN-02: identity. Its only job is to make a job-literal's type inferred as `Job`. */
 export const defineJob = (job: Job): Job => job;
 
