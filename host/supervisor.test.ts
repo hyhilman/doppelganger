@@ -16,13 +16,14 @@ import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
 import { spawn as realSpawn, spawnSync } from "node:child_process";
 import { mkdtempSync, writeFileSync, chmodSync, readFileSync, appendFileSync, mkdirSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { tmpdir, hostname } from "node:os";
 import { join } from "node:path";
 import {
   runEntry,
   main,
   bootOrDie,
   list,
+  realReapOnBoot,
   type SupervisorDeps,
   type BootDeps,
   type SpawnedChild,
@@ -34,6 +35,10 @@ import { createGate, type Gate, type Mode } from "../kernel/runtime/gate.ts";
 import { spawnSlot } from "../kernel/runtime/pool.ts";
 import { scriptCommandOf, type ScheduleEntry, type Program } from "./schedule.ts";
 import { parseLine, type LogLine } from "../kernel/runtime/log/parse.ts";
+import { INSTANCE } from "../kernel/instance.ts";
+import { pidNamespace } from "../kernel/runtime/proc.ts";
+import { leaseDb } from "../kernel/runtime/lease.ts";
+import type { Db } from "../kernel/runtime/db.ts";
 
 const ROOT = new URL("..", import.meta.url).pathname.replace(/\/$/, "");
 
@@ -137,6 +142,27 @@ function stubJobFiles(root: string, jobs: readonly string[]): void {
   for (const job of jobs) writeFileSync(join(dir, `${job}.ts`), "export {};\n");
 }
 
+/** J4.6 (LSE-09) — a real, dead-owner `held` claim, written directly (bypassing acquire()'s own
+ *  owner generation, the same shape kernel/runtime/lease-reap.test.ts's own seed() uses) so
+ *  `realReapOnBoot`'s real `reapDead()` sweep has something genuine to find. `LEASE_DB` must
+ *  already be redirected before this is called. */
+function seedDeadLease(scope: string, key: string): number {
+  const r = spawnSync("/bin/sh", ["-c", "echo $$"], { encoding: "utf8" });
+  const pid = Number(r.stdout.trim());
+  const ns = pidNamespace() ?? "0";
+  const owner = `${INSTANCE}:${hostname()}:${ns}:${pid}:aaaaaaaa`;
+  const claimedAt = new Date(Date.now() - 35_000).toISOString(); // older than REAP_GRACE_MS (30s)
+  const expiresAt = new Date(Date.now() + 3_600_000).toISOString();
+  const db: Db = leaseDb();
+  db.handle()
+    .prepare(
+      `INSERT INTO lease_claim (scope, key, owner, status, claimed_at, expires_at, attempts, max_attempts, note, updated_at)
+       VALUES (?, ?, ?, 'held', ?, ?, 1, 3, NULL, ?)`,
+    )
+    .run(scope, key, owner, claimedAt, expiresAt, claimedAt);
+  return pid;
+}
+
 /** A schedule-entry fixture whose `log` sits under one of main()'s own logRoots for `root`
  *  (`<root>/.doppelganger/logs`), so a J2.13 test's schedule validates without extra plumbing. */
 function bootEntry(root: string, over: Partial<ScheduleEntry> = {}): ScheduleEntry {
@@ -184,6 +210,7 @@ function makeBootHarness(
     ...h.deps,
     programs: {},
     newTimer,
+    reapOnBoot: () => [],
     heartbeatPath: join(h.root, ".doppelganger/supervisor.heartbeat"),
     statusPath: join(h.root, ".doppelganger/supervisor.status.json"),
     bootLog: join(h.root, ".doppelganger/logs/supervisor.log"),
@@ -704,28 +731,40 @@ test("18. validate runs before any timer", async () => {
   assert.equal(h.newTimerCalls.length, 0, "validate must throw before a single timer registers");
 });
 
-test("19. SUP-15's ordering: reapOnBoot runs, and before the first newTimer call", async () => {
+test("19. SUP-15's ordering: reapOnBoot runs, and before the first newTimer call — the REAL sweep, not a fake", async () => {
   const h = makeBootHarness();
   stubJobFiles(h.root, ["probe"]);
-  const callOrder: string[] = [];
-  const reapOnBoot = (): Iterable<Record<string, string | number>> => {
-    callOrder.push("reap");
-    return [{ key: "a:1" }, { key: "b:2" }];
-  };
-  const newTimer = (e: ScheduleEntry, fn: () => void): { stop(): void } => {
-    callOrder.push("newTimer");
-    return h.deps.newTimer(e, fn);
-  };
-  const schedule = [bootEntry(h.root)];
-  const { lines } = await withLog(async () => {
-    const sup = await main(schedule, { ...h.deps, programs: { probe: program() }, reapOnBoot, newTimer });
-    await sup.stop("SIGTERM");
-  });
-  const reapIndex = callOrder.indexOf("reap");
-  const timerIndex = callOrder.indexOf("newTimer");
-  assert.ok(reapIndex >= 0 && timerIndex >= 0 && reapIndex < timerIndex, `reap (${reapIndex}) must come before newTimer (${timerIndex})`);
-  const reaped = lines.filter((l) => l.event === "lease-reaped");
-  assert.equal(reaped.length, 2);
+  const leaseDbPath = join(h.root, "lease.db");
+  const previousLeaseDb = process.env.LEASE_DB;
+  process.env.LEASE_DB = leaseDbPath;
+  try {
+    seedDeadLease("job", "probe@2026-08-26T00");
+    seedDeadLease("job", "probe@2026-08-26T01");
+
+    const callOrder: string[] = [];
+    const reapOnBoot = (): Iterable<Record<string, string | number>> => {
+      callOrder.push("reap");
+      return realReapOnBoot();
+    };
+    const newTimer = (e: ScheduleEntry, fn: () => void): { stop(): void } => {
+      callOrder.push("newTimer");
+      return h.deps.newTimer(e, fn);
+    };
+    const schedule = [bootEntry(h.root)];
+    const { lines } = await withLog(async () => {
+      const sup = await main(schedule, { ...h.deps, programs: { probe: program() }, reapOnBoot, newTimer });
+      await sup.stop("SIGTERM");
+    });
+    const reapIndex = callOrder.indexOf("reap");
+    const timerIndex = callOrder.indexOf("newTimer");
+    assert.ok(reapIndex >= 0 && timerIndex >= 0 && reapIndex < timerIndex, `reap (${reapIndex}) must come before newTimer (${timerIndex})`);
+    // The count now comes from rows the real sweep really deleted — both seeded claims.
+    const reaped = lines.filter((l) => l.event === "lease-reaped");
+    assert.equal(reaped.length, 2);
+  } finally {
+    if (previousLeaseDb === undefined) delete process.env.LEASE_DB;
+    else process.env.LEASE_DB = previousLeaseDb;
+  }
 });
 
 test("20. a throwing reaper does not stop the boot", async () => {
@@ -1267,4 +1306,138 @@ test("42. N3 F1: the real jobRunner spawns host/run.ts, and main() uses it (SUP-
     .map((l) => l.trim());
   assert.deepEqual(assignments, ["jobRunner: realJobRunner,"],
     "main()'s deps must use the exported realJobRunner — an inline argv literal there is ungated by construction");
+});
+
+test("43. J4.6: the argv block names the real reapOnBoot predicate, never an inline literal", async () => {
+  const { projectPath } = await import("../kernel/paths.ts");
+  // The child-driver test (44) proves main() + realReapOnBoot; it cannot reach the argv block,
+  // which is untestable by construction (N2 ruling 1). A source-text assertion pins the other
+  // half — the realJobRunner precedent (N3 F1, test 42), because an inline arrow literal there
+  // regressed once with the whole suite green.
+  const src = readFileSync(projectPath("host/supervisor.ts"), "utf8");
+  const assignments = src
+    .split("\n")
+    .filter((l) => l.includes("reapOnBoot:"))
+    .filter((l) => !l.trimStart().startsWith("readonly ")) // the BootDeps interface member
+    .map((l) => l.trim());
+  assert.deepEqual(
+    assignments,
+    ["reapOnBoot: realReapOnBoot,"],
+    "main()'s deps must use the exported realReapOnBoot — an inline argv literal there is ungated by construction",
+  );
+});
+
+test("44. J4.6: main() + realReapOnBoot in a real child process — this IS the phase gate", async () => {
+  // The first draft's version could not run, and both faults are named rather than quietly fixed
+  // (plan/N4-uac.md J4.6): (a) spawnSync on a supervisor that never exits blocks forever — this
+  // uses `spawn` with a stderr reader and kills the child on the line it is waiting for. (b) an
+  // ENGINE_ROOT pointed at a fixture makes ROOT the fixture, so validate() looks for
+  // <fixture>/host/jobs/nightly-sandcastle.ts, throws, and no lease-reaped line is ever emitted —
+  // AND keeping ROOT real is not the answer either, because the real argv block imports the real
+  // SCHEDULE and registers a real croner timer for nightly-sandcastle at 38 16-21 * * *, and a
+  // test that happens to run at :38 in one of those hours would spawn a real, paid agent run.
+  //
+  // The resolution: the child is a three-line driver this test writes into its own temp
+  // directory, importing `main` and `realReapOnBoot` from the REAL module and calling
+  // `main([], { ...realDeps, reapOnBoot: realReapOnBoot })` — an EMPTY schedule, which
+  // `validate([])` accepts by decision and which registers no timer at all. Everything else is
+  // real: the real reapDead, the real parseOwner, the real /proc, the real openDb, the real
+  // main() boot order. LEASE_DB is redirected to this test's own temp file; no other path is
+  // redirected, so ROOT stays the checkout and nothing else moves.
+  const driverDir = mkdtempSync(join(tmpdir(), "dg-supervisor-driver-"));
+  const leaseDbPath = join(driverDir, "lease.db");
+  const heartbeatPath = join(driverDir, "supervisor.heartbeat");
+  const statusPath = join(driverDir, "supervisor.status.json");
+
+  const previousLeaseDb = process.env.LEASE_DB;
+  process.env.LEASE_DB = leaseDbPath;
+  let seededPid: number;
+  let seededKey = "";
+  try {
+    seededPid = seedDeadLease("job", "driver-probe@2026-08-26T00");
+    seededKey = "driver-probe@2026-08-26T00";
+  } finally {
+    if (previousLeaseDb === undefined) delete process.env.LEASE_DB;
+    else process.env.LEASE_DB = previousLeaseDb;
+  }
+
+  const supervisorPath = join(ROOT, "host/supervisor.ts");
+  const driverPath = join(driverDir, "driver.mjs");
+  writeFileSync(
+    driverPath,
+    [
+      `import { main, realReapOnBoot } from ${JSON.stringify(supervisorPath)};`,
+      `import { createGate } from ${JSON.stringify(join(ROOT, "kernel/runtime/gate.ts"))};`,
+      `const deps = {`,
+      `  root: ${JSON.stringify(ROOT)},`,
+      `  gate: createGate(["repo", "skills"]),`,
+      `  programs: {},`,
+      `  refreshWindow: null,`,
+      `  spawn: (await import("node:child_process")).spawn,`,
+      `  openSink: () => ({ write: () => {} }),`,
+      `  dotenvPath: ${JSON.stringify(join(driverDir, ".env-not-present"))},`,
+      `  now: () => new Date(),`,
+      `  shouldShed: () => ({ skip: false }),`,
+      `  maxRunMin: () => 180,`,
+      `  killGraceMs: 10,`,
+      `  spawnStaggerMs: 0,`,
+      `  jobRunner: (job) => [process.execPath, ["-e", "0"]],`,
+      `  reapOnBoot: realReapOnBoot,`,
+      `  newTimer: () => ({ stop() {} }),`,
+      `  heartbeatPath: ${JSON.stringify(heartbeatPath)},`,
+      `  statusPath: ${JSON.stringify(statusPath)},`,
+      `  bootLog: ${JSON.stringify(join(driverDir, "supervisor.log"))},`,
+      `  drainMs: 30,`,
+      `  exit: (code) => process.exit(code),`,
+      `};`,
+      `await main([], deps);`,
+    ].join("\n"),
+  );
+
+  // SUP-03: the real supervisor's own children always run with cwd = ROOT, never the directory
+  // holding the driver script — matched here rather than only for convenience, because a random
+  // mkdtempSync basename (mixed case) fails kernel/instance.ts's INSTANCE fallback validation and
+  // crashes the child at import time, before it can print anything this test is waiting for.
+  const child = realSpawn(process.execPath, [driverPath], {
+    cwd: ROOT,
+    env: { ...process.env, LEASE_DB: leaseDbPath },
+    stdio: ["ignore", "ignore", "pipe"],
+  });
+
+  const stderrChunks: string[] = [];
+  const seenUp = (): boolean => stderrChunks.join("").includes("event=supervisor-up");
+  await new Promise<void>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error("timed out waiting for supervisor-up")), 10_000);
+    child.stderr!.on("data", (chunk: Buffer) => {
+      stderrChunks.push(chunk.toString());
+      if (seenUp()) {
+        clearTimeout(timer);
+        resolve();
+      }
+    });
+    child.on("error", reject);
+  });
+
+  const stderrAtStop = stderrChunks.join("");
+  child.kill("SIGTERM");
+  await new Promise<void>((resolve) => child.on("close", () => resolve()));
+
+  const reapedIdx = stderrAtStop.indexOf("event=lease-reaped");
+  const upIdx = stderrAtStop.indexOf("event=supervisor-up");
+  assert.ok(reapedIdx >= 0, `expected a lease-reaped line, got:\n${stderrAtStop}`);
+  assert.ok(upIdx >= 0);
+  assert.ok(reapedIdx < upIdx, "lease-reaped must appear before supervisor-up, by byte offset");
+  assert.match(stderrAtStop, new RegExp(`key=${seededKey.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`));
+  assert.match(stderrAtStop, /ttlLeftMin=\d/);
+
+  process.env.LEASE_DB = leaseDbPath;
+  try {
+    const { read } = await import("../kernel/runtime/lease.ts");
+    assert.equal(read("job", seededKey), null, "the seeded row must really be gone");
+  } finally {
+    if (previousLeaseDb === undefined) delete process.env.LEASE_DB;
+    else process.env.LEASE_DB = previousLeaseDb;
+  }
+
+  void seededPid;
 });

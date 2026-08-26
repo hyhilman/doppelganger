@@ -49,6 +49,7 @@ import { programOf, validate, supervisedEntries, bootstrapEntries, JOB_ENTRYPOIN
 import { byStage } from "../kernel/stages.ts";
 import { RESOURCE_NAMES, REFRESH_WINDOW, inRefreshWindow, type RefreshWindow } from "./config.ts";
 import { gateWait, newTimer as realNewTimer } from "./cron.ts";
+import { reapDead } from "../kernel/runtime/lease.ts";
 
 // §2.27's three supervisor knobs. Each is read here (envNum) so `main()`'s argv block (J2.13) can
 // pass the resolved value into `deps` without resolving anything itself — the same pattern
@@ -365,9 +366,10 @@ export interface BootDeps extends SupervisorDeps {
   readonly statusPath: string;
   readonly bootLog: string;
   readonly drainMs: number;
-  /** LSE-09 lands here at N4. Absent at N2 — the ordering (before the timers) is asserted with a
-   *  fake, which is exactly what LSE-09 needs to be able to rely on later. */
-  readonly reapOnBoot?: () => Iterable<Record<string, string | number>>;
+  /** LSE-09, SUP-15. Optional at N2 (there was no implementation yet, so the ordering — before the
+   *  timers — was asserted with a fake); REQUIRED from N4, when `realReapOnBoot` below gives it
+   *  one. An optional field is a field a future argv-block edit can drop in silence. */
+  readonly reapOnBoot: () => Iterable<Record<string, string | number>>;
   /**
    * Production is `process.exit`; a test supplies a recorder instead. NOT part of the interface
    * sketch in plan/N2-uac.md J2.13 — added here because the plan's own "Risks" section requires
@@ -421,14 +423,12 @@ export async function main(schedule: readonly ScheduleEntry[], deps: BootDeps): 
   });
 
   // 2. reapOnBoot (SUP-15) — before the timers; non-fatal.
-  if (deps.reapOnBoot) {
-    try {
-      for (const row of deps.reapOnBoot()) {
-        log.info("lease-reaped", row as Fields);
-      }
-    } catch (e) {
-      log.warn("lease-reap-failed", { msg: errText(e) });
+  try {
+    for (const row of deps.reapOnBoot()) {
+      log.info("lease-reaped", row as Fields);
     }
+  } catch (e) {
+    log.warn("lease-reap-failed", { msg: errText(e) });
   }
 
   let draining = false;
@@ -527,6 +527,15 @@ export async function main(schedule: readonly ScheduleEntry[], deps: BootDeps): 
  *  so the crontab line and the spawned command cannot name two different targets. */
 export const realJobRunner = (job: string): readonly [string, readonly string[]] =>
   [process.execPath, [projectPath(JOB_ENTRYPOINT), job]];
+
+/**
+ * LSE-09's real sweep. Exported top-level so a test can pin it — the argv block below is
+ * untestable by construction (N2 ruling 1), and N3 F1 is the precedent: an inline literal there
+ * regressed once with the whole suite green. Opens `lease.db` on first call and the handle lives
+ * for the supervisor's process — one long-lived connection to a file that holds tens of rows.
+ */
+export const realReapOnBoot = (): Iterable<Record<string, string | number>> =>
+  reapDead().map((r) => ({ scope: r.scope, key: r.key, pid: r.pid, claimed: r.claimedAt, ttlLeftMin: r.ttlLeftMin }));
 
 export async function bootOrDie(schedule: readonly ScheduleEntry[], deps: BootDeps): Promise<Supervisor> {
   try {
@@ -673,6 +682,7 @@ if (import.meta.filename === process.argv[1]) {
     killGraceMs: SUPERVISOR_KILL_GRACE_MS,
     spawnStaggerMs: SUPERVISOR_SPAWN_STAGGER_MS,
     jobRunner: realJobRunner,
+    reapOnBoot: realReapOnBoot,
     newTimer: realNewTimer,
     heartbeatPath: projectPath(".doppelganger/supervisor.heartbeat"),
     statusPath: projectPath(".doppelganger/supervisor.status.json"),
