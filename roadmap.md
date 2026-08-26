@@ -63,10 +63,13 @@ kernel/                   the framework. imports no plugin, ever.
   time.ts                 nowIso / today — the clock the log line reads          N1
   stages.ts               the stage-prefix vocabulary (SUP-20)                   N1
   ports/
-    job.ts  schedule.ts  runner.ts            v0
+    job.ts                Job, defineJob, DEFAULTS — the shape a job declares    v0 · N3
+    runner.ts             RunRequest / RunResult / Runner — the M11 seam         v0 · N3
+    schedule.ts           ScheduleEntry, re-homed from host/ (PRT-06)            v0 · N5
     source.ts  route.ts  relay.ts  lane.ts    v1 — NOT designed until a plugin needs one
   runtime/
     db.ts  pool.ts  exec.ts                   v0 · N1
+    payload.ts  worktree.ts  runjob.ts        v0 · N3
     log/   emit.ts  log.sh  parse.ts  route.ts  cause.ts  tail.ts  index.ts   v0 · N1
     gate.ts                                   v0 · N2
     lease.ts                                  v0 · N4
@@ -83,7 +86,11 @@ host/                     the app. owns its own schedule, its own resources.
   schedule.ts             ScheduleEntry, Program, SCHEDULE, validate()        N2
   supervisor.ts           runEntry, main, --list — one timer per entry        N2
   window.ts               entriesInWindow — the refresh-window allowlist (SUP-12) N2
-  jobs/                   one file per job                                    N3
+  runner.ts               the @ai-hero/sandcastle adapter (D2)                 N3
+  run.ts                  the ONE argv block — what jobRunner spawns           N3
+  jobs/
+    index.ts              the hand-registered job list (SKL-05)                N3
+    nightly-sandcastle.ts one small verified improvement, gated (JOB-C15)      N3
 cli/                      operator surfaces
   crontab.ts              render | sync | check | sync --adopt (SUP-08)       N2
   skills.ts               render | sync | check (SKL-04)                      N3
@@ -106,6 +113,12 @@ consumer gets designed wrong, which is the failure §4 already warns about.
 `kernel/config.ts` is the `EnvSpec` reader and is not `host/config.ts`, which is the host app's own
 settings. The two never merge — one is the framework's knob mechanism, the other is one app's
 configuration.
+
+`kernel/ports/job.ts` and `kernel/ports/runner.ts` are declared at N3 and re-homed under PRT-05's and
+PRT-08's rows later, on the `EnvSpec` precedent (J1.2): ship the shape the port will carry, in the
+module that needs it, and re-home it later without rewriting it. `host/runner.ts` is the **only**
+file that imports an agent-runner package, which is what makes M11 a file swap. **`host/run.ts` is
+the only argv block a scheduled job reaches** — ruling 3's statement in the spec, not only in a plan.
 
 `supervisor --list` is deliberately NOT a `cli/` file: SUP-17 is a flag on the supervisor, which is
 where the resolved schedule already lives, and the reference's own entry point takes the same flag.
