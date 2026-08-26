@@ -13,6 +13,19 @@
 // a matching PROGRAMS row for the duration of one test, the same technique cli/crontab.test.ts
 // uses, for the same reason: PROGRAMS is empty at N2 and render()/validate() need a row for every
 // entry they see, and neither function takes one through an argument.
+//
+// F10 (N2 VERIFY) JUDGED, NOT REWRITTEN: tests 1, 3, 9 and 10 below build BOTH sides of an
+// equality by calling `render()` a second time (e.g. `assert.equal(readFileSync(...), \`${render(
+// [entry], "alpha").join("\n")}\n\`)`). That is a self-reference on render()'s CONTENT — but what
+// each of these four tests is actually ABOUT is the WIRING: does `sync`/`render`/`check` really
+// install, print or diff the bytes `render()` computed, against the fake crontab, in the right
+// order, handling collisions/adopt/dry-run correctly. render()'s own content correctness is a
+// SEPARATE concern, and it is now pinned independently and literally at cli/crontab.test.ts test
+// 21 (added by this same follow-up) — which is what makes using `render()` as a shared building
+// block here legitimate rather than circular. Contrast test 13 in cli/crontab.test.ts, F10's other
+// finding: that test built its OWN expected value from `markers()` to verify BEHAVIOUR THAT IS
+// ABOUT markers() ITSELF (per-instance marker text) — a true self-reference, fixed there by making
+// the fixture a literal instead. These four are a different shape and are left as they are.
 
 import { test } from "node:test";
 import assert from "node:assert/strict";

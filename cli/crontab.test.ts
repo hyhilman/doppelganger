@@ -27,7 +27,7 @@ import {
   comment,
 } from "./crontab.ts";
 import { PROGRAMS, programOf, commandOf, type ScheduleEntry, type Program } from "../host/schedule.ts";
-import { projectPath } from "../kernel/paths.ts";
+import { projectPath, ROOT } from "../kernel/paths.ts";
 
 const j = (lines: readonly string[]): string => lines.join("\n") + "\n";
 
@@ -212,7 +212,17 @@ test("13. the unnamed (legacy) block: legacyRange finds it, installedBlock(insta
   assert.notEqual(legacyRange(crontab.split("\n").slice(0, -1)), null);
   assert.equal(installedBlock(crontab, "alpha"), null, "not ours until adopted");
 
-  const newBlock = fakeBlock("alpha", ["*/10 * * * * new-cmd"]);
+  // F10 (N2 VERIFY): a LITERAL, not `fakeBlock("alpha", ...)` — `fakeBlock` calls `markers()`
+  // internally, the exact function `installedBlock` (via `blockRange`) also calls to find the
+  // block below. If `markers()` ever collapsed to the same text for every instance, BOTH sides of
+  // the closing `assert.deepEqual` would agree on that same wrong text and this test would not
+  // notice. Written out by hand so the marker text is independent of the function under test.
+  const newBlock = [
+    "# >>> doppelganger:alpha managed block (npm run crontab sync) >>>",
+    "# a fixture comment",
+    "*/10 * * * * new-cmd",
+    "# <<< doppelganger:alpha managed block <<<",
+  ];
   const spliced = splice(adopt(crontab, newBlock, "alpha"), newBlock, "alpha");
   const lines = spliced.split("\n");
 
@@ -319,4 +329,33 @@ test("20. comment() wraps a why long enough to exceed COMMENT_WIDTH into more th
   // no word lost, none split, order preserved.
   const rebuilt = lines.join(" ").replace(/# /g, "").trim().split(/\s+/).join(" ");
   assert.equal(rebuilt, text);
+});
+
+// F10 (N2 VERIFY) — render()'s exact output, pinned as a LITERAL, not built by calling render()
+// (or commandOf()) a second time. Tests 14-16 above never do this: 14 checks a SUBSET (one line
+// present, the others absent), 15 checks validation, and 16 checks only that two calls of render()
+// agree WITH EACH OTHER, never that either is right. Without a literal pin somewhere, a bug baked
+// into render()'s own output (a wrong header line, a dropped comment, entries in the wrong order)
+// would be invisible everywhere it is used as its own oracle — including cli/crontab-cli.test.ts's
+// wiring tests 1, 3, 9 and 10, which build BOTH sides of their own equality by calling render()
+// again. This test is what makes that pattern legitimate there: it is a real, independent check
+// of render()'s content, so those four tests are free to treat render() as a trusted building
+// block for asserting the WIRING (does sync/render really install/print what render() computed),
+// which is what they are actually about. `ROOT` is imported directly rather than going through
+// `commandOf()`, so the command line is built by hand here too, not through the function under
+// indirect test.
+test("21. render's exact output over a one-entry bootstrap fixture, pinned literally", () => {
+  const e = validEntry({ name: "watch-fixture-21", supervised: false, why: "a short fixture reason" });
+  withPrograms({ [programOf(e)]: program() }, () => {
+    const out = render([e], "alpha");
+    const expected = [
+      "# >>> doppelganger:alpha managed block (npm run crontab sync) >>>",
+      "# Generated from host/schedule.ts — do not hand-edit. `npm run crontab check` diffs it.",
+      "# BOOTSTRAP ONLY: everything else is scheduled by host/supervisor.ts.",
+      "# a short fixture reason",
+      `${e.cron} cd ${ROOT} && node ${e.script} >> ${e.log} 2>&1`,
+      "# <<< doppelganger:alpha managed block <<<",
+    ];
+    assert.deepEqual(out, expected);
+  });
 });
