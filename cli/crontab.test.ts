@@ -24,6 +24,7 @@ import {
   adopt,
   render,
   diff,
+  comment,
 } from "./crontab.ts";
 import { PROGRAMS, programOf, commandOf, type ScheduleEntry, type Program } from "../host/schedule.ts";
 import { projectPath } from "../kernel/paths.ts";
@@ -276,4 +277,46 @@ test("17. diff names the changed line, with installed: and expected: prefixes, f
   assert.match(out, /installed:/);
   assert.match(out, /line3-OLD/);
   assert.match(out, /line3-NEW/);
+});
+
+// F9 (N2 VERIFY) — diff()'s two untested arms: a pure insertion (a line installed has no
+// counterpart wanted at all) and a pure deletion (a line wanted is missing from installed
+// entirely), each reported alone rather than paired into a "differs" entry.
+
+test("18. diff: a pure insertion — an installed line with no wanted counterpart — is reported alone", () => {
+  const want = ["line1", "line2"];
+  const got = ["line1", "line2", "line3-EXTRA"];
+  const out = diff(want, got);
+  assert.deepEqual(out, ["line 3 installed but not expected:", '  installed: "line3-EXTRA"']);
+  // A pure insertion never carries an `  expected: ` VALUE line — only "differs" (substitution)
+  // does. Matched with the two-space indent so this does not false-positive on the word "expected"
+  // inside the "not expected:" header line above.
+  assert.doesNotMatch(out.join("\n"), /^ {2}expected: /m, "a pure insertion names no expected: value — there is nothing it was substituted for");
+});
+
+test("19. diff: a pure deletion — a wanted line missing from installed entirely — is reported alone", () => {
+  const want = ["line1", "line2", "line3-MISSING"];
+  const got = ["line1", "line2"];
+  const out = diff(want, got);
+  assert.deepEqual(out, ["line 3 expected but missing from installed:", '  expected: "line3-MISSING"']);
+  // Same indent-anchored check, the other direction: no `  installed: ` VALUE line, only the
+  // header's own "missing from installed:" text, which is not that.
+  assert.doesNotMatch(out.join("\n"), /^ {2}installed: /m, "a pure deletion names no installed: value — nothing replaced it");
+});
+
+// F9 — comment()'s wrap branch (COMMENT_WIDTH = 98 columns), never exercised: every render() call
+// in the rest of this suite uses a `why` short enough to fit on one line.
+
+test("20. comment() wraps a why long enough to exceed COMMENT_WIDTH into more than one # line", () => {
+  const words = Array.from({ length: 30 }, (_, i) => `word${i}`); // "word0 word1 ... word29", 209 chars
+  const text = words.join(" ");
+  const lines = comment(text);
+  assert.ok(lines.length > 1, `expected wrapping into multiple lines, got ${lines.length}`);
+  for (const line of lines) {
+    assert.ok(line.startsWith("# "), `every line must be a "# "-prefixed comment: ${JSON.stringify(line)}`);
+    assert.ok(line.length <= 98, `every line must be <= 98 columns, got ${line.length}: ${JSON.stringify(line)}`);
+  }
+  // no word lost, none split, order preserved.
+  const rebuilt = lines.join(" ").replace(/# /g, "").trim().split(/\s+/).join(" ");
+  assert.equal(rebuilt, text);
 });
