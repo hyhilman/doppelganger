@@ -26,8 +26,8 @@ Advance only when VERIFY comes back with nothing blocking.
 
 | Phase | Items | Est. | Plan | Gap | Build | Verify |
 |-------|-------|------|------|-----|-------|--------|
-| N0 — Ground truth | 11 | 2 d | ✅ | ✅ | ✅ | — |
-| N1 — Kernel the loop needs | 26 | 1.5–2 wk | — | — | — | — |
+| N0 — Ground truth | 11 | 2 d | ✅ | ✅ | ✅ | ⚠ |
+| N1 — Kernel the loop needs | 26 | 1.5–2 wk | ▶ | — | — | — |
 | N2 — Supervisor + gate | 32 | 1 wk | — | — | — | — |
 | N3 — Harness + skills + the pass | 34 | 1.5–2 wk | — | — | — | — |
 | N4 — Safe to leave alone | 22 | 1 wk | — | — | — | — |
@@ -54,6 +54,16 @@ Legend: `—` not started · `▶` running · `✅` done · `⚠` done with open
   written and kills the symlink branch of TST-23. (Decided by the user, 2026-08-25.)
 
 ## Open items the loop must not silently skip
+
+- **J0.13 AC4 — CI has never run.** `dev` is not pushed, so no GitHub Actions run exists and
+  no run URL is recorded. The workflow content is correct and its shape was proved locally:
+  a fresh clone + `npm ci` + `CORPUS_OVERRIDE=/nonexistent npm test` exits 0 and reports
+  `# SKIP reference corpus absent`, which is what AC5 wanted to observe. Residual risk is
+  low but the AC stays UNMET until someone pushes. **Waiting on the user.**
+- **The corpus counts will keep drifting, by design.** xenith grew twice while N0 was being
+  built — 251 → 252 → 254 files in one day. That is why the four figures are now stated as
+  approximations and the recheck asserts rounding, not equality (N0 F4). If a future reader
+  wants exact numbers, the answer is to measure, not to pin.
 
 - **SKL-10 ownership — settled at N0 (J0.9).** The rendered file itself carries a managed
   marker in its body (two HTML comment lines, right after the frontmatter), so `sync` can
