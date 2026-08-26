@@ -101,7 +101,12 @@ test("4. the two ruling-6 env keys go on exactly one provider — never on the a
 function makeRepo(): string {
   const repo = mkdtempSync(join(tmpdir(), "runner-repo-"));
   execFileSync("git", ["init", "-q", "-b", "main", repo]);
-  execFileSync("git", ["-C", repo, "commit", "-q", "--allow-empty", "-m", "init", "--author=t <t@example.com>"]);
+  // LOCAL identity, always: a CI runner has no global config at all ("Author identity unknown"
+  // was the first thing a real runner ever said to this suite), and a fixture that leans on the
+  // developer's ~/.gitconfig is a fixture that only works on the developer's machine.
+  execFileSync("git", ["-C", repo, "config", "user.name", "t"]);
+  execFileSync("git", ["-C", repo, "config", "user.email", "t@example.com"]);
+  execFileSync("git", ["-C", repo, "commit", "-q", "--allow-empty", "-m", "init"]);
   return repo;
 }
 

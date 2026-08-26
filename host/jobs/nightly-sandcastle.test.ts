@@ -310,6 +310,10 @@ test("23. gate([]) returns ok: true with a detail saying so, and runs nothing", 
 function makeRepo(branch = "main"): string {
   const repo = mkdtempSync(join(tmpdir(), "pass-repo-"));
   git(repo, "init", "-q", "-b", branch);
+  // LOCAL identity, always — worktrees share it, so the pass's rebase path (ff-miss recovery)
+  // has a committer on a host with no global config. See runner.test.ts's makeRepo for the story.
+  git(repo, "config", "user.name", "t");
+  git(repo, "config", "user.email", "t@example.com");
   writeFileSync(join(repo, "README.md"), "hello\n");
   writeFileSync(join(repo, ".gitignore"), "node_modules\n.doppelganger/\n"); // the symlinked node_modules and every pass worktree must not read as tree-dirty
   git(repo, "add", "-A");

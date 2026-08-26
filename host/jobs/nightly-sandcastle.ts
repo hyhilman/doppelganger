@@ -438,7 +438,14 @@ function landOrDiscard(deps: PassDeps, wt: Worktree, base: string, branch: strin
 
   const subject = verdict?.summary ? `chore(nightly): ${verdict.summary}` : `chore(nightly): ${goal.title}`;
   deps.git(wt.path, "add", "-A", "--", ...files);
-  deps.git(wt.path, "commit", "-m", subject, "-m", `nightly sandcastle — goal: ${goal.key}`);
+  // The landing commit carries its OWN identity (INS-06-discriminated), never the ambient global
+  // config: an unattended host has none — CI proved it, "Author identity unknown", the first real
+  // runner this suite ever met — and a 3am commit should read as the bot's, not as whoever last
+  // configured the machine.
+  deps.git(wt.path,
+    "-c", `user.name=nightly-sandcastle`,
+    "-c", `user.email=nightly-sandcastle@${INSTANCE}`,
+    "commit", "-m", subject, "-m", `nightly sandcastle — goal: ${goal.key}`);
 
   if (noMerge) {
     return { kind: "landed", sha: deps.git(wt.path, "rev-parse", "HEAD").trim() };
