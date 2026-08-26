@@ -12,15 +12,22 @@
 // SUP-12 has two halves, in different states. The minute-for-minute walk (host/window.test.ts
 // tests 1-3) is fully real: `inRefreshWindow` (host/config.ts, J2.6) exists today and is checked
 // against an INDEPENDENTLY written predicate over all 10,080 minutes of a week. `entriesInWindow`
-// itself is real, tested machinery (tests 4, 5, 7 use real fixtures) — but its one LIVE invocation
-// is vacuous at N2, because `SCHEDULE` is empty: `entriesInWindow(SCHEDULE, REFRESH_WINDOW,
-// PROGRAMS)` is always `[]`. That is not a placeholder — an empty list is a checked claim that
-// nothing is excused, where a whole-week form could only ever pass or fail outright. There is
-// deliberately no test asserting that live call here (AC1): `[] === []` cannot fail, and a test
-// that cannot fail reads in review as coverage of the live schedule when it is really coverage of
-// nothing. REMINDER FOR N3: the day a real entry is scheduled near a real window, wire an
-// allowlist test calling `entriesInWindow(SCHEDULE, REFRESH_WINDOW, PROGRAMS)` for real — the
-// machinery below is already exercised, only that one call is missing.
+// itself is real, tested machinery (tests 4, 5, 7 use real fixtures) — and its one LIVE invocation
+// was vacuous at N2, because `SCHEDULE` was empty: `entriesInWindow(SCHEDULE, REFRESH_WINDOW,
+// PROGRAMS)` was always `[]`. That was not a placeholder — an empty list was a checked claim that
+// nothing is excused, where a whole-week form could only ever pass or fail outright.
+//
+// UPDATE (J3.15): the first real entry, `nightly-sandcastle`, landed in `SCHEDULE` — the half of
+// this reminder that was pending. `REFRESH_WINDOW` itself is STILL `null`: no roadmap phase yet
+// declares one, and inventing a window for a single job would be inventing the subject (the same
+// discipline N2 used to delete three vacuous assertions). `entriesInWindow(SCHEDULE,
+// REFRESH_WINDOW, PROGRAMS)` therefore still returns `[]`, correctly — but host/window.test.ts now
+// also drives `entriesInWindow` over the REAL `SCHEDULE`/`PROGRAMS` with a FIXTURE window covering
+// 16:00-22:00 UTC, which is not vacuous: it asserts the one entry that exists, and two mutations
+// (move its cron outside the window; change its program's gate) turn that assertion red. REMINDER:
+// the day a phase needs a REAL, non-null `REFRESH_WINDOW` (a maintenance window a second scheduled
+// entry must avoid), wire the live `entriesInWindow(SCHEDULE, REFRESH_WINDOW, PROGRAMS)` call for
+// real, in place of this reminder — no phase on the roadmap claims that job yet.
 import { firings, CRON_ANCHOR } from "./cron.ts";
 import { inRefreshWindow, type RefreshWindow } from "./config.ts";
 import { programOf, type ScheduleEntry, type Program } from "./schedule.ts";

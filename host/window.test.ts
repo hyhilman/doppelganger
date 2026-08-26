@@ -15,7 +15,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { inRefreshWindow, type RefreshWindow } from "./config.ts";
 import { entriesInWindow } from "./window.ts";
-import type { ScheduleEntry, Program } from "./schedule.ts";
+import { SCHEDULE, PROGRAMS, type ScheduleEntry, type Program } from "./schedule.ts";
 
 const MINUTES_PER_DAY = 1440;
 const MINUTES_PER_WEEK = 7 * MINUTES_PER_DAY;
@@ -147,4 +147,21 @@ test("7. entriesInWindow reports each entry's program's gate mode alongside its 
   const byName = new Map(result.map((r) => [r.name, r.gate]));
   assert.equal(byName.get("watch-excl"), "excl");
   assert.equal(byName.get("watch-none"), "none");
+});
+
+// J3.15 — SUP-12's live assertion, no longer vacuous: SCHEDULE carries a real entry now
+// (host/window.ts's header explains the rest). REFRESH_WINDOW itself stays null (no phase
+// invents one), so this is a FIXTURE window, not the real one — the point is to prove
+// entriesInWindow really does something with the live SCHEDULE/PROGRAMS pair, not to assert
+// anything about REFRESH_WINDOW.
+const LIVE_FIXTURE_WINDOW: RefreshWindow = {
+  opensDow: [0, 1, 2, 3, 4, 5, 6],
+  opensAt: "16:00",
+  lengthMin: 360, // 16:00-22:00 UTC
+  why: "fixture: covers nightly-sandcastle's whole 16:38-21:38 firing range, every day",
+};
+
+test("8. entriesInWindow over the real SCHEDULE and PROGRAMS: nightly-sandcastle, inside a fixture window covering 16:00-22:00 UTC", () => {
+  const result = entriesInWindow(SCHEDULE, LIVE_FIXTURE_WINDOW, PROGRAMS);
+  assert.deepEqual(result, [{ name: "nightly-sandcastle", gate: "excl" }]);
 });

@@ -76,11 +76,42 @@ export interface Program {
 }
 
 /** Keyed on PROGRAM name, never on entry name (GAT-06's self-exclusion key). Empty at N2 — no job
- *  and no program exists to register until N3. */
-export const PROGRAMS: Readonly<Record<string, Program>> = {};
+ *  and no program exists to register until N3, which is when the first row (below) lands. */
+export const PROGRAMS: Readonly<Record<string, Program>> = {
+  "nightly-sandcastle": { self: true, gate: "excl", resources: ["repo"], dotenv: true },
+};
 
-/** Empty at N2 by decision, not by accident — see host/schedule.test.ts test 1's own title. */
-export const SCHEDULE: readonly ScheduleEntry[] = [];
+/**
+ * Empty at N2 by decision, not by accident — see host/schedule.test.ts test 1's own N2 title.
+ * J3.15 (SUP-01, SUP-02, SUP-03, SUP-12, GAT-07, TST-09) lands the first entry, the moment N3
+ * exists for: `nightly-sandcastle`, six firings a night inside the croner ∩ POSIX intersection
+ * N2 measured (`dow` unrestricted, so the dom+dow divergence class cannot apply).
+ *
+ * `resources: ["repo"]` only, `skills` deliberately dropped — the pass reads `.claude/skills/`
+ * for its whole duration, but its only writer is `skills sync`, an operator CLI that takes no
+ * gate at all (J3.9). Holding `skills` `excl` for a whole pass would exclude future scheduled
+ * entries from a resource nothing here contends, buying nothing and costing JOB-C16's (N5)
+ * concurrency. The read is unprotected, and that is INS-05's problem (a resource whose writer is
+ * outside the supervisor is not a gate problem), not GAT's — flagged in Gaps.
+ *
+ * `maxRunMin: 90` is DERIVED, not chosen: `RUN_TIMEOUT_IMPL_MS` (40 min) + `GATE_TIMEOUT_MS`
+ * (5 min) × 2 (the ff-miss path re-runs the gate) = 50 min, plus worktree prep and reporting,
+ * against SUP-13's SIGKILL bound — host/schedule.test.ts's budget assertion pins the relation so
+ * the two numbers can never drift apart silently (N2 F1's exact shape).
+ *
+ * No entry here sets `supervised: false` — `crontab render` still emits a managed block with zero
+ * command lines, and nothing starts the supervisor itself yet. That is SUP-09/JOB-O10, N4.
+ */
+export const SCHEDULE: readonly ScheduleEntry[] = [
+  {
+    name: "nightly-sandcastle",
+    cron: "38 16-21 * * *",
+    job: "nightly-sandcastle",
+    log: projectPath(".doppelganger/logs/nightly-sandcastle.log"),
+    maxRunMin: 90,
+    why: "hourly overnight (23:38–04:38 WIB): one small, verified improvement to this repo, gated on the full suite, an import smoke of every changed file and a dry run of every changed job (JOB-C15). :38 leaves the :08s free for nightly-polish (JOB-C16, N5) so the pair fires every 30 minutes without sharing a minute — both take the gate exclusively, non-blocking, so a shared minute would mean one silently skipping every night.",
+  },
+];
 
 /** The program an entry belongs to: `job`, else `script`, else the entry's own `name`. This is
  *  GAT-06's self-exclusion key and PROGRAMS' lookup key. */

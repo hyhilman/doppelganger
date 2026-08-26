@@ -13,9 +13,13 @@ import {
   supervisedEntries,
   bootstrapEntries,
   commandOf,
+  validate,
   type ScheduleEntry,
   type Program,
 } from "./schedule.ts";
+import { LOG_ROOTS } from "../kernel/runtime/log/tail.ts";
+import { RUN_TIMEOUT_IMPL_MS } from "../kernel/ports/runner.ts";
+import { GATE_TIMEOUT_MS } from "./jobs/nightly-sandcastle.ts";
 
 export function entry(over: Partial<ScheduleEntry> = {}): ScheduleEntry {
   return {
@@ -37,12 +41,38 @@ export function program(over: Partial<Program> = {}): Program {
   };
 }
 
-test("1. the schedule is empty at N2 by decision — the first entry needs a job (N3) or the watchdog script (N4)", () => {
-  assert.deepEqual(SCHEDULE, []);
-  assert.deepEqual(PROGRAMS, {});
+test("1. the schedule carries one entry: nightly-sandcastle (J3.15) — the first non-vacuous validate(SCHEDULE) in the repo's life", () => {
+  assert.equal(SCHEDULE.length, 1);
+  assert.equal(SCHEDULE[0]!.name, "nightly-sandcastle");
+  assert.doesNotThrow(() => validate());
+
+  const program = PROGRAMS[programOf(SCHEDULE[0]!)];
+  assert.ok(program, "nightly-sandcastle must have a PROGRAMS row");
+
+  const log = SCHEDULE[0]!.log;
+  assert.ok(
+    LOG_ROOTS.some((r) => log === r || log.startsWith(`${r}/`)),
+    `${log} must be under a known log root: [${LOG_ROOTS.join(", ")}]`,
+  );
 });
 
-test("2. programOf prefers job, then script, then name", () => {
+// N2 F1's exact shape, restated here so it cannot recur: the first draft asserted a WEAKER
+// property than it claimed (`runTimeoutMs < maxRunMin*60_000`, true at 40 < 60 while the real
+// budget is the SUM of the run timeout and the gate re-run on the ff-miss path). This assertion
+// checks the sum, both operands named on failure — never a bare boolean.
+test("2. the budget: RUN_TIMEOUT_IMPL_MS + 2*GATE_TIMEOUT_MS stays under nightly-sandcastle's maxRunMin (N2 F1's shape, not repeated)", () => {
+  const entry = SCHEDULE.find((e) => e.name === "nightly-sandcastle");
+  assert.ok(entry, "nightly-sandcastle must be in SCHEDULE");
+  const maxRunMs = entry!.maxRunMin! * 60_000;
+  const budget = RUN_TIMEOUT_IMPL_MS + 2 * GATE_TIMEOUT_MS;
+  assert.ok(
+    budget < maxRunMs,
+    `RUN_TIMEOUT_IMPL_MS (${RUN_TIMEOUT_IMPL_MS}) + 2*GATE_TIMEOUT_MS (${GATE_TIMEOUT_MS}) = ${budget}, ` +
+      `must be < maxRunMin*60_000 (${maxRunMs})`,
+  );
+});
+
+test("3. programOf prefers job, then script, then name", () => {
   assert.equal(programOf(entry({ job: "j1", script: undefined })), "j1");
   assert.equal(programOf(entry({ job: undefined, script: "s1.sh" })), "s1.sh");
   assert.equal(programOf(entry({ job: undefined, script: undefined, name: "bare" })), "bare");
@@ -51,7 +81,7 @@ test("2. programOf prefers job, then script, then name", () => {
   assert.equal(programOf(entry({ job: "j1", script: "s1.sh" })), "j1");
 });
 
-test("3. supervisedEntries / bootstrapEntries partition a five-entry fixture", () => {
+test("4. supervisedEntries / bootstrapEntries partition a five-entry fixture", () => {
   const fixture = [
     entry({ name: "a" }),
     entry({ name: "b", supervised: false }),
@@ -66,18 +96,18 @@ test("3. supervisedEntries / bootstrapEntries partition a five-entry fixture", (
   assert.equal(supervised.length + bootstrap.length, fixture.length);
 });
 
-test("4. the fixture builders are deterministic", () => {
+test("5. the fixture builders are deterministic", () => {
   assert.deepEqual(entry(), entry());
   assert.deepEqual(program(), program());
 });
 
-test("5. commandOf for a job: entry names host/run.ts, not host/jobs/<job>.ts (J3.14 ruling 3)", () => {
+test("6. commandOf for a job: entry names host/run.ts, not host/jobs/<job>.ts (J3.14 ruling 3)", () => {
   const cmd = commandOf(entry({ job: "probe", script: undefined }));
   assert.match(cmd, /\bhost\/run\.ts probe\b/);
   assert.ok(!cmd.includes("host/jobs/probe.ts"));
 });
 
-test("6. commandOf for a script: entry is unchanged", () => {
+test("7. commandOf for a script: entry is unchanged", () => {
   const cmd = commandOf(entry({ job: undefined, script: "host/ops-probe.sh" }));
   assert.match(cmd, /\bhost\/ops-probe\.sh\b/);
   assert.ok(!cmd.includes("host/run.ts"));
