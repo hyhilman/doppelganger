@@ -503,6 +503,9 @@ const DOPPELGANGER_ALLOWLIST = new Set([
   "gitconfig",
   "supervisor.heartbeat",
   "supervisor.status.json",
+  // J4.13 (JOB-O11) — present exactly while beat()'s heartbeat write is failing; every test uses
+  // its own temp root, so it must never exist here after a run (delivery.test.ts, supervisor.test.ts).
+  "heartbeat.fail",
 ]);
 
 test("15. .doppelganger/ holds only allowlisted entries, recursively", () => {

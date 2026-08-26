@@ -52,6 +52,7 @@ import { gateWait, newTimer as realNewTimer } from "./cron.ts";
 import { reapDead } from "../kernel/runtime/lease.ts";
 import { inspect, QUOTA_SCOPE } from "../kernel/runtime/quota.ts";
 import { decideShed } from "../kernel/runtime/shed.ts";
+import { deliveryStamp } from "../kernel/runtime/delivery.ts";
 import { classOf } from "./classes.ts";
 
 // §2.27's three supervisor knobs. Each is read here (envNum) so `main()`'s argv block (J2.13) can
@@ -367,6 +368,10 @@ export interface BootDeps extends SupervisorDeps {
   readonly newTimer: (e: ScheduleEntry, fn: () => void) => { stop(): void };
   readonly heartbeatPath: string;
   readonly statusPath: string;
+  /** JOB-O11, SUP-14: `DELIVERY_STAMPS`' one N4 row (kernel/runtime/delivery.ts) — present exactly
+   *  while `beat()`'s heartbeat write is failing. REQUIRED, no default (the `reapOnBoot` precedent,
+   *  J4.6): a field a future argv-block edit could drop in silence is a field that will be. */
+  readonly heartbeatFailPath: string;
   readonly bootLog: string;
   readonly drainMs: number;
   /** LSE-09, SUP-15. Optional at N2 (there was no implementation yet, so the ordering — before the
@@ -397,17 +402,43 @@ export function snapshot(deps: BootDeps): Record<string, unknown> {
   };
 }
 
-/** Never throws: a supervisor that dies because it could not write its own liveness stamp turns a
- *  full disk into a dead fleet, which is strictly worse than the watchdog firing. */
+/**
+ * Never throws: a supervisor that dies because it could not write its own liveness stamp turns a
+ * full disk into a dead fleet, which is strictly worse than the watchdog firing.
+ *
+ * J4.13, ruling 7 — TWO INDEPENDENT `try` blocks, not one. The obvious shape (both writes in ONE
+ * `try`, stamping from its `catch`) is wrong: a GOOD heartbeat plus a FAILING `status.json` write
+ * would then set the stamp, and the watchdog's probe 4 would print "the supervisor is alive but
+ * cannot write its heartbeat — probe 3 is a false alarm" while probe 3 never fired and the
+ * heartbeat is perfectly fresh. A liveness probe whose correction fires when there is nothing to
+ * correct is worse than no correction. Only the HEARTBEAT write feeds the stamp — the stamp then
+ * means exactly what the watchdog's probe 4 message says it means. The `status.json` write gets
+ * its own event (`status-failed`) precisely because it is NOT a liveness fault.
+ *
+ * `stamp()` sits OUTSIDE both `try` blocks, on purpose — its only protection is
+ * `deliveryStamp`'s own internal swallow (kernel/runtime/delivery.ts), never this function's.
+ * host/supervisor.test.ts test 9 asserts that directly: an unwritable `heartbeatFailPath` must not
+ * stop `beat()` from returning, or `main()`'s own unguarded call to it (step 4) would kill the boot.
+ */
 export function beat(deps: BootDeps): void {
   const log = logger("supervisor");
+  const stamp = deliveryStamp(deps.heartbeatFailPath);
+
+  let heartbeatOk = false;
   try {
     mkdirSync(dirname(deps.heartbeatPath), { recursive: true });
     writeFileSync(deps.heartbeatPath, `${Math.floor(deps.now().getTime() / 1000)}\n`);
+    heartbeatOk = true;
+  } catch (e) {
+    log.warn("heartbeat-failed", { msg: errText(e) });
+  }
+  stamp(heartbeatOk);
+
+  try {
     mkdirSync(dirname(deps.statusPath), { recursive: true });
     writeFileSync(deps.statusPath, JSON.stringify(snapshot(deps)));
   } catch (e) {
-    log.warn("heartbeat-failed", { msg: errText(e) });
+    log.warn("status-failed", { msg: errText(e) });
   }
 }
 
@@ -707,6 +738,7 @@ if (import.meta.filename === process.argv[1]) {
     newTimer: realNewTimer,
     heartbeatPath: projectPath(".doppelganger/supervisor.heartbeat"),
     statusPath: projectPath(".doppelganger/supervisor.status.json"),
+    heartbeatFailPath: projectPath(".doppelganger/heartbeat.fail"),
     bootLog: projectPath(".doppelganger/logs/supervisor.log"),
     drainMs: SUPERVISOR_DRAIN_MS,
     exit: (code: number) => process.exit(code),

@@ -257,6 +257,10 @@ const REGISTER: Record<string, RegisterEntry> = {
     category: "project-relative",
     reason: "log sinks, the heartbeat stamp and the gate snapshot, all under ROOT (SUP-03, SUP-14)",
   },
+  "kernel/runtime/delivery.ts": {
+    category: "project-relative",
+    reason: "writes and removes one delivery stamp under ROOT (JOB-O11)",
+  },
   "host/runner.ts": {
     category: "project-relative",
     reason: "mkdirSync for GIT_CONFIG_GLOBAL's parent directory — a fresh checkout must not die on 'could not lock config file' (ruling 6, J3.3)",

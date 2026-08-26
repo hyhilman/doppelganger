@@ -15,9 +15,9 @@ import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
 import { spawn as realSpawn, spawnSync } from "node:child_process";
-import { mkdtempSync, writeFileSync, chmodSync, readFileSync, appendFileSync, mkdirSync } from "node:fs";
+import { mkdtempSync, writeFileSync, chmodSync, readFileSync, appendFileSync, mkdirSync, existsSync } from "node:fs";
 import { tmpdir, hostname } from "node:os";
-import { join } from "node:path";
+import { join, dirname } from "node:path";
 import {
   runEntry,
   main,
@@ -215,6 +215,7 @@ function makeBootHarness(
     reapOnBoot: () => [],
     heartbeatPath: join(h.root, ".doppelganger/supervisor.heartbeat"),
     statusPath: join(h.root, ".doppelganger/supervisor.status.json"),
+    heartbeatFailPath: join(h.root, ".doppelganger/heartbeat.fail"),
     bootLog: join(h.root, ".doppelganger/logs/supervisor.log"),
     drainMs: 30,
     exit: (code: number) => {
@@ -940,7 +941,7 @@ test("23. SUP-14: beat() writes both files, and the stamp changes across calls",
   assert.notEqual(heartbeat1, heartbeat2, "the stamp must change across calls with a different now()");
 });
 
-test("24. a failing beat is not fatal", async () => {
+test("24. a failing beat is not fatal, and a failing HEARTBEAT write stamps (J4.13)", async () => {
   const h = makeBootHarness();
   // heartbeatPath points INSIDE a file, so mkdirSync(dirname(...)) fails.
   const blocker = join(h.root, "not-a-dir");
@@ -954,6 +955,61 @@ test("24. a failing beat is not fatal", async () => {
   const failed = lines.filter((l) => l.event === "heartbeat-failed");
   assert.equal(failed.length, 1);
   assert.equal(failed[0]!.level, "warn");
+  assert.ok(existsSync(deps.heartbeatFailPath), "a failing heartbeat write must stamp heartbeatFailPath (JOB-O11)");
+});
+
+test("24b. a SUCCEEDING heartbeat write removes a pre-existing stamp", async () => {
+  const h = makeBootHarness();
+  mkdirSync(dirname(h.deps.heartbeatFailPath), { recursive: true });
+  writeFileSync(h.deps.heartbeatFailPath, "2026-01-01T00:00:00Z stale\n");
+
+  const { beat } = await import("./supervisor.ts");
+  beat(h.deps);
+  assert.ok(!existsSync(h.deps.heartbeatFailPath), "a successful beat() must remove a stale stamp");
+});
+
+test("24c. a failing status.json write does NOT stamp — this is the test the first draft's design would have failed (J4.13 ruling 7)", async () => {
+  const h = makeBootHarness();
+  const blocker = join(h.root, "not-a-dir-2");
+  writeFileSync(blocker, "x");
+  const deps = { ...h.deps, statusPath: join(blocker, "sub", "status.json") };
+
+  const { beat } = await import("./supervisor.ts");
+  const { lines } = await withLog(async () => {
+    beat(deps);
+  });
+  // The heartbeat write itself must have succeeded — fresh, not stale.
+  assert.ok(existsSync(deps.heartbeatPath));
+  assert.match(readFileSync(deps.heartbeatPath, "utf8"), /^\d+\n$/);
+  const statusFailed = lines.filter((l) => l.event === "status-failed");
+  assert.equal(statusFailed.length, 1);
+  assert.equal(statusFailed[0]!.level, "warn");
+  const heartbeatFailed = lines.filter((l) => l.event === "heartbeat-failed");
+  assert.equal(heartbeatFailed.length, 0, "a status.json failure must never be logged as heartbeat-failed");
+  assert.ok(
+    !existsSync(deps.heartbeatFailPath),
+    "a status.json failure alone must NOT stamp — probe 4 would otherwise correct a probe (3) that never fired",
+  );
+});
+
+test("24d. beat() never throws even when the STAMP path itself is unwritable, and main() still boots", async () => {
+  const h = makeBootHarness();
+  stubJobFiles(h.root, []);
+  // heartbeatFailPath points at a DIRECTORY, so deliveryStamp's own writeFileSync would ENOTDIR —
+  // its protection is entirely internal (kernel/runtime/delivery.ts's own try/catch), never
+  // beat()'s, because beat() calls stamp() OUTSIDE both of its own try blocks.
+  const stampDir = join(h.root, "heartbeat-fail-is-a-dir");
+  mkdirSync(stampDir, { recursive: true });
+  const deps = { ...h.deps, heartbeatFailPath: stampDir };
+
+  const { beat, main } = await import("./supervisor.ts");
+  assert.doesNotThrow(() => beat(deps));
+
+  const { lines } = await withLog(async () => {
+    const sup = await main([], deps);
+    await sup.stop("SIGTERM");
+  });
+  assert.ok(lines.some((l) => l.event === "supervisor-up"), "main() must still boot when the stamp path itself is unwritable");
 });
 
 test("25. supervisor-up names entries, unsupervised, heartbeat and pid", async () => {
