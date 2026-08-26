@@ -45,9 +45,13 @@ test("1. HRN-07, layer A — buildAgent names our permissionMode value in the re
   const withMode = buildAgent(req).buildPrintCommand({ prompt: "P", dangerouslySkipPermissions: false });
   assert.ok(withMode.command.includes("bypassPermissions"), `expected "bypassPermissions" in: ${withMode.command}`);
 
-  // Negative control: sandcastle's own default (no permissionMode passed) never names a value.
-  const bareAgent = buildAgent({ ...req, permissionMode: "bypassPermissions" });
-  void bareAgent;
+  // Negative control (N3 F5 — the old body built the SAME mode and asserted nothing): a provider
+  // genuinely built without a permissionMode must render a command with NO --permission-mode flag
+  // at all. `Job.permissionMode` is required, so reaching this state takes a cast — which is the
+  // point: the type system forbids it in real code, and this proves what happens if it slips.
+  const bare = buildAgent({ ...req, permissionMode: undefined as unknown as typeof req.permissionMode });
+  const bareCmd = bare.buildPrintCommand({ prompt: "P", dangerouslySkipPermissions: false }).command;
+  assert.ok(!bareCmd.includes("--permission-mode"), `expected no permission flag in: ${bareCmd}`);
 });
 
 test("2. HRN-11, layer A — the command names req.model; a command for a different model does not", () => {
