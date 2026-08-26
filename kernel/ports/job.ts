@@ -2,7 +2,7 @@
 // job IS, and DEFAULTS in ONE place.
 //
 // PRT-05 lists `permissionMode` as an optional Job field; this file makes it REQUIRED — a
-// deliberate deviation, flagged in roadmap.md's Gaps. HRN-07 says an unattended job hangs on the
+// deliberate deviation, flagged in plan/N3-uac.md's Gaps (item 20) and roadmap.md's PRT-05 row. HRN-07 says an unattended job hangs on the
 // first tool prompt without a permission mode, which is the one omission that is a 3am hang rather
 // than a wrong default, so a compile error is the right enforcement (job.test.ts test 8 is the
 // suppressed-directive check that makes it one).
@@ -16,7 +16,7 @@
 // DEFAULTS.permissionMode is "bypassPermissions" — the value the one real job (nightly-sandcastle)
 // uses — not "auto": nothing at N3 exercises "auto", and "auto does not hang" is unmeasurable
 // without a real run that reaches a tool prompt. A default nothing exercises guards nothing.
-// Required-plus-real beats optional-plus-aspirational (see the commit body / roadmap Gaps for the
+// Required-plus-real beats optional-plus-aspirational (see the commit body / plan/N3-uac.md Gaps 20 for the
 // three reasons).
 
 /** Reasoning effort, matching @ai-hero/sandcastle's ClaudeCodeOptions — kernel/ never imports the

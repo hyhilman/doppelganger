@@ -165,9 +165,13 @@ letters and nothing else.
   policy per relay; `targeted:false` pins the destination inside `send`; `admit` refuses host-side.
 - **PRT-04** `RouteDef { name, watcher?, unwatched? }`; `Watcher { job, leases?, holdsUnsettled? }`.
 - **PRT-05** `Job` shape: `name`, `description`, **`skill`** | `exec?`, `model`, `effort`,
-  `permissionMode`, `maxIterations`, `completionSignal`, `promptArgs`, `env`, `worktree`,
-  `taskClass`, `session`, `local`. `prompt`/`promptFile` are GONE (D10): a job names a skill or it
-  is deterministic, and there is no third shape.
+  `permissionMode` (**required** since N3: a permissive default that can be silently inherited
+  would defeat the bypass⇒local scan, and an unattended hang became a compile error — plan/N3-uac.md
+  ruling 6/Gaps 20), `maxIterations`, `completionSignal`, `promptArgs`, `env`, `plugin`,
+  `taskClass`, `local`. `worktree` and `session` are DROPPED at N3 (ruling 4: a field whose real
+  consumer is a dispatched run has no consumer until M9 — D9; they return as fields a `TaskSpec`
+  carries). `prompt`/`promptFile` are GONE (D10): a job names a skill or it is deterministic, and
+  there is no third shape.
 - **PRT-06** `ScheduleEntry`: `name`, `cron`, `log`, `env?`, `gateWait?`, `clearsRefreshWindow?`,
   `maxRunMin?`, `job` | `script`, `supervised?`, `why` (required).
 - **PRT-07** `Lane { id, title, jobKeys, leaseScopes, wrong }` — what BEING WRONG means in that lane.

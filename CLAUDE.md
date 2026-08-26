@@ -4,12 +4,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Repository state
 
-**N0 and N1 are done.** `kernel/` holds the framework primitives N1 shipped, each with its own test
-file: `config.ts` (`EnvSpec` and the env readers), `instance.ts`, `paths.ts`, `stages.ts`, `time.ts`,
-and `runtime/` — `db.ts`, `exec.ts`, `pool.ts`, and `runtime/log/` (`emit.ts`, `parse.ts`, `route.ts`,
-`cause.ts`, `tail.ts`, `log.sh`). `plugins/nightly/skills/nightly-sandcastle/SKILL.md` and its
-rendered `.claude/skills/` entry are still the only skill on disk — the worked example of SKL-03/04,
-landed before the code that runs it. `roadmap.md` is still the complete feature inventory and build
+**N0–N2 are done; N3 is built through J3.16** (the harness, the skills renderer, the pass, and the
+first `SCHEDULE` entry), pending only J3.17's one real agent run and J3.18's close. `kernel/` holds
+the framework primitives plus `ports/` (`job.ts`, `runner.ts`) and `runtime/` (`db.ts`, `exec.ts`,
+`gate.ts`, `pool.ts`, `payload.ts`, `runjob.ts`, `worktree.ts`, and `runtime/log/`). `host/` holds
+the supervisor, schedule, cron, window, config, runner and `jobs/nightly-sandcastle.ts`; `cli/`
+holds `crontab.ts` and `skills.ts`. `plugins/nightly/skills/nightly-sandcastle/SKILL.md` and its
+rendered `.claude/skills/` entry are the worked example of SKL-03/04 — the renderer now reproduces
+the rendered file byte-identically. `roadmap.md` is still the complete feature inventory and build
 order for extracting the `xenith/engine` unattended-agent engine into a reusable framework, and
 remains the spec of record as more of it ships (N2 onward).
 
@@ -31,7 +33,9 @@ every milestone.
 
 ## Commands
 
-None exist yet. M0 fixes what they must be — do not introduce anything outside this shape:
+M0 fixed what they must be — do not introduce anything outside this shape. Live today: `npm test`,
+`npm run typecheck`, `npm run job <name>`, `supervisor --list`, `crontab render|sync|check`,
+`skills render|sync|check`.
 
 - `npm test` — the whole suite, **including `boot()`** (KRN-11): a validation that only runs in the
   supervisor has moved the failure from compile time to 3am.
@@ -63,6 +67,8 @@ Operator CLIs that the roadmap requires and that arrive with their milestone: `s
 kernel/   the framework — imports no plugin, EVER
   registry.ts plugin.ts boot.ts
   ports/     job schedule runner          (v0)  · source route relay lane (v1)
+             (ports are shapes + their own EnvSpec rows/env reads — the J1.2 precedent —
+              not "pure types"; kernel/ports/runner.ts owns RUN_TIMEOUT_*_MS)
   runtime/   gate lease log db pool       (v0)  · queue quota shed (v1)
   contracts/ drift-gate suite a host repo calls as one function
 plugins/  git ops nightly                 (v0 builtins — each owns skills/<job>/SKILL.md)
