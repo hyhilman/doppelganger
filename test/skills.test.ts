@@ -163,12 +163,29 @@ test("11. DB_NAMESPACES is derived from the code — every real dbPath( call sit
       .join("\n");
 
   const found = new Set<string>();
-  const callRe = /\bdbPath\(\s*(["'`])([^"'`]+)\1\s*\)/g;
   for (const f of files) {
     const code = stripComments(readFileSync(f, "utf8"));
-    let m: RegExpExecArray | null;
-    callRe.lastIndex = 0;
-    while ((m = callRe.exec(code)) != null) found.add(m[2]!);
+    // N3 F3: resolve import aliases first — `import { dbPath as dp }` + `dp("x")` walked past a
+    // name-anchored regex (the same hole N1 fixed three times; J3.10's model masker already ports
+    // this). Every local name bound to dbPath is scanned, not just the literal spelling.
+    // What this cannot see (stated per the standing rule): a call through a namespace import
+    // (`p.dbPath("x")` is caught below), a re-export chain, or a runtime-computed name — none of
+    // which exists in this repo, and the first two would be caught by the namespace arm.
+    const aliases = new Set<string>(["dbPath"]);
+    for (const im of code.matchAll(/import\s*\{([^}]*)\}\s*from\s*["'][^"']*paths(?:\.ts)?["']/g)) {
+      for (const part of im[1]!.split(",")) {
+        const [orig, alias] = part.split(/\s+as\s+/).map((x) => x.trim());
+        if (orig === "dbPath") aliases.add(alias ?? orig);
+      }
+    }
+    for (const ns of code.matchAll(/import\s*\*\s*as\s*(\w+)\s*from\s*["'][^"']*paths(?:\.ts)?["']/g)) {
+      aliases.add(`${ns[1]!}.dbPath`);
+    }
+    for (const name of aliases) {
+      const callRe = new RegExp(String.raw`(?<![.\w])${name.replace(".", "\\.")}\(\s*(["'\x60])([^"'\x60]+)\1\s*\)`, "g");
+      let m: RegExpExecArray | null;
+      while ((m = callRe.exec(code)) != null) found.add(m[2]!);
+    }
   }
 
   const missing = [...found].filter((name) => !(DB_NAMESPACES as readonly string[]).includes(name));
