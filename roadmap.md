@@ -82,6 +82,7 @@ host/                     the app. owns its own schedule, its own resources.
   cron.ts                 the croner seam — parseFive, tickSeconds, gateWait  N2
   schedule.ts             ScheduleEntry, Program, SCHEDULE, validate()        N2
   supervisor.ts           runEntry, main, --list — one timer per entry        N2
+  window.ts               entriesInWindow — the refresh-window allowlist (SUP-12) N2
   jobs/                   one file per job                                    N3
 cli/                      operator surfaces
   crontab.ts              render | sync | check | sync --adopt (SUP-08)       N2
