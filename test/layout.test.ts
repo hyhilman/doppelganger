@@ -245,3 +245,29 @@ test("12. every real kernel/ file is named in §1, and every §1 row matches dis
     }
   }
 });
+
+// F4 — no TST- row said a test may not leave anything behind in the checkout, so `./leak.db`
+// (J1.17 AC2's mutation residue) sat here unnoticed: it is gitignored, so `git status` stayed
+// clean. Every real database this suite opens lives under mkdtempSync, outside the checkout
+// (kernel/runtime/db-sharing.test.ts's own discipline gate, assertion 6, already proves that for
+// every caller of the store's open function), and `.doppelganger/` (STATE_DIR's default) is
+// excluded here because it is real, gitignored runtime state that no test in this suite writes —
+// nothing today creates it.
+test("13. no stray *.db*/*.db-wal/*.db-shm file anywhere in the checkout", () => {
+  const dirs = walkDirs().filter(
+    (d) => !d.relPath.startsWith("node_modules") && !d.relPath.startsWith(".doppelganger"),
+  );
+  const offenders: string[] = [];
+  for (const d of dirs) {
+    for (const entry of d.entries) {
+      if (/\.db(-wal|-shm)?$/.test(entry)) {
+        offenders.push(d.relPath === "" ? entry : `${d.relPath}/${entry}`);
+      }
+    }
+  }
+  assert.deepEqual(
+    offenders,
+    [],
+    `stray database file(s) in the checkout — a test (or a manual AC mutation) left residue behind: ${offenders.join(", ")}`,
+  );
+});

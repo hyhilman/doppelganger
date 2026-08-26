@@ -4,11 +4,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Repository state
 
-**There is almost no code yet.** `roadmap.md` is the complete feature inventory and build order for
-extracting the `xenith/engine` unattended-agent engine into a reusable framework. The only other
-files are the reference skill (`plugins/nightly/skills/nightly-sandcastle/SKILL.md`) and its
-rendered `.claude/skills/` entry — the worked example of SKL-03/04, deliberately landed before the
-code that runs it.
+**N0 and N1 are done.** `kernel/` holds the framework primitives N1 shipped, each with its own test
+file: `config.ts` (`EnvSpec` and the env readers), `instance.ts`, `paths.ts`, `stages.ts`, `time.ts`,
+and `runtime/` — `db.ts`, `exec.ts`, `pool.ts`, and `runtime/log/` (`emit.ts`, `parse.ts`, `route.ts`,
+`cause.ts`, `tail.ts`, `log.sh`). `plugins/nightly/skills/nightly-sandcastle/SKILL.md` and its
+rendered `.claude/skills/` entry are still the only skill on disk — the worked example of SKL-03/04,
+landed before the code that runs it. `roadmap.md` is still the complete feature inventory and build
+order for extracting the `xenith/engine` unattended-agent engine into a reusable framework, and
+remains the spec of record as more of it ships (N2 onward).
 
 The reference corpus is `/home/hyhilman/projects/xenith/` (`engine/**`,
 `compose-data/docker-compose.yml`) — the acceptance criterion for behaviour, not something to copy
