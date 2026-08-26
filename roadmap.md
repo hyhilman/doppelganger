@@ -955,9 +955,9 @@ The convention: *a claim derivable from the source is checked against the source
 
 Every knob in the reference, to be re-homed as `EnvSpec` rows on the owning plugin (KRN-06).
 
-- **Core/paths**: `XENITH_ROOT`(→`ENGINE_ROOT`), `XENITH_TRACKER`(→`ENGINE_TRACKER`), `ENGINE_ROLE`,
-  `ENGINE_VERSION`, `FACTORY_STATE_DIR`, `BROKER_SOCK`, `<NAME>_DB`, `SQLITE_BUSY_TIMEOUT_MS`,
-  `SUPERVISOR_MAX_RUN_MIN`, `LOG_LEVEL`.
+- **Core/paths**: `INSTANCE`, `XENITH_ROOT`(→`ENGINE_ROOT`), `XENITH_TRACKER`(→`ENGINE_TRACKER`),
+  `ENGINE_ROLE`, `ENGINE_VERSION`, `FACTORY_STATE_DIR`, `BROKER_SOCK`, `<NAME>_DB`,
+  `SQLITE_BUSY_TIMEOUT_MS`, `SUPERVISOR_MAX_RUN_MIN`, `LOG_LEVEL`.
 - **Switch/pipeline**: `SWITCH_MAX_BATCH`, `SWITCH_DRY_RUN`, `INTENT_MODEL`, `STEP_CAP_ROUTE`,
   `STEP_CAP_WATCH`, `STEP_CAP_BRIEF`, `STEP_CAP_DEFAULT`, `BACKLOG_DB`.
 - **Brief**: `BRIEF_MODE`, `BRIEF_CAP`, `BRIEF_READ_CAP`, `BRIEF_DRY_RUN`, `SLACK_WEEKLY_DRY_RUN`.
