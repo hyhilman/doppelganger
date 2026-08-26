@@ -1561,6 +1561,11 @@ have `boot()` at all. See §5 Q6.
    its own set? Leaning: host config, validated at boot (KRN-09 already checks unknown resources).
    Constrained by INS-05: whatever the answer, no named resource may be machine-wide, because the
    gate cannot exclude across instances.
+
+   **decided 2026-08-26: the HOST declares them, as `{ name, path, why }` rows in `host/config.ts`,
+   validated at boot (SUP-05). `path` is ROOT-relative, which is INS-05's constraint made
+   mechanical: a machine-wide resource cannot be written down. This repo names two, `repo` and
+   `skills`.**
 2. **Tracker abstraction.** The reference hard-codes GitHub issues. Is "tracker" a port (so a plugin
    could back it with something else), or does the host own it? Leaning: a port, because TRK-05's
    claim model is the interesting part and it is store-agnostic.
