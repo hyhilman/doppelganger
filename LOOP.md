@@ -45,6 +45,14 @@ Legend: `—` not started · `▶` running · `✅` done · `⚠` done with open
   negotiable.
 - One small change per commit. Run `npm test` before each commit once a suite exists.
 - Never hand-edit `.claude/skills/` — it is rendered.
+- **Every gate must name the mutation that turns it RED.** A gate with no such mutation is
+  decoration. Prove it: make the change, watch the suite fail, put it back.
+- **An unused import is never a valid gate mutation.** `noUnusedLocals` kills it at `pretest`
+  with TS6133, so the test reads as "exits non-zero" while the gate it names never runs. The
+  mutation must consume the binding.
+- **Never assert a number the same commit writes.** Parse it from the file that owns it.
+- **Never pin an exact value of something outside this repo.** It rots. State the claim as an
+  approximation and gate the approximation.
 
 ## Settled questions
 
@@ -60,6 +68,10 @@ Legend: `—` not started · `▶` running · `✅` done · `⚠` done with open
   a fresh clone + `npm ci` + `CORPUS_OVERRIDE=/nonexistent npm test` exits 0 and reports
   `# SKIP reference corpus absent`, which is what AC5 wanted to observe. Residual risk is
   low but the AC stays UNMET until someone pushes. **Waiting on the user.**
+- **`log.sh` would not ship at N5.** LOG-01's second emitter is a shell file inside a package
+  whose publish build is `tsc`, so a real install gets one emitter, not two — and TST-18 has
+  nothing to compare against. Nothing publishes before N5, so this belongs to ADO-15's row,
+  not to N1. Recorded here so N5 does not rediscover it.
 - **The corpus counts will keep drifting, by design.** xenith grew twice while N0 was being
   built — 251 → 252 → 254 files in one day. That is why the four figures are now stated as
   approximations and the recheck asserts rounding, not equality (N0 F4). If a future reader
