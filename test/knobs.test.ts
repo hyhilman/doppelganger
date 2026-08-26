@@ -16,6 +16,7 @@ import { join } from "node:path";
 import { assertSpecShape, type EnvSpec } from "../kernel/config.ts";
 import { INSTANCE_ENV } from "../kernel/instance.ts";
 import { ENGINE_ROOT_ENV, STATE_DIR_ENV, NAME_DB_ENV } from "../kernel/paths.ts";
+import { RUN_TIMEOUT_MS_ENV, RUN_TIMEOUT_IMPL_MS_ENV } from "../kernel/ports/runner.ts";
 import { BUSY_TIMEOUT_ENV } from "../kernel/runtime/db.ts";
 import { LOCK_STARVE_N_ENV, LOCK_STARVE_FAMILY_ENV } from "../kernel/runtime/gate.ts";
 import { LOG_LEVEL_ENV } from "../kernel/runtime/log/emit.ts";
@@ -70,6 +71,18 @@ const ROWS: readonly RowMeta[] = [
   { spec: ENGINE_ROOT_ENV, file: "kernel/paths.ts", constName: "ENGINE_ROOT_ENV", readers: ["envOptional"] },
   { spec: STATE_DIR_ENV, file: "kernel/paths.ts", constName: "STATE_DIR_ENV", readers: ["envStr"] },
   { spec: NAME_DB_ENV, file: "kernel/paths.ts", constName: "NAME_DB_ENV", readers: [] },
+  {
+    spec: RUN_TIMEOUT_MS_ENV,
+    file: "kernel/ports/runner.ts",
+    constName: "RUN_TIMEOUT_MS_ENV",
+    readers: ["envNum"],
+  },
+  {
+    spec: RUN_TIMEOUT_IMPL_MS_ENV,
+    file: "kernel/ports/runner.ts",
+    constName: "RUN_TIMEOUT_IMPL_MS_ENV",
+    readers: ["envNum"],
+  },
   { spec: BUSY_TIMEOUT_ENV, file: "kernel/runtime/db.ts", constName: "BUSY_TIMEOUT_ENV", readers: ["envNum"] },
   {
     spec: LOCK_STARVE_N_ENV,
