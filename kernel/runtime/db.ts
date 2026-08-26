@@ -8,9 +8,9 @@
 // Each namespace owns its `<ns>_meta.schema_version` and an ordered migration list, so adding a
 // column later is an appended step rather than a hand-run ALTER.
 //
-// J1.6 adds the busy-context proxy (DBS-04, DBS-06) on top of this file. `handle()` here returns the
-// BARE driver handle — J1.6 changes that to the instrumented one, and nothing else in this file
-// moves.
+// J1.6 (DBS-04, DBS-06) wraps `handle()`'s statements and the handle's `exec`/`prepare` in a proxy
+// that reports SQLITE_BUSY with the file, the one-line SQL and the wait — see "SQLITE_BUSY context"
+// below.
 import { DatabaseSync } from "node:sqlite";
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
@@ -32,6 +32,127 @@ export const BUSY_TIMEOUT_ENV: EnvSpec = {
   why: "how long a statement waits on a held write lock; deliberately unchanged while the cause is unknown (DBS-04)",
 };
 export const BUSY_TIMEOUT_MS: number = envNum(BUSY_TIMEOUT_ENV);
+
+// ---------------------------------------------------------------------------------------------
+// SQLITE_BUSY context (DBS-04, DBS-06)
+// ---------------------------------------------------------------------------------------------
+//
+// `Error: database is locked` and nothing else is what a held write lock used to reach the log as —
+// no file, no statement, no wait. This does not retry and does not raise the timeout. Both would
+// make the symptom rarer while removing the only evidence of the cause, and the cause is the thing
+// worth having: a long write on any of these files is a fault whatever the timeout is set to.
+
+/** SQLITE_BUSY, in whichever shape `node:sqlite` reports it. */
+export const isBusy = (e: unknown): boolean =>
+  /database is locked|SQLITE_BUSY/i.test(e instanceof Error ? e.message : String(e));
+
+/** SQL as one line, capped — enough to identify the statement, short enough for a `msg=` field. */
+function oneLine(sql: string): string {
+  return sql.replace(/\s+/g, " ").trim().slice(0, 160);
+}
+
+/**
+ * Run `fn`, and on SQLITE_BUSY rethrow it naming the file, the statement and the wait.
+ *
+ * The wait is the discriminator the bare message lacks: ~`BUSY_TIMEOUT_MS` means the timeout
+ * genuinely expired against a long writer, while a much smaller number means the lock was refused
+ * outright (a DEFERRED read whose upgrade an intervening commit refused) and no timeout would ever
+ * have helped. Those need opposite fixes and read identically without this.
+ *
+ * Exported as a test seam — a busy refusal is otherwise reachable only through real contention.
+ */
+export function withBusyContext<T>(path: string, sql: string, fn: () => T): T {
+  const startedAt = Date.now();
+  try {
+    return fn();
+  } catch (e) {
+    if (!isBusy(e)) throw e;
+    throw new Error(
+      `database is locked: ${path} waited=${Date.now() - startedAt}ms sql=${JSON.stringify(oneLine(sql))}`,
+      { cause: e },
+    );
+  }
+}
+
+/**
+ * Statement methods that actually run SQL, and so are the ones a held write lock can refuse.
+ *
+ * `iterate` is here, but naming it is not what closes the blind spot: measured, `iterate()` returns
+ * the iterator WITHOUT throwing, and the refusal lands on the first `next()`. `instrument` below
+ * wraps the returned iterator's `next()` for exactly that reason — adding "iterate" to this set is
+ * necessary but not sufficient on its own.
+ */
+const EXECUTES: ReadonlySet<string | symbol> = new Set(["run", "get", "all", "iterate"]);
+
+/** A member neither proxy is wrapping. Methods are bound because these are native handles — an
+ *  unbound one called through the proxy loses its receiver. */
+const passThrough = (value: unknown, target: object): unknown =>
+  typeof value === "function" ? value.bind(target) : value;
+
+/** A prepared statement's `run`/`get`/`all` wrap the call itself, since that is where they execute.
+ *  `iterate` wraps the call (a refusal at build time is still possible) AND the returned iterator's
+ *  `next()`, keeping `[Symbol.iterator]` on the proxy so a `for...of` goes through it, not around
+ *  it. */
+function wrapStatement(
+  stmt: ReturnType<DatabaseSync["prepare"]>,
+  path: string,
+  sql: string,
+): ReturnType<DatabaseSync["prepare"]> {
+  return new Proxy(stmt, {
+    get(target, prop, receiver) {
+      const value = Reflect.get(target, prop, receiver) as unknown;
+      if (!EXECUTES.has(prop) || typeof value !== "function") return passThrough(value, target);
+
+      if (prop === "iterate") {
+        return (...args: unknown[]) => {
+          const it = withBusyContext(path, sql, () =>
+            (value as (...a: unknown[]) => Iterator<unknown>).apply(target, args),
+          );
+          const itProxy: Iterator<unknown> & Iterable<unknown> = new Proxy(
+            it as Iterator<unknown> & Iterable<unknown>,
+            {
+              get(itTarget, itProp, itReceiver) {
+                if (itProp === "next") {
+                  return () => withBusyContext(path, sql, () => itTarget.next());
+                }
+                if (itProp === Symbol.iterator) {
+                  return () => itProxy;
+                }
+                return passThrough(Reflect.get(itTarget, itProp, itReceiver), itTarget);
+              },
+            },
+          );
+          return itProxy;
+        };
+      }
+
+      return (...args: unknown[]) =>
+        withBusyContext(path, sql, () => (value as (...a: unknown[]) => unknown).apply(target, args));
+    },
+  });
+}
+
+/**
+ * A handle whose `exec` and `prepare` carry the busy context, and every statement it prepares does
+ * too — nothing else changed. `DatabaseSync` has one more member that writes (session changeset
+ * application); nothing in this file calls it, so its name is banned outright from this directory's
+ * non-test files (test/no-raw-sqlite.test.ts, J1.6 AC6) rather than wrapped — a wrapper with no
+ * caller gets its edge cases wrong in private.
+ */
+function instrument(raw: DatabaseSync, path: string): DatabaseSync {
+  return new Proxy(raw, {
+    get(target, prop, receiver) {
+      if (prop === "exec") {
+        return (sql: string) => withBusyContext(path, sql, () => target.exec(sql));
+      }
+      if (prop === "prepare") {
+        return (sql: string) =>
+          wrapStatement(withBusyContext(path, sql, () => target.prepare(sql)), path, sql);
+      }
+      return passThrough(Reflect.get(target, prop, receiver), target);
+    },
+  });
+}
 
 /**
  * The object names (tables and indexes) a namespace's own SQLite objects live under, excluding
@@ -69,12 +190,15 @@ export function openDb(path: string): Db {
   if (cached) return cached;
 
   mkdirSync(dirname(path), { recursive: true });
+  // The pragmas run on the BARE handle, before `instrument`: they are the setup that makes
+  // contention survivable, so wrapping them in the reporter that exists to describe contention
+  // would be circular.
   const bare = new DatabaseSync(path);
   // WAL lets a reader proceed while a writer holds the lock; busy_timeout rides out the rare
   // write-write overlap instead of throwing SQLITE_BUSY at whichever job loses the race.
   bare.exec("PRAGMA journal_mode = WAL");
   bare.exec(`PRAGMA busy_timeout = ${BUSY_TIMEOUT_MS}`);
-  const raw = bare;
+  const raw = instrument(bare, path);
 
   const db: Db = {
     path,

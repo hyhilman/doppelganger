@@ -1,15 +1,16 @@
-// J1.5 (DBS-01, DBS-02, DBS-03, DBS-05, DBS-08) — openDb: the store.
+// J1.5/J1.6 (DBS-01, DBS-02, DBS-03, DBS-04, DBS-05, DBS-06, DBS-08) — openDb: the store, plus the
+// busy-context proxy that reports SQLITE_BUSY with the file, the statement and the wait.
 //
 // One mkdtempSync directory for this file, one fresh path per test (db-${n++}.db) — the discipline
 // J1.17 turns into a gate. Never reuse a path across tests: openDb caches by path.
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import { openDb, closeAll } from "./db.ts";
+import { openDb, closeAll, withBusyContext } from "./db.ts";
 
 const DIR = mkdtempSync(join(tmpdir(), "dg-db-"));
 let n = 0;
@@ -124,4 +125,282 @@ test("11. DBS-02's enforcer refuses an unprefixed object, and does not record th
   assert.throws(() => db.migrate("app", ["CREATE TABLE oops (id INTEGER)"]), /oops/);
   assert.throws(() => db.migrate("app", ["CREATE TABLE oops (id INTEGER)"]), /app_/);
   assert.equal(db.metaGet("app", "schema_version"), null);
+});
+
+// ---------------------------------------------------------------------------------------------
+// J1.6 (DBS-04, DBS-06) — the busy-context proxy.
+// ---------------------------------------------------------------------------------------------
+//
+// A real second `DatabaseSync` holding BEGIN IMMEDIATE is the hog: it takes the WAL write lock and
+// holds it for the whole call under test, released in a `finally` AFTER the assertion — no race, no
+// timing dependency. `seedBusyDb` sets a small busy_timeout (100ms) on the victim connection so
+// these tests resolve fast; assertions 19 and 20 below override it deliberately.
+
+function seedBusyDb(path: string, busyTimeoutMs = 100): ReturnType<typeof openDb> {
+  const db = openDb(path);
+  db.handle().exec("CREATE TABLE t_busy (id INTEGER PRIMARY KEY, v TEXT)");
+  db.handle().exec(`PRAGMA busy_timeout = ${busyTimeoutMs}`);
+  return db;
+}
+
+function withHog<T>(path: string, action: () => T): T {
+  const hog = new DatabaseSync(path);
+  hog.exec("BEGIN IMMEDIATE");
+  hog.prepare("INSERT INTO t_busy (v) VALUES ('hog')").run();
+  try {
+    return action();
+  } finally {
+    hog.exec("ROLLBACK");
+    hog.close();
+  }
+}
+
+function busyMessage(e: unknown, path: string, sqlFragment: string): boolean {
+  const msg = e instanceof Error ? e.message : String(e);
+  return msg.includes(path) && msg.includes(sqlFragment) && /waited=\d+ms/.test(msg);
+}
+
+test("12. a contended prepared run() names the file and the statement", () => {
+  const p = nextPath();
+  const db = seedBusyDb(p);
+  withHog(p, () => {
+    assert.throws(
+      () => db.handle().prepare("INSERT INTO t_busy (v) VALUES ('x')").run(),
+      (e: unknown) => busyMessage(e, p, "INSERT INTO t_busy"),
+    );
+  });
+});
+
+test("13. a contended get() reports the same way", () => {
+  const p = nextPath();
+  const db = seedBusyDb(p);
+  withHog(p, () => {
+    assert.throws(
+      () => db.handle().prepare("INSERT INTO t_busy (v) VALUES ('y') RETURNING id").get(),
+      (e: unknown) => busyMessage(e, p, "INSERT INTO t_busy"),
+    );
+  });
+});
+
+test("14. a contended all() reports the same way", () => {
+  const p = nextPath();
+  const db = seedBusyDb(p);
+  withHog(p, () => {
+    assert.throws(
+      () => db.handle().prepare("INSERT INTO t_busy (v) VALUES ('z') RETURNING id").all(),
+      (e: unknown) => busyMessage(e, p, "INSERT INTO t_busy"),
+    );
+  });
+});
+
+test("15. a contended iterate() reports from the loop, not from iterate() itself", () => {
+  const p = nextPath();
+  const db = seedBusyDb(p);
+  withHog(p, () => {
+    const stmt = db.handle().prepare("INSERT INTO t_busy (v) VALUES ('i') RETURNING id");
+    // Must not throw here — measured, iterate() returns the iterator without throwing.
+    const it = stmt.iterate();
+    assert.throws(() => {
+      for (const _row of it) {
+        // never reached — the refusal lands on the first next()
+      }
+    }, (e: unknown) => busyMessage(e, p, "INSERT INTO t_busy"));
+  });
+});
+
+test("15b. a plain SELECT through iterate() completes with no error under the same hog", () => {
+  const p = nextPath();
+  const db = seedBusyDb(p);
+  db.handle().prepare("INSERT INTO t_busy (v) VALUES ('seed')").run();
+  withHog(p, () => {
+    const rows = [...db.handle().prepare("SELECT * FROM t_busy").iterate()];
+    assert.ok(rows.length >= 1, "a WAL reader is never blocked by a writer");
+  });
+});
+
+test("16. a contended exec() reports", () => {
+  const p = nextPath();
+  const db = seedBusyDb(p);
+  withHog(p, () => {
+    assert.throws(
+      () => db.handle().exec("INSERT INTO t_busy (v) VALUES ('e')"),
+      (e: unknown) => busyMessage(e, p, "INSERT INTO t_busy"),
+    );
+  });
+});
+
+test("17. a contended tx() reports and names BEGIN IMMEDIATE — the body never runs", () => {
+  const p = nextPath();
+  const db = seedBusyDb(p);
+  let ran = false;
+  withHog(p, () => {
+    assert.throws(
+      () =>
+        db.tx(() => {
+          ran = true;
+        }),
+      (e: unknown) => busyMessage(e, p, "BEGIN IMMEDIATE"),
+    );
+  });
+  assert.equal(ran, false);
+});
+
+test("18. waited= is >= 180ms with busy_timeout = 200 — the full-wait shape", () => {
+  const p = nextPath();
+  const db = seedBusyDb(p, 200);
+  withHog(p, () => {
+    assert.throws(
+      () => db.handle().exec("INSERT INTO t_busy (v) VALUES ('slow')"),
+      (e: unknown) => {
+        const m = /waited=(\d+)ms/.exec(e instanceof Error ? e.message : String(e));
+        return m != null && Number(m[1]) >= 180;
+      },
+    );
+  });
+});
+
+test("19. waited= is < 50ms for a refused-outright upgrade, busy_timeout left at its default", () => {
+  const p = nextPath();
+  const db = seedBusyDb(p); // default busy_timeout (5000ms) — unchanged, and still near-zero
+  const h = db.handle();
+  h.exec("BEGIN"); // DEFERRED — takes no lock yet
+  h.prepare("SELECT COUNT(*) AS c FROM t_busy").get(); // a read snapshot
+
+  const other = new DatabaseSync(p);
+  other.exec("INSERT INTO t_busy (v) VALUES ('intervening')"); // an intervening commit
+  other.close();
+
+  let waited = -1;
+  assert.throws(
+    () => h.exec("INSERT INTO t_busy (v) VALUES ('upgrade')"), // refused outright, not waited-out
+    (e: unknown) => {
+      const m = /waited=(\d+)ms/.exec(e instanceof Error ? e.message : String(e));
+      waited = m ? Number(m[1]) : -1;
+      return m != null && Number(m[1]) < 50;
+    },
+  );
+  h.exec("ROLLBACK");
+  assert.ok(waited >= 0 && waited < 50, `expected a near-zero refusal, got waited=${waited}ms`);
+});
+
+test("20. withBusyContext calls its function exactly once — no retry (DBS-04)", () => {
+  let calls = 0;
+  assert.throws(() =>
+    withBusyContext("/p", "SQL", () => {
+      calls++;
+      throw new Error("database is locked");
+    }),
+  );
+  assert.equal(calls, 1, "DBS-04: the wrapper must not retry — the wait is the discriminator");
+});
+
+test("21. PRAGMA busy_timeout reads back unchanged after a busy throw (does NOT raise the timeout)", () => {
+  const p = nextPath();
+  const db = seedBusyDb(p, 100);
+  withHog(p, () => {
+    assert.throws(() => db.handle().exec("INSERT INTO t_busy (v) VALUES ('x')"));
+  });
+  const row = db.handle().prepare("PRAGMA busy_timeout").get() as { timeout: number };
+  assert.equal(row.timeout, 100);
+});
+
+test("22. sql= is one line and at most 160 characters, given a 400-character multi-line statement", () => {
+  const longSql = `SELECT 1\n${"x".repeat(400)}\ny`;
+  assert.throws(
+    () =>
+      withBusyContext("/p", longSql, () => {
+        throw new Error("database is locked");
+      }),
+    (e: unknown) => {
+      const m = /sql=(".*")$/.exec(e instanceof Error ? e.message : String(e));
+      if (!m) return false;
+      const sql = JSON.parse(m[1]) as string;
+      return !sql.includes("\n") && sql.length <= 160;
+    },
+  );
+});
+
+test("23. the driver's error is kept as cause", () => {
+  const original = new Error("database is locked");
+  assert.throws(
+    () =>
+      withBusyContext("/p", "SQL", () => {
+        throw original;
+      }),
+    (e: unknown) => (e as Error).cause === original,
+  );
+});
+
+test("24. the uncontended path is untouched, and null-prototype rows are preserved", () => {
+  const db = openDb(nextPath());
+  db.handle().exec("CREATE TABLE app_u (id INTEGER PRIMARY KEY, v TEXT)");
+  db.handle().prepare("INSERT INTO app_u (v) VALUES (?)").run("hi");
+  const rows = db.handle().prepare("SELECT * FROM app_u").all() as Record<string, unknown>[];
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0]!.v, "hi");
+  assert.equal(Object.getPrototypeOf(rows[0]), null);
+});
+
+// Measured on Node 22.23.1. If a Node upgrade adds a member to StatementSync or DatabaseSync, one
+// of the next two assertions goes red FIRST, and a human decides whether the new member executes
+// SQL and needs wrapping — this can only happen in a commit that also bumps .nvmrc.
+const STATEMENT_SYNC_MEMBERS = [
+  "all",
+  "columns",
+  "constructor",
+  "get",
+  "iterate",
+  "run",
+  "setAllowBareNamedParameters",
+  "setAllowUnknownNamedParameters",
+  "setReadBigInts",
+  "setReturnArrays",
+].sort();
+
+const DATABASE_SYNC_MEMBERS = [
+  "aggregate",
+  "applyChangeset",
+  "close",
+  "constructor",
+  "createSession",
+  "enableLoadExtension",
+  "exec",
+  "function",
+  "loadExtension",
+  "location",
+  "open",
+  "prepare",
+].sort();
+
+test("25. StatementSync's member list equals the pinned literal list", () => {
+  const db = openDb(nextPath());
+  db.handle().exec("CREATE TABLE app_stmt (id INTEGER)");
+  const stmt = db.handle().prepare("SELECT * FROM app_stmt");
+  // Object.getPrototypeOf on our Proxy forwards to the real target, so this reads the ACTUAL
+  // StatementSync prototype, not a proxy trap's idea of one.
+  const names = Object.getOwnPropertyNames(Object.getPrototypeOf(stmt)).sort();
+  assert.deepEqual(names, STATEMENT_SYNC_MEMBERS);
+});
+
+test("26. DatabaseSync's member list equals the pinned literal list, and applyChangeset is unused", () => {
+  const db = openDb(nextPath());
+  const names = Object.getOwnPropertyNames(Object.getPrototypeOf(db.handle())).sort();
+  assert.deepEqual(names, DATABASE_SYNC_MEMBERS);
+
+  // Scoped to non-test files under kernel/: this very file's pinned literal above contains the
+  // word "applyChangeset", so an unscoped search would fail on its own text.
+  const kernelRoot = new URL("../", import.meta.url).pathname.replace(/\/$/, "");
+  const offenders: string[] = [];
+  const walk = (dir: string): void => {
+    for (const entry of readdirSync(dir)) {
+      const full = join(dir, entry);
+      const st = statSync(full);
+      if (st.isDirectory()) walk(full);
+      else if (entry.endsWith(".ts") && !entry.endsWith(".test.ts")) {
+        if (readFileSync(full, "utf8").includes("applyChangeset")) offenders.push(full);
+      }
+    }
+  };
+  walk(kernelRoot);
+  assert.deepEqual(offenders, []);
 });
