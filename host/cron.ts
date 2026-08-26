@@ -102,8 +102,14 @@ function parsePart(part: string, field: FieldSpec, problems: string[]): boolean 
 
   if (stepTok !== undefined) {
     const s = Number(stepTok);
-    if (s < 1 || s > field.max) {
-      problems.push(`${field.name}: step ${JSON.stringify(stepTok)} must be between 1 and ${field.max}`);
+    // Bounded by the field's CARDINALITY (max - min + 1), not by field.max: measured, croner
+    // accepts "0-59/60 * * * *" (minute cardinality 60) as a once-an-hour firing and rejects
+    // "0-59/61" as "steps cannot be greater than maximum value of part (60)" — the bound is the
+    // count of values the field can take, not the largest single value in it (J2.10's corpus
+    // caught this; the field.max version was a bug in the first draft of this rule).
+    const cardinality = field.max - field.min + 1;
+    if (s < 1 || s > cardinality) {
+      problems.push(`${field.name}: step ${JSON.stringify(stepTok)} must be between 1 and ${cardinality}`);
       ok = false;
     }
   }
@@ -238,4 +244,17 @@ export interface Timer {
  */
 export function newTimer(e: ScheduleEntry, fn: () => void): Timer {
   return new Cron(e.cron, { timezone: "UTC", name: e.name, protect: false, catch: true }, fn);
+}
+
+/**
+ * `true` if `date` matches `expr`, straight from croner's own `Cron.match` — independent of
+ * `nextRun`'s iterator. J2.10's opt-in re-measure (`CRON_PARITY_RECHECK=1`) is the one caller: it
+ * needs a croner answer that does NOT go through the same iterator `nextRun`/`firings` do, or a
+ * `nextRun` bug and a `match` check would just be testing the same code path twice. host/cron.ts
+ * stays the ONLY file importing croner (test/deps.test.ts) — this is a deliberate addition beyond
+ * plan/N2-uac.md J2.10's stated "Files touched" (host/parity.test.ts only), recorded in J2.10's
+ * commit.
+ */
+export function cronMatch(expr: string, date: Date): boolean {
+  return new Cron(expr, { paused: true, timezone: "UTC" }).match(date);
 }
