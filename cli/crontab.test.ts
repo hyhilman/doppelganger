@@ -26,7 +26,7 @@ import {
   diff,
   comment,
 } from "./crontab.ts";
-import { PROGRAMS, programOf, commandOf, type ScheduleEntry, type Program } from "../host/schedule.ts";
+import { PROGRAMS, programOf, commandOf, SCHEDULE, type ScheduleEntry, type Program } from "../host/schedule.ts";
 import { projectPath, ROOT } from "../kernel/paths.ts";
 
 const j = (lines: readonly string[]): string => lines.join("\n") + "\n";
@@ -366,4 +366,16 @@ test("21. render's exact output over a one-entry bootstrap fixture, pinned liter
     ];
     assert.deepEqual(out, expected);
   });
+});
+
+test("22. J4.14: render(SCHEDULE, ...) over the LIVE schedule emits its first real command line — ops-watchdog, and no other", () => {
+  // bootstrapEntries(SCHEDULE) was empty from N2 through J4.13 (cli/crontab.test.ts's own header
+  // comment on validEntry() built a FIXTURE precisely because there was nothing real to render).
+  // host/watchdog.sh (J4.14) is the first entry to set supervised: false for real, so this is the
+  // first assertion in this file that reads the LIVE SCHEDULE rather than a fixture.
+  const out = render(SCHEDULE, "probe");
+  const commandLines = out.filter((l) => !l.startsWith("#"));
+  assert.equal(commandLines.length, 1, `expected exactly one rendered command line, got ${commandLines.length}: ${commandLines.join(" | ")}`);
+  const watchdog = SCHEDULE.find((e) => e.name === "ops-watchdog")!;
+  assert.equal(commandLines[0], `${watchdog.cron} ${commandOf(watchdog)}`);
 });

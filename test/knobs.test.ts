@@ -39,6 +39,7 @@ import {
   QUOTA_DARK_GAP_MS_ENV,
 } from "../kernel/runtime/quota.ts";
 import { QUOTA_SHED_WINDOW_MS_ENV } from "../kernel/runtime/shed.ts";
+import { WATCHDOG_SUPERVISOR_STALE_M_ENV, WATCHDOG_DRY_RUN_ENV } from "../host/config.ts";
 import {
   NIGHTLY_NO_SANDCASTLE_ENV,
   NIGHTLY_SANDCASTLE_BASE_ENV,
@@ -258,6 +259,20 @@ const ROWS: readonly RowMeta[] = [
     file: "host/jobs/nightly-sandcastle.ts",
     constName: "NIGHTLY_SANDCASTLE_MODEL_ENV",
     readers: ["envOptional"],
+  },
+  // J4.14 — read by host/watchdog.sh, never by TypeScript: the <NAME>_DB precedent for a row no
+  // TS reader resolves. host/watchdog.test.ts's own drift gate binds these to the script.
+  {
+    spec: WATCHDOG_SUPERVISOR_STALE_M_ENV,
+    file: "host/config.ts",
+    constName: "WATCHDOG_SUPERVISOR_STALE_M_ENV",
+    readers: [],
+  },
+  {
+    spec: WATCHDOG_DRY_RUN_ENV,
+    file: "host/config.ts",
+    constName: "WATCHDOG_DRY_RUN_ENV",
+    readers: [],
   },
 ];
 

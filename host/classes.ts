@@ -17,11 +17,16 @@ export const CHORE: readonly string[] = ["nightly-sandcastle"];
 export const REVIEW: readonly string[] = [];
 
 /** Everything else — downshifted under a recent spend wall, never skipped. `ops-cron-check`
- *  (J4.12) is the first entry; `watchdog.sh` (J4.14) is the second — pinned here first, before
- *  either entry existed, so the three-way split's SHAPE (host/classes.test.ts test 9) was fixed
- *  in advance. Neither runs an agent, so "downshifted" is inert for both — they simply are not
- *  CHORE (skippable) or REVIEW (a human is waiting), the safe default for a deterministic job. */
-export const WATCH: readonly string[] = ["ops-cron-check"];
+ *  (J4.12) is the first entry; `"host/watchdog.sh"` (J4.14) is the second — pinned here first,
+ *  before either entry existed, so the three-way split's SHAPE (host/classes.test.ts test 9) was
+ *  fixed in advance. Neither runs an agent, so "downshifted" is inert for both — they simply are
+ *  not CHORE (skippable) or REVIEW (a human is waiting), the safe default for a deterministic job.
+ *
+ *  `"host/watchdog.sh"`, not the short `"watchdog.sh"` the plan's own prose uses: `programOf(e)`
+ *  for a `script:` entry IS `e.script` verbatim, and the watchdog's own schedule entry (J4.14) sets
+ *  `script: "host/watchdog.sh"` — the project-relative path `scriptCommandOf` needs to find the
+ *  real file. See host/schedule.ts's own PROGRAMS row comment for the full deviation record. */
+export const WATCH: readonly string[] = ["ops-cron-check", "host/watchdog.sh"];
 
 /** An unlisted name defaults to `"watch"` — the safe default: never skipped, downshifted like
  *  every other job not explicitly waiting on a human. Called from two places that must agree only

@@ -506,6 +506,12 @@ const DOPPELGANGER_ALLOWLIST = new Set([
   // J4.13 (JOB-O11) — present exactly while beat()'s heartbeat write is failing; every test uses
   // its own temp root, so it must never exist here after a run (delivery.test.ts, supervisor.test.ts).
   "heartbeat.fail",
+  // J4.14 (JOB-O10) — watchdog.lock is the flock target (present for the process's lifetime, an
+  // empty regular file the same shape a lockfile always is); watchdog.breach is present exactly
+  // while a probe is failing (AC10 removes it by hand after the one live run against this
+  // checkout, and `git status --porcelain` is asserted clean afterwards).
+  "watchdog.lock",
+  "watchdog.breach",
 ]);
 
 test("15. .doppelganger/ holds only allowlisted entries, recursively", () => {

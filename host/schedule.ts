@@ -89,6 +89,28 @@ export const PROGRAMS: Readonly<Record<string, Program>> = {
     whyNoGate:
       "reads `crontab -l` and renders; it races nothing the gate protects, and it is most useful precisely when a writer is holding the gate and jobs are backing up behind it — queueing it would blind the check in the case it exists for",
   },
+  // J4.14 (JOB-O10) — keyed on the SCRIPT PATH, not the entry name: programOf(e) is
+  // e.job ?? e.script ?? e.name, and this is the first script: entry this repo has, so
+  // "host/watchdog.sh" (e.script, below, verbatim — project-relative, the same string
+  // scriptCommandOf resolves against ROOT) IS this program's name. Deviation from the plan's own
+  // text, recorded here: the plan's prose calls this key "watchdog.sh" (and so does
+  // host/classes.ts's WATCH list and host/classes.test.ts), but its own schedule-entry sketch sets
+  // script: "host/watchdog.sh" — the two sketches disagree, and only the FULL path validates,
+  // since scriptCommandOf needs the real project-relative path to find the file at all. Fixed by
+  // using the full path everywhere a PROGRAMS-key-shaped value is needed; "watchdog.sh" survives
+  // only as the readable short name in prose.
+  //
+  // It must run precisely when everything else is wedged, including behind a writer holding the
+  // gate exclusively — gating it would let the failure it exists to catch silence it. It takes its
+  // own flock instead (inlined in the script itself); the gate is in-memory inside the supervisor
+  // and this process is deliberately outside it.
+  "host/watchdog.sh": {
+    self: true,
+    gate: "none",
+    dotenv: false,
+    whyNoGate:
+      "must run precisely when everything else is wedged, including behind a writer holding the gate exclusively; gating it would let the failure it exists to catch silence it. It takes its own flock instead — the gate is in-memory inside the supervisor and this process is deliberately outside it",
+  },
 };
 
 /**
@@ -127,6 +149,14 @@ export const SCHEDULE: readonly ScheduleEntry[] = [
     job: "ops-cron-check",
     log: projectPath(".doppelganger/logs/ops-cron-check.log"),
     why: "Crontab drift, once a day at 22:15 UTC (05:15 WIB) — after the nightly window closes and clear of :00/:30, so a report is waiting before the workday. Diffs the installed managed block against a fresh render of host/schedule.ts: one info line every run, an error line only on drift. Declared here deliberately, so the checker is covered by the config it verifies. Needs CRONTAB_CMD set in .env (required, no default — N2 F1) or it fails loudly.",
+  },
+  {
+    name: "ops-watchdog",
+    cron: "3,18,33,48 * * * *",
+    script: "host/watchdog.sh",
+    supervised: false,
+    log: projectPath(".doppelganger/logs/ops-watchdog.log"),
+    why: "Runtime liveness every 15 min, round the clock — the ONE job that does not run through the toolchain it watches, and THE ONLY ENTRY ON THE REAL CRONTAB (SUP-09). bash plus system binaries: no node except a deliberate two-line type-strip probe, no npm, nothing under node_modules, no model call, no network. A liveness probe scheduled by the process it probes reports nothing in the one case that matters. Four probes: node_modules is a real directory, node runs and strips types, the supervisor's 60s heartbeat (SUP-14) is younger than WATCHDOG_SUPERVISOR_STALE_M, and JOB-O11's heartbeat stamp is absent. It reports to its own log, to .doppelganger/watchdog.breach (presence is the alarm) and by exiting non-zero so cron's MAILTO carries it — there is no Slack path before v1 and this entry does not pretend otherwise.",
   },
 ];
 

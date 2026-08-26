@@ -10,6 +10,28 @@
 //
 // No module-scope `projectPath` call here (J2.3 door 6): RESOURCES carries ROOT-relative strings
 // and nothing resolves them at this file's load time.
+import type { EnvSpec } from "../kernel/config.ts";
+
+/**
+ * J4.14 (JOB-O10, KRN-06) — the watchdog's two knobs. `readers: []` in test/knobs.test.ts's ROWS,
+ * the `<NAME>_DB` precedent (kernel/paths.ts): the row is a TypeScript value nothing in TypeScript
+ * ever reads — host/watchdog.sh reads `${WATCHDOG_SUPERVISOR_STALE_M:-5}` and
+ * `${WATCHDOG_DRY_RUN:-0}` directly from its own environment. The row is not a lie because
+ * host/watchdog.test.ts's drift gate BINDS it to the script: every knob the script reads must
+ * have a matching row here, and every row's default must match the script's own, checked from
+ * both sides (the log.sh <-> emit.ts precedent, TST-18, one directory over).
+ */
+export const WATCHDOG_SUPERVISOR_STALE_M_ENV: EnvSpec = {
+  key: "WATCHDOG_SUPERVISOR_STALE_M",
+  default: "5",
+  why: "how many missed 60s supervisor heartbeats (SUP-14) count as a dead scheduler; read by host/watchdog.sh, never by TypeScript",
+};
+
+export const WATCHDOG_DRY_RUN_ENV: EnvSpec = {
+  key: "WATCHDOG_DRY_RUN",
+  default: "0",
+  why: "the watchdog logs and prints its faults, writes no breach file and exits 0 (SAF-01, for a tool)",
+};
 
 export interface GateResource {
   /** What a `lock=` field (GAT-10) and `--list` (SUP-17) print. Must match the gate's own name

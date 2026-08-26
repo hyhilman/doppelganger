@@ -44,10 +44,11 @@ export function program(over: Partial<Program> = {}): Program {
   };
 }
 
-test("1. the schedule carries two entries, nightly-sandcastle first (J3.15's the first non-vacuous validate(SCHEDULE); J4.12 adds ops-cron-check)", () => {
-  assert.equal(SCHEDULE.length, 2);
+test("1. the schedule carries three entries, nightly-sandcastle first (J3.15's the first non-vacuous validate(SCHEDULE); J4.12 adds ops-cron-check, J4.14 adds ops-watchdog)", () => {
+  assert.equal(SCHEDULE.length, 3);
   assert.equal(SCHEDULE[0]!.name, "nightly-sandcastle");
   assert.equal(SCHEDULE[1]!.name, "ops-cron-check");
+  assert.equal(SCHEDULE[2]!.name, "ops-watchdog");
   assert.doesNotThrow(() => validate());
 
   for (const e of SCHEDULE) {
