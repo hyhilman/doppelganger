@@ -71,8 +71,10 @@ test("1. croner is imported by exactly host/cron.ts, across all four spellings",
   );
 });
 
-test("2. every bare package specifier under kernel/, host/, cli/ (non-test) is a declared root dependency", () => {
-  const files = allTsFiles(["kernel", "host", "cli"]).filter((f) => !f.endsWith(".test.ts"));
+test("2. every bare package specifier under kernel/, host/, cli/, plugins/ (non-test) is a declared root dependency", () => {
+  // Aligned with test 1's dir list (nit, N2 VERIFY): plugins/ holds no .ts file yet, so this is a
+  // no-op today, but it would have been silently wrong the day N3 adds the first one.
+  const files = allTsFiles(["kernel", "host", "cli", "plugins"]).filter((f) => !f.endsWith(".test.ts"));
   const pkg = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8"));
   const declared = new Set(Object.keys(pkg.dependencies ?? {}));
 
