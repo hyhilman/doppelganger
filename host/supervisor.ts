@@ -46,6 +46,7 @@ import { logger, type Fields } from "../kernel/runtime/log/emit.ts";
 import { stderrTail } from "../kernel/runtime/log/cause.ts";
 import { createGate, type Gate, type Mode } from "../kernel/runtime/gate.ts";
 import { programOf, validate, supervisedEntries, bootstrapEntries, type ScheduleEntry, type Program } from "./schedule.ts";
+import { byStage } from "../kernel/stages.ts";
 import { RESOURCE_NAMES, REFRESH_WINDOW, inRefreshWindow, type RefreshWindow } from "./config.ts";
 import { gateWait, newTimer as realNewTimer } from "./cron.ts";
 
@@ -535,12 +536,119 @@ export async function bootOrDie(schedule: readonly ScheduleEntry[], deps: BootDe
 }
 
 // ---------------------------------------------------------------------------------------------
+// J2.14 (SUP-17) — list(): the resolved schedule, printed. Pure — returns a string, prints
+// nothing — so a test can pin the exact text without capturing console.log; only the argv block
+// below ever calls console.log with the result.
+// ---------------------------------------------------------------------------------------------
+
+export interface ListOpts {
+  readonly programs: Readonly<Record<string, Program>>;
+  readonly resourceNames: readonly string[];
+}
+
+interface ListRow {
+  readonly by: string;
+  readonly entry: string;
+  readonly cron: string;
+  readonly program: string;
+  readonly gate: string;
+  readonly resources: string;
+  readonly wait: string;
+  readonly dotenv: string;
+}
+
+const LIST_COLUMNS: readonly (keyof ListRow)[] = [
+  "by",
+  "entry",
+  "cron",
+  "program",
+  "gate",
+  "resources",
+  "wait",
+  "dotenv",
+];
+const LIST_HEADERS: ListRow = {
+  by: "by",
+  entry: "entry",
+  cron: "cron",
+  program: "program",
+  gate: "gate",
+  resources: "resources",
+  wait: "wait",
+  dotenv: "dotenv",
+};
+
+/** One row's columns, resolved from a schedule entry and the program it names. An entry whose
+ *  program has no PROGRAMS row prints "??" for gate/resources/dotenv rather than throwing —
+ *  `list` is a read tool, not a second `validate()` (SUP-05 already owns that refusal). */
+function listRow(e: ScheduleEntry, opts: ListOpts): ListRow {
+  const by = e.supervised === false ? "cron" : "sup";
+  const prog = programOf(e);
+  const wait = e.gateWait ? `${gateWait(e.cron)}s` : "-";
+  const p = opts.programs[prog];
+  if (!p) {
+    return { by, entry: e.name, cron: e.cron, program: prog, gate: "??", resources: "??", wait, dotenv: "??" };
+  }
+  const gate = p.gate === "none" ? "none" : `${p.gate}${p.self ? "+self" : ""}`;
+  // Resources: "all" for a reader (gate: "shared") even when the program names some (GAT-02
+  // only restricts what a WRITER may narrow); "all" for a writer that names none, same rule;
+  // otherwise the writer's own list, reordered into the GATE's global order (not the program's
+  // own declared order) so two programs sharing resources read the same way in the listing.
+  const resources =
+    p.gate === "none"
+      ? "-"
+      : p.gate === "shared"
+        ? "all"
+        : !p.resources || p.resources.length === 0
+          ? "all"
+          : opts.resourceNames.filter((n) => p.resources!.includes(n)).join("+");
+  const dotenv = p.dotenv ? "env" : "-";
+  return { by, entry: e.name, cron: e.cron, program: prog, gate, resources, wait, dotenv };
+}
+
+/**
+ * SUP-17: the resolved schedule, printed — entry -> program -> gate -> resources -> wait, so a
+ * change can be eyeballed before it is installed. Grouped by stage prefix with `byStage`
+ * (kernel/stages.ts); the schedule's own order is preserved WITHIN a group, never re-sorted.
+ * Column widths are the max of each column's own header and cell text, computed from the data —
+ * never a fixed number. Ends with a tally line counting `supervisedEntries` and
+ * `bootstrapEntries`, never `schedule.length` — the whole point is the split SUP-09 draws.
+ */
+export function list(schedule: readonly ScheduleEntry[], opts: ListOpts): string {
+  const widths = LIST_COLUMNS.map((c) =>
+    Math.max(LIST_HEADERS[c].length, ...schedule.map((e) => listRow(e, opts)[c].length)),
+  );
+  const render = (r: ListRow): string =>
+    LIST_COLUMNS.map((c, i) => r[c].padEnd(widths[i]!))
+      .join("  ")
+      .trimEnd();
+
+  const lines: string[] = [render(LIST_HEADERS), widths.map((w) => "-".repeat(w)).join("  ")];
+
+  for (const [stage, entries] of byStage(schedule, (e) => e.name)) {
+    lines.push(`-- ${stage} --`);
+    for (const e of entries) lines.push(render(listRow(e, opts)));
+  }
+
+  lines.push(`${supervisedEntries(schedule).length} supervised, ${bootstrapEntries(schedule).length} on the real crontab`);
+  return lines.join("\n");
+}
+
+// ---------------------------------------------------------------------------------------------
 // The argv block. UNTESTED BY CONSTRUCTION (plan/N2-uac.md ruling 1) — no test imports this file
 // in a way that reaches it. It assembles the real deps and dispatches --list / --gate / boot.
 // `supervisor --list` is SUP-17 (J2.14); until that job lands, only boot runs.
 // ---------------------------------------------------------------------------------------------
 if (import.meta.filename === process.argv[1]) {
   const { SCHEDULE, PROGRAMS } = await import("./schedule.ts");
+
+  // SUP-17: --list is a read tool, not a boot — it must never reach validate(), a timer, or a
+  // heartbeat write. Dispatched before `deps` (and everything `deps` would touch) is assembled.
+  if (process.argv.includes("--list")) {
+    console.log(list(SCHEDULE, { programs: PROGRAMS, resourceNames: RESOURCE_NAMES }));
+    process.exit(0);
+  }
+
   const deps: BootDeps = {
     root: ROOT,
     gate: createGate(RESOURCE_NAMES),

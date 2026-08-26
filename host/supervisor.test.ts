@@ -22,11 +22,13 @@ import {
   runEntry,
   main,
   bootOrDie,
+  list,
   type SupervisorDeps,
   type BootDeps,
   type SpawnedChild,
   type SpawnFn,
   type Sink,
+  type ListOpts,
 } from "./supervisor.ts";
 import { createGate, type Gate, type Mode } from "../kernel/runtime/gate.ts";
 import type { ScheduleEntry, Program } from "./schedule.ts";
@@ -921,4 +923,165 @@ test("29. the argv guard exists", () => {
   // every test above this one already imported host/supervisor.ts without running a command —
   // structural proof by the fact that this whole file's earlier tests never spawned a real
   // supervisor process as a side effect of the import itself.
+});
+
+// -------------------------------------------------------------------------------------------
+// J2.14 (SUP-17) — list(): a pure function, so these tests call it directly with a local
+// six-entry fixture and pin the whole string. `resourceNames` is a local ["a","b","c"], not
+// host/config.ts's real RESOURCE_NAMES — the same reasoning as gate.test.ts's own NAMES fixture:
+// these tests must not go red because an unrelated plugin adds a resource.
+// -------------------------------------------------------------------------------------------
+
+const LIST_RESOURCE_NAMES = ["a", "b", "c"];
+
+test("30. the resolved schedule, printed — one exact string over six entries", () => {
+  const eSource = entry({ name: "source-x", job: "source-x", why: "source probe" });
+  const eWatch = entry({ name: "watch-a", job: "watch-a", why: "watch probe" });
+  const eTodoB = entry({ name: "todo-b", job: "todo-b", why: "todo b probe" });
+  const eTodoA = entry({ name: "todo-a", job: "todo-a", why: "todo a probe" });
+  const eNightly = entry({
+    name: "nightly-sandcastle",
+    job: "nightly-sandcastle",
+    supervised: false,
+    gateWait: true,
+    cron: "*/10 15-21 * * *",
+    why: "nightly probe",
+  });
+  const eMisc = entry({ name: "zzz-random", job: "zzz-random", why: "misc probe" });
+
+  // Deliberately NOT in stage order — proves list() regroups regardless of the input array's order.
+  const schedule = [eTodoB, eSource, eNightly, eTodoA, eMisc, eWatch];
+  const programs: Record<string, Program> = {
+    "source-x": program({ gate: "none", self: false, whyNoGate: "no state to protect" }),
+    "watch-a": program({ gate: "shared", self: true, dotenv: true }),
+    "todo-b": program({ gate: "excl", self: true, resources: ["c", "a"] }),
+    "todo-a": program({ gate: "excl", self: false, resources: [] }),
+    "nightly-sandcastle": program({ gate: "excl", self: true, resources: ["a"] }),
+    "zzz-random": program({ gate: "excl", self: false }),
+  };
+  const opts: ListOpts = { programs, resourceNames: LIST_RESOURCE_NAMES };
+
+  const expected = [
+    "by    entry               cron              program             gate         resources  wait  dotenv",
+    "----  ------------------  ----------------  ------------------  -----------  ---------  ----  ------",
+    "-- source --",
+    "sup   source-x            * * * * *         source-x            none         -          -     -",
+    "-- watch --",
+    "sup   watch-a             * * * * *         watch-a             shared+self  all        -     env",
+    "-- todo --",
+    "sup   todo-b              * * * * *         todo-b              excl+self    a+c        -     -",
+    "sup   todo-a              * * * * *         todo-a              excl         all        -     -",
+    "-- nightly --",
+    "cron  nightly-sandcastle  */10 15-21 * * *  nightly-sandcastle  excl+self    a          600s  -",
+    "-- misc --",
+    "sup   zzz-random          * * * * *         zzz-random          excl         all        -     -",
+    "5 supervised, 1 on the real crontab",
+  ].join("\n");
+
+  assert.equal(list(schedule, opts), expected);
+});
+
+test("31. grouping: stage headers follow STAGES order, and a group's own entries keep fixture order", () => {
+  const eNightly = entry({ name: "nightly-x", job: "nightly-x", why: "x" });
+  const eSource = entry({ name: "source-y", job: "source-y", why: "y" });
+  const eTodoZ = entry({ name: "todo-z", job: "todo-z", why: "z" });
+  const eTodoA = entry({ name: "todo-a", job: "todo-a", why: "a" });
+  // Input order is nightly, source, todo-z, todo-a — the opposite of STAGES order, and "z" before
+  // "a" within todo, which alphabetical order would reverse.
+  const schedule = [eNightly, eSource, eTodoZ, eTodoA];
+  const programs: Record<string, Program> = {
+    "nightly-x": program(),
+    "source-y": program(),
+    "todo-z": program(),
+    "todo-a": program(),
+  };
+  const out = list(schedule, { programs, resourceNames: LIST_RESOURCE_NAMES });
+  const headerLines = out.split("\n").filter((l) => l.startsWith("-- "));
+  assert.deepEqual(headerLines, ["-- source --", "-- todo --", "-- nightly --"]);
+  const todoBlock = out.split("-- todo --\n")[1]!.split("-- nightly --")[0]!.trim().split("\n");
+  assert.equal(todoBlock.length, 2);
+  assert.match(todoBlock[0]!, /^sup {2}todo-z /);
+  assert.match(todoBlock[1]!, /^sup {2}todo-a /);
+});
+
+test("32. resources: a reader prints \"all\" even when its program names some, a writer prints its own list in the gate's order", () => {
+  const eReader = entry({ name: "watch-reader", job: "watch-reader", why: "reader" });
+  const eWriter = entry({ name: "watch-writer", job: "watch-writer", why: "writer" });
+  const programs: Record<string, Program> = {
+    "watch-reader": program({ gate: "shared", resources: ["a"] }),
+    "watch-writer": program({ gate: "excl", resources: ["c", "a"] }),
+  };
+  const out = list([eReader, eWriter], { programs, resourceNames: LIST_RESOURCE_NAMES });
+  const lines = out.split("\n").filter((l) => l.startsWith("sup"));
+  assert.match(lines[0]!, /\ball\b/, "a reader shows \"all\" even though its program names one resource");
+  assert.match(lines[1]!, /\ba\+c\b/, "a writer's own list, reordered into the gate's global a,b,c order");
+});
+
+test("33. wait: gateWait:true derives <n>s from the cron; without the flag it is \"-\"", () => {
+  const eWait = entry({
+    name: "watch-wait",
+    job: "watch-wait",
+    gateWait: true,
+    cron: "*/10 15-21 * * *",
+    why: "wait",
+  });
+  const eNoWait = entry({ name: "watch-nowait", job: "watch-nowait", why: "nowait" });
+  const programs: Record<string, Program> = { "watch-wait": program(), "watch-nowait": program() };
+  const out = list([eWait, eNoWait], { programs, resourceNames: LIST_RESOURCE_NAMES });
+  const lines = out.split("\n").filter((l) => l.startsWith("sup"));
+  const waitCol = (line: string): string => line.trim().split(/\s{2,}/)[6]!;
+  assert.equal(waitCol(lines[0]!), "600s");
+  assert.equal(waitCol(lines[1]!), "-");
+});
+
+test("34. gate rendering: excl+self, shared+self, shared, and none all render; none prints resources \"-\"", () => {
+  const e1 = entry({ name: "watch-1", job: "watch-1", why: "1" });
+  const e2 = entry({ name: "watch-2", job: "watch-2", why: "2" });
+  const e3 = entry({ name: "watch-3", job: "watch-3", why: "3" });
+  const e4 = entry({ name: "watch-4", job: "watch-4", why: "4" });
+  const programs: Record<string, Program> = {
+    "watch-1": program({ gate: "excl", self: true }),
+    "watch-2": program({ gate: "shared", self: true }),
+    "watch-3": program({ gate: "shared", self: false }),
+    "watch-4": program({ gate: "none", self: false, whyNoGate: "no state" }),
+  };
+  const out = list([e1, e2, e3, e4], { programs, resourceNames: LIST_RESOURCE_NAMES });
+  const lines = out.split("\n").filter((l) => l.startsWith("sup"));
+  assert.match(lines[0]!, /\bexcl\+self\b/);
+  assert.match(lines[1]!, /\bshared\+self\b/);
+  assert.match(lines[2]!, /\bshared\b(?!\+)/);
+  assert.match(lines[3]!, /\bnone\b/);
+  assert.match(lines[3]!, / none\s+-\s+-\s+-\s*$/, "none's resources column is \"-\"");
+});
+
+test("35. tally counts supervisedEntries/bootstrapEntries, not schedule.length", () => {
+  const eSup1 = entry({ name: "watch-sup1", job: "watch-sup1", why: "s1" });
+  const eSup2 = entry({ name: "watch-sup2", job: "watch-sup2", why: "s2" });
+  const eBoot = entry({ name: "watch-boot", job: "watch-boot", supervised: false, why: "b" });
+  const programs: Record<string, Program> = {
+    "watch-sup1": program(),
+    "watch-sup2": program(),
+    "watch-boot": program(),
+  };
+  const out = list([eSup1, eSup2, eBoot], { programs, resourceNames: LIST_RESOURCE_NAMES });
+  const tally = out.split("\n").at(-1);
+  assert.equal(tally, "2 supervised, 1 on the real crontab");
+});
+
+test("36. an entry whose program has no PROGRAMS row prints \"??\", never throws", () => {
+  const eMissing = entry({ name: "watch-missing", job: "watch-missing", why: "missing" });
+  assert.doesNotThrow(() => list([eMissing], { programs: {}, resourceNames: LIST_RESOURCE_NAMES }));
+  const out = list([eMissing], { programs: {}, resourceNames: LIST_RESOURCE_NAMES });
+  const row = out.split("\n").find((l) => l.startsWith("sup"))!;
+  assert.match(row, /\?\?/);
+  assert.equal((row.match(/\?\?/g) ?? []).length, 3, "gate, resources and dotenv all print ??");
+});
+
+test("37. the empty schedule prints a header, a rule, and a 0/0 tally", () => {
+  const out = list([], { programs: {}, resourceNames: LIST_RESOURCE_NAMES });
+  const lines = out.split("\n");
+  assert.equal(lines.length, 3);
+  assert.match(lines[0]!, /^by\s+entry\s+cron\s+program\s+gate\s+resources\s+wait\s+dotenv$/);
+  assert.match(lines[1]!, /^-+(\s\s-+)+$/);
+  assert.equal(lines[2], "0 supervised, 0 on the real crontab");
 });
