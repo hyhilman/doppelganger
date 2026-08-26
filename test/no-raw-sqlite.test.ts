@@ -22,6 +22,9 @@ const ALLOWED: Record<string, string> = {
 function walk(dir: string, out: string[]): void {
   for (const entry of readdirSync(dir)) {
     if (dir === ROOT && (entry === "node_modules" || entry === ".git")) continue;
+    // R2 (INS-02) — a pass worktree under .doppelganger/worktrees/ is a second full
+    // checkout (its own node_modules, package.json, *.ts files) and is not this repo's source.
+    if (dir === join(ROOT, ".doppelganger") && entry === "worktrees") continue;
     const full = join(dir, entry);
     const st = statSync(full);
     if (st.isDirectory()) walk(full, out);

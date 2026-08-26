@@ -8,6 +8,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync, readdirSync, statSync, existsSync } from "node:fs";
 import { matchesGlob, join, relative } from "node:path";
+import { DB_NAMESPACES } from "../host/jobs/nightly-sandcastle.ts";
 
 const ROOT = new URL("..", import.meta.url).pathname.replace(/\/$/, "");
 
@@ -37,6 +38,9 @@ function walkDirs(): { relPath: string; entries: string[] }[] {
     for (const entry of entries) {
       if (!entry.isDirectory()) continue;
       if (relDir === "" && (entry.name === ".git" || entry.name === "node_modules")) continue;
+      // R2 (INS-02) — a pass worktree under .doppelganger/worktrees/ is a second full
+      // checkout (its own node_modules, package.json, *.test.ts) and is not this repo's source.
+      if (relDir === ".doppelganger" && entry.name === "worktrees") continue;
       const nextRel = relDir === "" ? entry.name : `${relDir}/${entry.name}`;
       walk(join(absDir, entry.name), nextRel);
     }
@@ -501,6 +505,14 @@ test("15. .doppelganger/ holds only allowlisted entries, recursively", () => {
   // pair that let ./leak.db survive a full phase in N1. scratch/ and worktrees/ are excluded:
   // their CONTENTS are throwaway by design (their top-level names are still checked).
   const THROWAWAY = new Set(["scratch", "worktrees"]);
+  // R2 (INS-02, DBS-01) — state/ is dbPath()'s DESIGNED home for every integration's database
+  // (kernel/paths.ts: dbPath(name) => join(STATE_DIR, `${name}.db`), STATE_DIR defaults to
+  // .doppelganger/state). A database living there under one of dbPath()'s own names is not a leak
+  // — calling it one is exactly what made a normal run turn this suite red. Read from
+  // DB_NAMESPACES rather than re-typed here: test/skills.test.ts assertion 11 already gates it as
+  // a superset of every real dbPath( call site, so this stays derived, not promised.
+  const LEGIT_DB_NAMES = new Set((DB_NAMESPACES as readonly string[]).map((ns) => `${ns}.db`));
+  const stateDir = join(dir, "state");
   const offenders: string[] = [];
   const sweep = (d: string, top: boolean): void => {
     for (const entry of readdirSync(d, { withFileTypes: true })) {
@@ -514,8 +526,11 @@ test("15. .doppelganger/ holds only allowlisted entries, recursively", () => {
         continue;
       }
       // Below the top level, only the stray-store shapes are offenders — run logs and heartbeats
-      // are the directory's job. A database file outside a redirect is never legitimate here.
+      // are the directory's job. A database file outside a redirect is never legitimate here,
+      // UNLESS it sits directly in state/ under a name dbPath() itself would produce.
       if (!top && /\.db(-wal|-shm)?$/.test(entry.name)) {
+        const stem = entry.name.replace(/(-wal|-shm)$/, "");
+        if (d === stateDir && LEGIT_DB_NAMES.has(stem)) continue;
         offenders.push(relative(dir, join(d, entry.name)));
       }
     }

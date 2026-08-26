@@ -76,6 +76,9 @@ function walkDirs(): { relPath: string; entries: string[] }[] {
     for (const entry of entries) {
       if (!entry.isDirectory()) continue;
       if (relDir === "" && (entry.name === ".git" || entry.name === "node_modules")) continue;
+      // R2 (INS-02) — a pass worktree under .doppelganger/worktrees/ is a second full
+      // checkout (its own node_modules, package.json, *.test.ts) and is not this repo's source.
+      if (relDir === ".doppelganger" && entry.name === "worktrees") continue;
       const nextRel = relDir === "" ? entry.name : `${relDir}/${entry.name}`;
       walk(join(absDir, entry.name), nextRel);
     }
