@@ -31,6 +31,15 @@ import {
 } from "../host/supervisor.ts";
 import { CRONTAB_CMD_ENV, CRONTAB_DRY_RUN_ENV } from "../cli/crontab.ts";
 import { SKILLS_DRY_RUN_ENV } from "../cli/skills.ts";
+import {
+  NIGHTLY_NO_SANDCASTLE_ENV,
+  NIGHTLY_SANDCASTLE_BASE_ENV,
+  NIGHTLY_SANDCASTLE_DRY_RUN_ENV,
+  NIGHTLY_SANDCASTLE_NO_MERGE_ENV,
+  NIGHTLY_SANDCASTLE_MAX_ENV,
+  NIGHTLY_SANDCASTLE_ONLY_ENV,
+  NIGHTLY_SANDCASTLE_MODEL_ENV,
+} from "../host/jobs/nightly-sandcastle.ts";
 
 const ROOT = new URL("..", import.meta.url).pathname.replace(/\/$/, "");
 
@@ -163,6 +172,48 @@ const ROWS: readonly RowMeta[] = [
     file: "cli/skills.ts",
     constName: "SKILLS_DRY_RUN_ENV",
     readers: ["envStr"],
+  },
+  {
+    spec: NIGHTLY_NO_SANDCASTLE_ENV,
+    file: "host/jobs/nightly-sandcastle.ts",
+    constName: "NIGHTLY_NO_SANDCASTLE_ENV",
+    readers: ["envStr"],
+  },
+  {
+    spec: NIGHTLY_SANDCASTLE_BASE_ENV,
+    file: "host/jobs/nightly-sandcastle.ts",
+    constName: "NIGHTLY_SANDCASTLE_BASE_ENV",
+    readers: ["envStr"],
+  },
+  {
+    spec: NIGHTLY_SANDCASTLE_DRY_RUN_ENV,
+    file: "host/jobs/nightly-sandcastle.ts",
+    constName: "NIGHTLY_SANDCASTLE_DRY_RUN_ENV",
+    readers: ["envStr"],
+  },
+  {
+    spec: NIGHTLY_SANDCASTLE_NO_MERGE_ENV,
+    file: "host/jobs/nightly-sandcastle.ts",
+    constName: "NIGHTLY_SANDCASTLE_NO_MERGE_ENV",
+    readers: ["envStr"],
+  },
+  {
+    spec: NIGHTLY_SANDCASTLE_MAX_ENV,
+    file: "host/jobs/nightly-sandcastle.ts",
+    constName: "NIGHTLY_SANDCASTLE_MAX_ENV",
+    readers: ["envNum"],
+  },
+  {
+    spec: NIGHTLY_SANDCASTLE_ONLY_ENV,
+    file: "host/jobs/nightly-sandcastle.ts",
+    constName: "NIGHTLY_SANDCASTLE_ONLY_ENV",
+    readers: ["envOptional"],
+  },
+  {
+    spec: NIGHTLY_SANDCASTLE_MODEL_ENV,
+    file: "host/jobs/nightly-sandcastle.ts",
+    constName: "NIGHTLY_SANDCASTLE_MODEL_ENV",
+    readers: ["envOptional"],
   },
 ];
 

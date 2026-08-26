@@ -3,11 +3,16 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, writeFileSync, readFileSync } from "node:fs";
+import { mkdtempSync, writeFileSync, readFileSync, mkdirSync, existsSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, dirname } from "node:path";
 import { extractBlock } from "../../kernel/runtime/payload.ts";
 import type { Job } from "../../kernel/ports/job.ts";
+import { INSTANCE } from "../../kernel/instance.ts";
+import { openDb } from "../../kernel/runtime/db.ts";
+import type { Logger } from "../../kernel/runtime/log/emit.ts";
+import { git } from "../../kernel/runtime/exec.ts";
+import type { Runner, RunRequest, RunResult } from "../../kernel/ports/runner.ts";
 import {
   parseVerdict,
   blockedBy,
@@ -19,7 +24,10 @@ import {
   tail,
   gate,
   DB_NAMESPACES,
+  execPass,
+  readState,
   type GateDeps,
+  type PassDeps,
 } from "./nightly-sandcastle.ts";
 
 const ROOT = new URL("../..", import.meta.url).pathname.replace(/\/$/, "");
@@ -289,4 +297,385 @@ test("23. gate([]) returns ok: true with a detail saying so, and runs nothing", 
   assert.equal(result.ok, true);
   assert.match(result.detail, /nothing to gate/);
   assert.equal(calls.length, 0);
+});
+
+// ---------------------------------------------------------------------------------------------
+// J3.12 (JOB-C15, SAF-01…07, INS-06, KRN-07, INV-1) — the pass, the landing, the safe-run
+// surface. Every test builds a real mkdtempSync git repo and a real SQLite file under it.
+// ---------------------------------------------------------------------------------------------
+
+/** A fresh repo with one commit on `branch` (default "main", matching NIGHTLY_SANDCASTLE_BASE's
+ *  own default). */
+function makeRepo(branch = "main"): string {
+  const repo = mkdtempSync(join(tmpdir(), "pass-repo-"));
+  git(repo, "init", "-q", "-b", branch);
+  writeFileSync(join(repo, "README.md"), "hello\n");
+  writeFileSync(join(repo, ".gitignore"), "node_modules\n.doppelganger/\n"); // the symlinked node_modules and every pass worktree must not read as tree-dirty
+  git(repo, "add", "-A");
+  git(repo, "-c", "user.email=t@example.com", "-c", "user.name=t", "commit", "-q", "-m", "init");
+  return repo;
+}
+
+function verdictBlock(outcome: string, extra: Partial<Record<string, string>> = {}): string {
+  const fields: Record<string, string> = {
+    goal: "x",
+    outcome,
+    files: "-",
+    ids: "-",
+    summary: "a change",
+    verified: "npm test",
+    ...extra,
+  };
+  const lines = Object.entries(fields).map(([k, v]) => `${k}=${v}`);
+  return `<<<SANDCASTLE\n${lines.join("\n")}\nSANDCASTLE>>>`;
+}
+
+interface RecordingRunner {
+  readonly runner: Runner;
+  readonly calls: RunRequest[];
+}
+
+function recordingRunner(handler: (req: RunRequest) => RunResult | Promise<RunResult>): RecordingRunner {
+  const calls: RunRequest[] = [];
+  const runner: Runner = async (req: RunRequest): Promise<RunResult> => {
+    calls.push(req);
+    return handler(req);
+  };
+  return { runner, calls };
+}
+
+/** Writes each file (creating parent directories) into `req.cwd`, then returns a passing verdict
+ *  block by default. */
+function writingRunner(files: Record<string, string>, stdout: string = verdictBlock("changed")): RecordingRunner {
+  return recordingRunner((req) => {
+    for (const [rel, content] of Object.entries(files)) {
+      const abs = join(req.cwd, rel);
+      mkdirSync(dirname(abs), { recursive: true });
+      writeFileSync(abs, content);
+    }
+    return { stdout, completionSignal: "<promise>COMPLETE</promise>", iterations: 1, commits: [], branch: "nightly/test", logPath: null };
+  });
+}
+
+function happyRunner(): RecordingRunner {
+  return writingRunner({ "CHANGED.md": "hello from the agent\n" });
+}
+
+interface LogEntry {
+  readonly level: string;
+  readonly event: string;
+  readonly fields: Record<string, unknown>;
+}
+
+function recordingLogger(): { readonly log: Logger; readonly entries: LogEntry[]; readonly raw: string[] } {
+  const entries: LogEntry[] = [];
+  const raw: string[] = [];
+  const at = (level: string) => (event: string, fields: Record<string, unknown> = {}) => {
+    entries.push({ level, event, fields });
+  };
+  return {
+    log: { debug: at("debug"), info: at("info"), warn: at("warn"), error: at("error"), raw: (text: string) => raw.push(text) },
+    entries,
+    raw,
+  };
+}
+
+interface TestContext {
+  readonly deps: PassDeps;
+  readonly entries: LogEntry[];
+  readonly raw: string[];
+  readonly runnerCalls: RunRequest[];
+}
+
+function buildContext(
+  repo: string,
+  opts: { readonly runner?: RecordingRunner; readonly runIn?: PassDeps["runIn"]; readonly jobs?: readonly Job[] } = {},
+): TestContext {
+  const { log, entries, raw } = recordingLogger();
+  const runnerBundle = opts.runner ?? happyRunner();
+  const dbDir = mkdtempSync(join(tmpdir(), "pass-db-"));
+  const deps: PassDeps = {
+    root: repo,
+    runner: runnerBundle.runner,
+    git,
+    now: () => new Date(),
+    db: openDb(join(dbDir, "nightly.db")),
+    log,
+    worktreeRoot: join(repo, ".doppelganger", "worktrees"),
+    runLogPath: (name: string) => join(mkdtempSync(join(tmpdir(), "run-log-")), `${name}.log`),
+    runIn: opts.runIn ?? (() => ({ ok: true, out: "" })),
+    scratchRoot: mkdtempSync(join(tmpdir(), "pass-scratch-")),
+    jobs: opts.jobs ?? [],
+  };
+  return { deps, entries, raw, runnerCalls: runnerBundle.calls };
+}
+
+/** Sets `vars` in process.env for the duration of `fn`, restoring every key afterwards — even one
+ *  that started unset. */
+async function withEnv<T>(vars: Readonly<Record<string, string>>, fn: () => Promise<T>): Promise<T> {
+  const prev: Record<string, string | undefined> = {};
+  for (const k of Object.keys(vars)) prev[k] = process.env[k];
+  for (const [k, v] of Object.entries(vars)) process.env[k] = v;
+  try {
+    return await fn();
+  } finally {
+    for (const [k, v] of Object.entries(prev)) {
+      if (v === undefined) delete process.env[k];
+      else process.env[k] = v;
+    }
+  }
+}
+
+const worktreeCount = (repo: string): number => git(repo, "worktree", "list", "--porcelain").split("\n").filter((l) => l.startsWith("worktree ")).length;
+
+test("24. the kill switch — one event=killed, zero runner calls, git log unchanged", async () => {
+  const repo = makeRepo();
+  const before = git(repo, "log", "--oneline", "-1");
+  const { deps, entries, runnerCalls } = buildContext(repo);
+  await withEnv({ NIGHTLY_NO_SANDCASTLE: "1" }, () => execPass(deps));
+  assert.equal(entries.filter((e) => e.event === "killed").length, 1);
+  assert.equal(runnerCalls.length, 0);
+  assert.equal(git(repo, "log", "--oneline", "-1"), before);
+});
+
+test("25. not-on-base — repo on feature/x, base main: one event=skip reason=not-on-base, zero runner calls", async () => {
+  const repo = makeRepo("feature/x");
+  const { deps, entries, runnerCalls } = buildContext(repo);
+  await execPass(deps);
+  assert.equal(entries.filter((e) => e.event === "skip" && e.fields.reason === "not-on-base").length, 1);
+  assert.equal(runnerCalls.length, 0);
+
+  // N2 F1's lesson: the guard must check the property it CLAIMS (the BASE knob), not a hardcoded
+  // "main" that happens to equal the knob's own default. A repo on a real, non-"main" base with
+  // NIGHTLY_SANDCASTLE_BASE set to match it must proceed — proving the comparison reads the knob.
+  const devRepo = makeRepo("dev");
+  const { deps: devDeps, runnerCalls: devCalls } = buildContext(devRepo);
+  await withEnv({ NIGHTLY_SANDCASTLE_BASE: "dev" }, () => execPass(devDeps));
+  assert.equal(devCalls.length, 1, "a repo on its OWN configured base must not be skipped as not-on-base");
+});
+
+test("26. tree-dirty — an uncommitted file: one event=skip reason=tree-dirty, zero runner calls", async () => {
+  const repo = makeRepo();
+  writeFileSync(join(repo, "dirty.txt"), "x");
+  const { deps, entries, runnerCalls } = buildContext(repo);
+  await execPass(deps);
+  assert.equal(entries.filter((e) => e.event === "skip" && e.fields.reason === "tree-dirty").length, 1);
+  assert.equal(runnerCalls.length, 0);
+});
+
+test("27. MAX=0 is free and complete — zero runner calls, a worktree was prepared and torn down, the goal rotated, a report line emitted", async () => {
+  const repo = makeRepo();
+  const { deps, entries, raw, runnerCalls } = buildContext(repo);
+  const before = readState(deps.db);
+  await withEnv({ NIGHTLY_SANDCASTLE_MAX: "0" }, () => execPass(deps));
+  assert.equal(runnerCalls.length, 0);
+  assert.equal(entries.filter((e) => e.event === "free-smoke").length, 1);
+  assert.ok(raw.some((r) => r.includes("free-smoke")));
+  const after = readState(deps.db);
+  assert.notEqual(after.index, before.index);
+  assert.equal(worktreeCount(repo), 1);
+});
+
+test("28. the happy path lands — one commit on nightly/<INSTANCE>, the base HEAD moved to it, one event=landed carrying the sha and the goal", async () => {
+  const repo = makeRepo();
+  const before = git(repo, "rev-parse", "HEAD").trim();
+  const { deps, entries } = buildContext(repo);
+  await execPass(deps);
+  const landed = entries.find((e) => e.event === "landed");
+  assert.ok(landed, JSON.stringify(entries));
+  const after = git(repo, "rev-parse", "HEAD").trim();
+  assert.notEqual(after, before);
+  assert.equal(landed!.fields.sha, after);
+  assert.ok(landed!.fields.goal);
+});
+
+test("29. DRY_RUN=1 runs the agent and lands nothing", async () => {
+  const repo = makeRepo();
+  const before = git(repo, "rev-parse", "HEAD").trim();
+  const { deps, runnerCalls } = buildContext(repo);
+  const stateBefore = readState(deps.db);
+  await withEnv({ NIGHTLY_SANDCASTLE_DRY_RUN: "1" }, () => execPass(deps));
+  assert.equal(runnerCalls.length, 1);
+  assert.equal(git(repo, "rev-parse", "HEAD").trim(), before);
+  assert.equal(git(repo, "rev-parse", `nightly/${INSTANCE}`).trim(), before, "the worktree must have no commit");
+  assert.deepEqual(readState(deps.db), stateBefore);
+});
+
+test("30. NO_MERGE=1 — the worktree HEAD advanced, the base HEAD did not", async () => {
+  const repo = makeRepo();
+  const before = git(repo, "rev-parse", "HEAD").trim();
+  const { deps } = buildContext(repo);
+  await withEnv({ NIGHTLY_SANDCASTLE_NO_MERGE: "1" }, () => execPass(deps));
+  assert.equal(git(repo, "rev-parse", "HEAD").trim(), before);
+  assert.notEqual(git(repo, "rev-parse", `nightly/${INSTANCE}`).trim(), before);
+});
+
+test("31. ONLY=<key> — the named goal is used, an unknown key throws before anything is prepped, and the rotation index does not advance past it", async () => {
+  const repo = makeRepo();
+  const { deps, entries } = buildContext(repo);
+  await withEnv({ NIGHTLY_SANDCASTLE_ONLY: "test-gaps" }, () => execPass(deps));
+  const started = entries.find((e) => e.event === "pass-start");
+  assert.equal(started!.fields.goal, "test-gaps");
+
+  const repo2 = makeRepo();
+  const { deps: deps2 } = buildContext(repo2);
+  await assert.rejects(() => withEnv({ NIGHTLY_SANDCASTLE_ONLY: "nope" }, () => execPass(deps2)), /unknown goal key/);
+  assert.equal(worktreeCount(repo2), 1, "an unknown ONLY key must throw before prepWorktree runs");
+});
+
+test("32. a failing gate discards — base unchanged, one event=gate-failed carrying the detail, and node_modules was present when the gate ran", async () => {
+  const repo = makeRepo();
+  const before = git(repo, "rev-parse", "HEAD").trim();
+  const nmTarget = mkdtempSync(join(tmpdir(), "pass-nm-"));
+  symlinkSync(nmTarget, join(repo, "node_modules"));
+
+  let sawNodeModules: boolean | undefined;
+  const runIn: PassDeps["runIn"] = (dir, cmd) => {
+    if (cmd === "npm") {
+      sawNodeModules = existsSync(join(dir, "node_modules"));
+      return { ok: false, out: "FAIL\n1 failing" };
+    }
+    return { ok: true, out: "" };
+  };
+  const { deps, entries } = buildContext(repo, { runIn });
+  await execPass(deps);
+  const failed = entries.find((e) => e.event === "gate-failed");
+  assert.ok(failed, JSON.stringify(entries));
+  assert.ok(String(failed!.fields.detail).length > 0);
+  assert.equal(git(repo, "rev-parse", "HEAD").trim(), before);
+  assert.equal(sawNodeModules, true, "the -e node_modules clean exclusion must keep the symlink through prepWorktree (J3.5)");
+});
+
+test("33. a blocked path is a gate failure, not a crash", async () => {
+  const repo = makeRepo();
+  const runnerBundle = writingRunner({ "host/supervisor.ts": "x" });
+  const { deps, entries } = buildContext(repo, { runner: runnerBundle });
+  await execPass(deps);
+  const failed = entries.find((e) => e.event === "gate-failed");
+  assert.ok(failed, JSON.stringify(entries));
+  assert.ok(String(failed!.fields.detail).includes("one process owns every tick"));
+});
+
+test("34. no verdict is a warning, not a failure — the pass still lands if files changed, and the commit subject falls back to the goal title", async () => {
+  const repo = makeRepo();
+  const runnerBundle = writingRunner({ "CHANGED.md": "x" }, "no sandcastle block in this stdout at all");
+  const { deps, entries } = buildContext(repo, { runner: runnerBundle });
+  await execPass(deps);
+  assert.ok(entries.some((e) => e.event === "no-verdict"));
+  assert.ok(entries.some((e) => e.event === "landed"));
+  const subject = git(repo, "log", "-1", "--format=%s");
+  assert.ok(subject.startsWith("chore(nightly): "));
+  assert.notEqual(subject.trim(), "chore(nightly): -");
+});
+
+test("35. escape route one fires — the fake runner writes into deps.root, detected not contained", async () => {
+  const repo = makeRepo();
+  const runnerBundle = recordingRunner((): RunResult => {
+    writeFileSync(join(repo, "escaped.txt"), "leak");
+    return { stdout: verdictBlock("none"), completionSignal: "<promise>COMPLETE</promise>", iterations: 1, commits: [], branch: "nightly/test", logPath: null };
+  });
+  const { deps, entries } = buildContext(repo, { runner: runnerBundle });
+  await execPass(deps);
+  const escaped = entries.find((e) => e.event === "write-scope-escaped" && e.fields.reason === "tree-dirty");
+  assert.ok(escaped, JSON.stringify(entries));
+  assert.ok(existsSync(join(repo, "escaped.txt")), "detection, not containment — the file must still be there");
+});
+
+test("36. escape route two fires — a local bare origin, no network and no real SSH needed", async () => {
+  const repo = makeRepo();
+  const bare = mkdtempSync(join(tmpdir(), "pass-bare-"));
+  git(bare, "init", "-q", "--bare", "-b", "main");
+  git(repo, "remote", "add", "origin", bare);
+  git(repo, "push", "-q", "origin", "main");
+
+  const runnerBundle = recordingRunner((req): RunResult => {
+    writeFileSync(join(req.cwd, "sneaky.txt"), "x");
+    git(req.cwd, "add", "-A");
+    git(req.cwd, "-c", "user.email=a@b.c", "-c", "user.name=a", "commit", "-q", "-m", "sneaky");
+    git(req.cwd, "push", "-q", "origin", "HEAD:main");
+    return { stdout: verdictBlock("none"), completionSignal: "<promise>COMPLETE</promise>", iterations: 1, commits: [], branch: "nightly/test", logPath: null };
+  });
+  const { deps, entries } = buildContext(repo, { runner: runnerBundle });
+  await execPass(deps);
+  const escaped = entries.find((e) => e.event === "write-scope-escaped" && e.fields.reason === "remote-moved");
+  assert.ok(escaped, JSON.stringify(entries));
+});
+
+test("37. the ff-miss recovery — a concurrent base commit fails the first merge, a rebase and a second gate call succeed", async () => {
+  const repo = makeRepo();
+  let npmCalls = 0;
+  const runIn: PassDeps["runIn"] = (_dir, cmd) => {
+    if (cmd === "npm") npmCalls++;
+    return { ok: true, out: "" };
+  };
+  const runnerBundle = recordingRunner((req): RunResult => {
+    writeFileSync(join(repo, "concurrent.txt"), "human change");
+    git(repo, "add", "-A");
+    git(repo, "-c", "user.email=a@b.c", "-c", "user.name=a", "commit", "-q", "-m", "concurrent human commit");
+    writeFileSync(join(req.cwd, "CHANGED.md"), "agent change\n");
+    return { stdout: verdictBlock("changed"), completionSignal: "<promise>COMPLETE</promise>", iterations: 1, commits: [], branch: "nightly/test", logPath: null };
+  });
+  const { deps, entries } = buildContext(repo, { runner: runnerBundle, runIn });
+  await execPass(deps);
+  assert.equal(npmCalls, 2, "the gate must run a second time after the rebase");
+  assert.ok(entries.some((e) => e.event === "landed"), JSON.stringify(entries));
+  const log = git(repo, "log", "--oneline");
+  assert.ok(log.includes("concurrent human commit"));
+
+  // A second failure: force the rebase itself to conflict (both sides edit the SAME new file),
+  // so retry cannot succeed even once — event=ff-miss, and the PASS's own merge never lands (base
+  // stays at whatever the concurrent human commit left it at — the pass is not responsible for
+  // that commit existing, only for never landing its own on top through a failed rebase).
+  const repo2 = makeRepo();
+  let afterHumanCommit = "";
+  const runnerBundle2 = recordingRunner((req): RunResult => {
+    writeFileSync(join(repo2, "CHANGED.md"), "human version\n");
+    git(repo2, "add", "-A");
+    git(repo2, "-c", "user.email=a@b.c", "-c", "user.name=a", "commit", "-q", "-m", "conflicting human commit");
+    afterHumanCommit = git(repo2, "rev-parse", "HEAD").trim();
+    writeFileSync(join(req.cwd, "CHANGED.md"), "agent version\n");
+    return { stdout: verdictBlock("changed"), completionSignal: "<promise>COMPLETE</promise>", iterations: 1, commits: [], branch: "nightly/test", logPath: null };
+  });
+  const { deps: deps2, entries: entries2 } = buildContext(repo2, { runner: runnerBundle2 });
+  await execPass(deps2);
+  assert.ok(entries2.some((e) => e.event === "ff-miss"), JSON.stringify(entries2));
+  assert.ok(afterHumanCommit.length > 0);
+  assert.equal(git(repo2, "rev-parse", "HEAD").trim(), afterHumanCommit, "the pass's own merge must never land on top of a rebase conflict");
+});
+
+test("38. rotation advances once per landing pass and not on a dry run", async () => {
+  const repo = makeRepo();
+  const { deps } = buildContext(repo);
+  const indices: number[] = [];
+  for (let i = 0; i < 3; i++) {
+    // A distinct change per pass, and the SAME db across iterations — a re-prepped worktree
+    // resets onto the just-landed base, so writing the SAME content a previous pass already
+    // landed would leave nothing changed, and a fresh db per pass would reset the very rotation
+    // under test.
+    const runnerBundle = writingRunner({ "CHANGED.md": `pass ${i}\n` });
+    await execPass({ ...deps, runner: runnerBundle.runner });
+    indices.push(readState(deps.db).index);
+  }
+  assert.equal(new Set(indices).size, 3, `expected three distinct indices, got ${indices.join(",")}`);
+
+  const dryRepo = makeRepo();
+  const { deps: dryDeps } = buildContext(dryRepo);
+  const before = readState(dryDeps.db);
+  await withEnv({ NIGHTLY_SANDCASTLE_DRY_RUN: "1" }, () => execPass(dryDeps));
+  assert.deepEqual(readState(dryDeps.db), before);
+});
+
+test("39. INSTANCE is in the branch name and every path is project-relative", async () => {
+  const repo = makeRepo();
+  const { deps } = buildContext(repo);
+  await execPass(deps);
+  assert.ok(git(repo, "branch", "--list", `nightly/${INSTANCE}`).includes(`nightly/${INSTANCE}`));
+});
+
+test("40. SAF-07 is documented — the dry-run knob's why contains COSTS, the max knob's contains free", async () => {
+  const mod = await import("./nightly-sandcastle.ts");
+  const dryRunWhy = (mod as unknown as Record<string, { why: string }>).NIGHTLY_SANDCASTLE_DRY_RUN_ENV.why;
+  const maxWhy = (mod as unknown as Record<string, { why: string }>).NIGHTLY_SANDCASTLE_MAX_ENV.why;
+  assert.ok(dryRunWhy.includes("COSTS"));
+  assert.ok(maxWhy.includes("free"));
 });

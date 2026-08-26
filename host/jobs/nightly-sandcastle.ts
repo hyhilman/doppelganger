@@ -1,11 +1,18 @@
-// J3.8 (JOB-C15, SKL-02, SKL-05, SKL-07, TST-19, HRN-10) — nightly-sandcastle's pure decisions: the
-// verdict vocabulary, the blocked paths, the goal rotation, and the import smoke. `exec` (the pass
-// itself — prep, run, gate, land) arrives at J3.11/J3.12; this file's `defineJob` literal names
-// `skill` only until then, which is valid (D10: `exec` is optional, and the literal has `skill`).
+// J3.8/J3.11/J3.12 (JOB-C15, SKL-02, SKL-05, SKL-07, TST-19, HRN-10, SAF-01…07, INS-06, KRN-07,
+// INV-1) — nightly-sandcastle: the verdict vocabulary, the blocked paths, the goal rotation, the
+// import smoke, the three-tier ship gate, and the pass itself.
 import { spawnSync } from "node:child_process";
+import { existsSync, symlinkSync } from "node:fs";
 import { join } from "node:path";
+import { envStr, envNum, envOptional, type EnvSpec } from "../../kernel/config.ts";
+import { INSTANCE } from "../../kernel/instance.ts";
+import type { Db } from "../../kernel/runtime/db.ts";
+import type { Logger } from "../../kernel/runtime/log/emit.ts";
 import { extractBlock, extractFields } from "../../kernel/runtime/payload.ts";
+import { runJob } from "../../kernel/runtime/runjob.ts";
+import { prepWorktree, teardownWorktree, reapWorktrees, worktreePromptLines, type Worktree } from "../../kernel/runtime/worktree.ts";
 import { DEFAULTS, defineJob, type Job } from "../../kernel/ports/job.ts";
+import type { Runner } from "../../kernel/ports/runner.ts";
 
 // ---------------------------------------------------------------------------------------------
 // The verdict — reproduces plugins/nightly/skills/nightly-sandcastle/SKILL.md's report block and
@@ -300,10 +307,314 @@ export function gate(files: readonly string[], deps: GateDeps): GateResult {
 }
 
 // ---------------------------------------------------------------------------------------------
-// The registered job. `exec` arrives at J3.11/J3.12.
+// J3.12 (JOB-C15, SAF-01…07, INS-06, KRN-07, INV-1) — the pass: rotate, refuse, prep, run, check
+// both escape routes, gate, land or discard, report — every write path env-gated (the whole
+// safe-run surface is these seven knobs).
 // ---------------------------------------------------------------------------------------------
 
-export default defineJob({
+export const NIGHTLY_NO_SANDCASTLE_ENV: EnvSpec = {
+  key: "NIGHTLY_NO_SANDCASTLE",
+  default: "0",
+  why: "KRN-07 kill switch: the pass logs killed and returns before reading anything",
+};
+export const NIGHTLY_SANDCASTLE_BASE_ENV: EnvSpec = {
+  key: "NIGHTLY_SANDCASTLE_BASE",
+  default: "main",
+  why: "the branch a pass lands on; a checkout on any other branch refuses (not-on-base)",
+};
+export const NIGHTLY_SANDCASTLE_DRY_RUN_ENV: EnvSpec = {
+  key: "NIGHTLY_SANDCASTLE_DRY_RUN",
+  default: "0",
+  why: "SAF-01: run the agent and the gate for real, write nothing — no commit, no merge, no state. This dry run COSTS one agent pass (SAF-07); *_MAX=0 is the free one",
+};
+export const NIGHTLY_SANDCASTLE_NO_MERGE_ENV: EnvSpec = {
+  key: "NIGHTLY_SANDCASTLE_NO_MERGE",
+  default: "0",
+  why: "SAF-02 shadow mode: commit inside the worktree, never move the base branch",
+};
+export const NIGHTLY_SANDCASTLE_MAX_ENV: EnvSpec = {
+  key: "NIGHTLY_SANDCASTLE_MAX",
+  default: "1",
+  why: "SAF-03/04: passes per tick. 0 is the free smoke test — everything but the agent — and it is free",
+};
+export const NIGHTLY_SANDCASTLE_ONLY_ENV: EnvSpec = {
+  key: "NIGHTLY_SANDCASTLE_ONLY",
+  why: "SAF-06: force one goal key instead of the rotation, for debugging one brief end to end",
+};
+export const NIGHTLY_SANDCASTLE_MODEL_ENV: EnvSpec = {
+  key: "NIGHTLY_SANDCASTLE_MODEL",
+  why: "override the model tier one pass spends on without a code change; the value is checked against PINNED at the one place RunRequest.model is built (HRN-11)",
+};
+
+/** INV-1: there is no local state file. Rotation lives in nightly.db, namespace nightly. */
+function ensureRotationTable(db: Db): void {
+  db.migrate("nightly", [
+    "CREATE TABLE nightly_rotation (id INTEGER PRIMARY KEY CHECK (id = 1), goal_index INTEGER NOT NULL, recent TEXT NOT NULL)",
+  ]);
+}
+
+export interface RotationState {
+  readonly index: number;
+  readonly recent: readonly string[];
+}
+
+export function readState(db: Db): RotationState {
+  ensureRotationTable(db);
+  const row = db.handle().prepare("SELECT goal_index, recent FROM nightly_rotation WHERE id = 1").get() as
+    | { goal_index: number; recent: string }
+    | undefined;
+  if (!row) return { index: 0, recent: [] };
+  return { index: row.goal_index, recent: JSON.parse(row.recent) as string[] };
+}
+
+export function writeState(db: Db, index: number, recent: readonly string[]): void {
+  ensureRotationTable(db);
+  db.handle()
+    .prepare(
+      `INSERT INTO nightly_rotation (id, goal_index, recent) VALUES (1, ?, ?)
+         ON CONFLICT(id) DO UPDATE SET goal_index = excluded.goal_index, recent = excluded.recent`,
+    )
+    .run(index, JSON.stringify(recent));
+}
+
+/** Every deps `exec` needs, assembled once in the real argv block (host/run.ts, J3.14) and built
+ *  fresh per test here. `runner`/`git`/`now`/`db`/`log`/`runIn` are all required — ruling 2. */
+export interface PassDeps {
+  /** The checkout — read, never written by the agent. */
+  readonly root: string;
+  readonly runner: Runner;
+  readonly git: (dir: string, ...args: string[]) => string;
+  readonly now: () => Date;
+  readonly db: Db;
+  readonly log: Logger;
+  /** Project-relative parent of every pass worktree. */
+  readonly worktreeRoot: string;
+  readonly runLogPath: (name: string) => string;
+  readonly runIn: GateDeps["runIn"];
+  readonly scratchRoot: string;
+  readonly jobs: readonly Job[];
+}
+
+/** The uncommitted files the agent left behind inside the worktree — `git status --porcelain`,
+ *  parsed. This is what the gate runs over, and what step 13 stages for the landing commit. */
+function changedFiles(git: PassDeps["git"], wtPath: string): string[] {
+  // `-uall`: a plain `git status --porcelain` collapses a brand-new untracked DIRECTORY into one
+  // `?? dir/` line instead of listing the files inside it — which would make a new file under a
+  // blocked directory (host/supervisor.ts, say) invisible to tier 1's per-file blockedBy check.
+  const out = git(wtPath, "status", "--porcelain", "-uall");
+  return out
+    .split("\n")
+    .filter((l) => l.trim().length > 0)
+    .map((l) => l.slice(3).trim());
+}
+
+type LandOutcome =
+  | { readonly kind: "no-op" }
+  | { readonly kind: "gate-failed"; readonly detail: string }
+  | { readonly kind: "dry-run"; readonly detail: string }
+  | { readonly kind: "landed"; readonly sha: string }
+  | { readonly kind: "ff-miss" };
+
+/**
+ * Step 13, and the ff-miss recovery. `--ff-only` is the guarantee: the base only moves forward
+ * onto a commit made on top of it, so a concurrent human commit fails loudly. On a miss: rebase
+ * the worktree onto `base` once, re-run `gate(files)` FROM SCRATCH (a rebased diff is a different
+ * diff, and landing it on the strength of the pre-rebase gate is exactly what this gate exists to
+ * prevent), retry once. A second failure discards.
+ */
+function landOrDiscard(deps: PassDeps, wt: Worktree, base: string, branch: string, goal: Goal, verdict: Verdict | null, dryRun: boolean, noMerge: boolean): LandOutcome {
+  const files = changedFiles(deps.git, wt.path);
+  if (files.length === 0) return { kind: "no-op" };
+
+  const gateOpts = { work: wt.path, runIn: deps.runIn, scratch: deps.scratchRoot, jobs: deps.jobs };
+  const first = gate(files, gateOpts);
+  if (!first.ok) return { kind: "gate-failed", detail: first.detail };
+  if (dryRun) return { kind: "dry-run", detail: first.detail };
+
+  const subject = verdict?.summary ? `chore(nightly): ${verdict.summary}` : `chore(nightly): ${goal.title}`;
+  deps.git(wt.path, "add", "-A", "--", ...files);
+  deps.git(wt.path, "commit", "-m", subject, "-m", `nightly sandcastle — goal: ${goal.key}`);
+
+  if (noMerge) {
+    return { kind: "landed", sha: deps.git(wt.path, "rev-parse", "HEAD").trim() };
+  }
+
+  const tryMerge = (): boolean => {
+    try {
+      deps.git(deps.root, "merge", "--ff-only", branch);
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
+  if (tryMerge()) {
+    return { kind: "landed", sha: deps.git(deps.root, "rev-parse", "HEAD").trim() };
+  }
+
+  try {
+    deps.git(wt.path, "rebase", base);
+  } catch {
+    // A rebase conflict is a discard, same as any other ff-miss — the worktree is torn down
+    // regardless (execPass's own `finally`), so there is nothing to clean up here.
+    return { kind: "ff-miss" };
+  }
+  const second = gate(files, gateOpts);
+  if (!second.ok) return { kind: "ff-miss" };
+  if (tryMerge()) {
+    return { kind: "landed", sha: deps.git(deps.root, "rev-parse", "HEAD").trim() };
+  }
+  return { kind: "ff-miss" };
+}
+
+/**
+ * The pass, end to end. Every step is a place it can stop. Nothing here reaches the real
+ * checkout except through `deps.root`'s own working tree state (steps 2-4, 12) — every WRITE
+ * happens inside the worktree until step 13's `merge --ff-only`.
+ */
+export async function execPass(deps: PassDeps): Promise<void> {
+  const log = deps.log;
+
+  // 1. KRN-07 kill switch.
+  if (envStr(NIGHTLY_NO_SANDCASTLE_ENV) === "1") {
+    log.info("killed", {});
+    return;
+  }
+
+  const base = envStr(NIGHTLY_SANDCASTLE_BASE_ENV);
+  const dryRun = envStr(NIGHTLY_SANDCASTLE_DRY_RUN_ENV) === "1";
+  const noMerge = envStr(NIGHTLY_SANDCASTLE_NO_MERGE_ENV) === "1";
+  const max = envNum(NIGHTLY_SANDCASTLE_MAX_ENV);
+  const only = envOptional(NIGHTLY_SANDCASTLE_ONLY_ENV);
+  const modelOverride = envOptional(NIGHTLY_SANDCASTLE_MODEL_ENV);
+
+  // 2. not-on-base.
+  const branch = deps.git(deps.root, "rev-parse", "--abbrev-ref", "HEAD").trim();
+  if (branch !== base) {
+    log.warn("skip", { reason: "not-on-base" });
+    return;
+  }
+
+  // 3. tree-dirty.
+  if (deps.git(deps.root, "status", "--porcelain").trim() !== "") {
+    log.warn("skip", { reason: "tree-dirty" });
+    return;
+  }
+
+  // 4. ruling 6, route two's baseline.
+  let originBefore = "";
+  try {
+    originBefore = deps.git(deps.root, "rev-parse", `origin/${base}`).trim();
+  } catch {
+    originBefore = ""; // no remote configured — nothing to compare
+  }
+
+  const passBranch = `nightly/${INSTANCE}`; // INS-06
+  const wtPath = join(deps.worktreeRoot, "nightly-sandcastle");
+
+  // 5. reap a stranded sibling before touching our own path.
+  reapWorktrees(deps.root, deps.worktreeRoot, wtPath);
+
+  // 6. rotation. An unknown ONLY key throws HERE, before anything is prepped (SAF-06).
+  const state = readState(deps.db);
+  const { goal, nextIndex } = nextGoal(state, only);
+
+  // 7. prep (idempotent — HRN-12).
+  const wt = prepWorktree(deps.root, { branch: passBranch, base }, wtPath);
+
+  try {
+    // 8. node_modules, so tier 2's `npm test` needs no `npm ci`.
+    const nmTarget = join(deps.root, "node_modules");
+    const nmLink = join(wt.path, "node_modules");
+    if (existsSync(nmTarget) && !existsSync(nmLink)) {
+      try {
+        symlinkSync(nmTarget, nmLink);
+      } catch (e) {
+        log.warn("node-modules-symlink-failed", { msg: e instanceof Error ? e.message : String(e) });
+      }
+    }
+
+    // 9. MAX === 0 — SAF-04's free smoke: everything but the agent.
+    if (max === 0) {
+      log.info("free-smoke", { goal: goal.key });
+      log.raw(`nightly-sandcastle report: goal=${goal.key} outcome=free-smoke`);
+      writeState(deps.db, nextIndex, state.recent);
+      return;
+    }
+
+    // 10. run.
+    const runLogPath = deps.runLogPath("nightly-sandcastle");
+    const promptArgs: Record<string, string> = {
+      GOAL: goal.key,
+      BRIEF: goal.brief,
+      WORKTREE: worktreePromptLines(wt).join("\n"),
+    };
+    // D10: exactly one of skill/exec. The registered job carries BOTH (skill for SKL-01/render,
+    // exec for host/run.ts's dispatch) — the skill invocation runJob makes here must drop exec,
+    // or the D10 check inside runJob throws "both set".
+    const { exec: _exec, ...jobWithoutExec } = nightlySandcastleJob;
+    void _exec;
+    const jobForRun: Job = {
+      ...jobWithoutExec,
+      promptArgs,
+      ...(modelOverride !== undefined ? { model: modelOverride } : {}),
+    };
+    log.info("pass-start", { goal: goal.key, model: jobForRun.model ?? DEFAULTS.model });
+    const run = await runJob(jobForRun, { runner: deps.runner, cwd: wt.path, logPath: runLogPath });
+
+    // 11. verdict — HRN-10's "malformed payload writes nothing" as a warning, not a crash.
+    const verdict = parseVerdict(run.stdout);
+    if (verdict === null) {
+      log.warn("no-verdict", { goal: goal.key });
+    }
+
+    // 12. escape checks, both routes (ruling 6) — detection, not containment.
+    const porcelainAfter = deps.git(deps.root, "status", "--porcelain").trim();
+    if (porcelainAfter !== "") {
+      log.error("write-scope-escaped", { reason: "tree-dirty", detail: porcelainAfter });
+    }
+    let originAfter = "";
+    try {
+      originAfter = deps.git(deps.root, "rev-parse", `origin/${base}`).trim();
+    } catch {
+      originAfter = "";
+    }
+    if (originAfter !== originBefore) {
+      log.error("write-scope-escaped", { reason: "remote-moved" });
+    }
+
+    // 13. land or discard.
+    const outcome = landOrDiscard(deps, wt, base, passBranch, goal, verdict, dryRun, noMerge);
+    if (outcome.kind === "no-op") {
+      log.info("no-op", { goal: goal.key });
+    } else if (outcome.kind === "gate-failed") {
+      log.error("gate-failed", { goal: goal.key, detail: outcome.detail });
+    } else if (outcome.kind === "dry-run") {
+      log.info("dry-run-ok", { goal: goal.key, detail: outcome.detail });
+    } else if (outcome.kind === "landed") {
+      log.info("landed", { goal: goal.key, sha: outcome.sha });
+    } else {
+      log.error("ff-miss", { goal: goal.key });
+    }
+
+    // 14. report, then rotate — only a real landing pass advances the rotation (a gate failure or
+    // a dry run leaves the same goal for the next tick).
+    log.raw(
+      `nightly-sandcastle report: goal=${goal.key} outcome=${outcome.kind} verdict=${verdict ? verdict.outcome : "none"}`,
+    );
+    if (!dryRun && outcome.kind === "landed") {
+      writeState(deps.db, nextIndex, state.recent);
+    }
+  } finally {
+    teardownWorktree(deps.root, wt.path);
+  }
+}
+
+// ---------------------------------------------------------------------------------------------
+// The registered job.
+// ---------------------------------------------------------------------------------------------
+
+const nightlySandcastleJob: Job = defineJob({
   name: "nightly-sandcastle",
   description: "Make one small, verified improvement to the engine repo in a single unattended pass (JOB-C15).",
   plugin: "nightly",
@@ -314,4 +625,7 @@ export default defineJob({
   permissionMode: DEFAULTS.permissionMode,
   local: true,
   taskClass: "impl",
-}) satisfies Job;
+  exec: execPass,
+});
+
+export default nightlySandcastleJob;

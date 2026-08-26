@@ -219,6 +219,10 @@ const REGISTER: Record<string, RegisterEntry> = {
     category: "project-relative",
     reason: "sync writes/rewrites a rendered SKILL.md and prunes an orphan directory, all under .claude/skills (SKL-04, J3.9)",
   },
+  "host/jobs/nightly-sandcastle.ts": {
+    category: "project-relative",
+    reason: "symlinks node_modules into the pass worktree, all under the project-relative worktree root (J3.12)",
+  },
 };
 
 // Shapes that reach node:fs / node:fs/promises WITHOUT naming a member: a namespace import, a

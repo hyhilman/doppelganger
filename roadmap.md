@@ -1041,8 +1041,9 @@ Every knob in the reference, to be re-homed as `EnvSpec` rows on the owning plug
   `_RCA_CONCURRENCY`, `_SPAWN_STAGGER_MS`, `_MAX_NEW_ITEMS`, `_MAX_BROADEN`, `_ZERO_HIT_RUNS`,
   `_MISS_ESCALATE`, `_MODEL`, `CHECKLIST_REFRESH_DRY_RUN`, `CORPUS_LINT_DRY_RUN`,
   `CORPUS_LINT_NO_PUSH`, `REFRESH_DOCS_MODEL`.
-- **Nightly**: `NIGHTLY_MODEL`, `NIGHTLY_DRY_RUN`, `NIGHTLY_SANDCASTLE_MODEL`,
-  `NIGHTLY_SANDCASTLE_DRY_RUN`.
+- **Nightly**: `NIGHTLY_MODEL`, `NIGHTLY_DRY_RUN`, `NIGHTLY_NO_SANDCASTLE`,
+  `NIGHTLY_SANDCASTLE_BASE`, `NIGHTLY_SANDCASTLE_MODEL`, `NIGHTLY_SANDCASTLE_DRY_RUN`,
+  `NIGHTLY_SANDCASTLE_NO_MERGE`, `NIGHTLY_SANDCASTLE_MAX`, `NIGHTLY_SANDCASTLE_ONLY`.
 - **Retro**: `RETRO_SINCE`, `RETRO_UNTIL`, `RETRO_DRY_RUN`, `RETRO_LANE_LIMIT`, `RETRO_LANES`,
   `RETRO_LANE_CONCURRENCY`, `RETRO_PR_LIMIT`, `RETRO_MODEL`, `RETRO_SPAWN_STAGGER_MS`,
   `RETRO_GITHUB_LOGIN`.
@@ -1061,8 +1062,11 @@ Every knob in the reference, to be re-homed as `EnvSpec` rows on the owning plug
 Every write path is env-gated so any job can be exercised without touching the outside world.
 
 - **SAF-01** Per-job `*_DRY_RUN` (inert: no writes, no step attempts, no watermark movement).
-- **SAF-02** Per-job shadow modes (`*_NO_COMMENT`, `*_NO_LABEL`, `*_NO_CLOSE`, `*_NO_PUSH`) — classify
-  for real, print every verdict, write nothing.
+- **SAF-02** Per-job shadow modes (`*_NO_COMMENT`, `*_NO_LABEL`, `*_NO_CLOSE`, `*_NO_PUSH`,
+  `*_NO_MERGE`) — classify for real, print every verdict, write nothing. `*_NO_MERGE`
+  (`NIGHTLY_SANDCASTLE_NO_MERGE`, J3.12) is the shape for a job whose write is a local
+  `merge --ff-only` rather than a tracker or remote write — the four original names are examples
+  of the shape, not the shape itself.
 - **SAF-03** Per-job `*_MAX=1` — one real unit end to end against live data.
 - **SAF-04** Per-job `*_MAX=0` / `*_LIMIT=0` — the free smoke test: everything but the model calls.
 - **SAF-05** Throwaway DB redirection (`<NAME>_DB=/tmp/x.db`) and throwaway state files.
