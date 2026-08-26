@@ -8,10 +8,18 @@
 // LAYER 0, READ THIS FIRST: `readCrontab` and `install` refuse a command name that is not an
 // absolute path. `execFileSync` with a bare name does a PATH lookup, and the thing PATH finds is
 // the user's REAL crontab — so a test, a mutation, or a future caller that ever passes a bare
-// `"crontab"` (or forgets to pass anything at all, landing on some other default) is unreachable,
-// not merely discouraged. This is the guard that makes every RED mutation this job's ACs describe
-// safe to perform: without it, a mutated `sync` reaching `install` would overwrite the developer's
-// own crontab, which is exactly the failure the plan's own first draft had.
+// `"crontab"` is unreachable, not merely discouraged. This is the guard that makes every RED
+// mutation this job's ACs describe safe to perform: without it, a mutated `sync` reaching
+// `install` would overwrite the developer's own crontab, which is exactly the failure the plan's
+// own first draft had.
+//
+// LAYER 0 DOES NOT COVER A CALLER WHO PASSES NOTHING AT ALL — that is `CRONTAB_CMD_ENV`'s job, one
+// level up: the row is `required: true` with NO `default`, so `envStr(CRONTAB_CMD_ENV)` THROWS
+// naming the key rather than silently resolving to some absolute path nobody chose. Follow-up F1
+// (N2 VERIFY) found the row's old default WAS `"/usr/bin/crontab"` — a real, absolute path on most
+// hosts — so a caller who forgot to pass `CRONTAB_CMD` sailed straight past layer 0 and reached the
+// developer's real crontab read-only. The two layers are independent on purpose: layer 0 stops a
+// PATH lookup, the required row stops a silent default; together they cover "wrong" and "missing".
 //
 // `cli/` is `private: true` (cli/package.json) — this is an app-internal path, not a published
 // import, so reaching into `host/schedule.ts` for `validate`/`bootstrapEntries`/`commandOf`/
@@ -364,8 +372,8 @@ function assertAbsoluteCmd(cmd: string): void {
 
 export const CRONTAB_CMD_ENV: EnvSpec = {
   key: "CRONTAB_CMD",
-  default: "/usr/bin/crontab",
-  why: "the crontab binary this tool calls (SAF-05's throwaway-store analogue); must be absolute (layer 0) — a bare name is a PATH lookup",
+  required: true,
+  why: "the crontab binary this tool calls; must be absolute (layer 0) — a bare name is a PATH lookup. NO default on purpose (F1): a real, absolute default is itself a real crontab binary, so a caller who forgets to set this must throw, not silently read the developer's own crontab",
 };
 
 export const CRONTAB_DRY_RUN_ENV: EnvSpec = {

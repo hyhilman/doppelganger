@@ -28,10 +28,12 @@ import {
   markers,
   readCrontab,
   install,
+  CRONTAB_CMD_ENV,
   type CrontabDeps,
 } from "./crontab.ts";
 import { PROGRAMS, programOf, commandOf, type ScheduleEntry, type Program } from "../host/schedule.ts";
 import { projectPath } from "../kernel/paths.ts";
+import { envStr } from "../kernel/config.ts";
 
 const ROOT = new URL("..", import.meta.url).pathname.replace(/\/$/, "");
 
@@ -128,6 +130,13 @@ test("0b. layer 0: an absolute command is not refused by layer 0 (it fails downs
   const abs = "/nonexistent/crontab-DOES-NOT-EXIST";
   assert.throws(() => readCrontab(abs), (e: unknown) => e instanceof Error && !/absolute path/.test(e.message));
   assert.throws(() => install(abs, "x"), (e: unknown) => e instanceof Error && !/absolute path/.test(e.message));
+});
+
+test("0c. F1: a caller who omits CRONTAB_CMD entirely throws — there is no default to silently land on", () => {
+  // No test in this file ever sets process.env.CRONTAB_CMD (every deps.cmd above is built
+  // directly), so this is the real "forgot to pass anything" case layer 0 alone cannot stop.
+  assert.equal("CRONTAB_CMD" in process.env, false, "a prior test leaked CRONTAB_CMD into process.env");
+  assert.throws(() => envStr(CRONTAB_CMD_ENV), /CRONTAB_CMD: required and not set/);
 });
 
 test("1. a fresh host", () => {
