@@ -54,14 +54,22 @@ and never import core internals* — shipped as a test (TST-03).
 
 ```
 kernel/                   the framework. imports no plugin, ever.
-  registry.ts             typed, named, hand-registered, duplicate-throws
-  plugin.ts               the manifest — one integration, every contribution
-  boot.ts                 validation over the whole graph
+  registry.ts             typed, named, hand-registered, duplicate-throws        N5
+  plugin.ts               the manifest — one integration, every contribution     N5
+  boot.ts                 validation over the whole graph                        N5
+  config.ts               EnvSpec + the only file that names process.env         N1
+  instance.ts             ONE INSTANCE name per checkout (INS-01)                N1
+  paths.ts                ROOT, projectPath, dbPath — every default path         N1
+  time.ts                 nowIso / today — the clock the log line reads          N1
+  stages.ts               the stage-prefix vocabulary (SUP-20)                   N1
   ports/
     job.ts  schedule.ts  runner.ts            v0
     source.ts  route.ts  relay.ts  lane.ts    v1 — NOT designed until a plugin needs one
   runtime/
-    gate.ts  lease.ts  log.ts  db.ts  pool.ts v0
+    db.ts  pool.ts  exec.ts                   v0 · N1
+    log/   emit.ts  log.sh  parse.ts  route.ts  cause.ts  tail.ts  index.ts   v0 · N1
+    gate.ts                                   v0 · N2
+    lease.ts                                  v0 · N4
     queue.ts  quota.ts  shed.ts               v1
   contracts/              drift-gate suite factory a host repo calls
 plugins/
@@ -86,6 +94,10 @@ live before N5.
 **The v0 manifest ships FIVE members** — `name`, `kill`, `jobs`, `schedule`, `env`. `sources`,
 `routes`, `relays` and `lanes` arrive with the plugin that needs them: a port designed against no
 consumer gets designed wrong, which is the failure §4 already warns about.
+
+`kernel/config.ts` is the `EnvSpec` reader and is not `host/config.ts`, which is the host app's own
+settings. The two never merge — one is the framework's knob mechanism, the other is one app's
+configuration.
 
 ---
 
@@ -751,6 +763,8 @@ consumer gets designed wrong, which is the failure §4 already warns about.
 ### 2.22 Logging & observability (`LOG`)
 
 - **LOG-01** ONE line shape, two emitters (TS + bash), byte-identical; nothing else formats a line.
+  The `ts=` field comes from ONE clock helper (`kernel/time.ts`, `nowIso()`) so both emitters agree
+  on precision and suffix, not only on layout.
 - **LOG-02** logfmt, not JSONL; `msg=` is the only quoted field.
 - **LOG-03** Four levels `debug|info|warn|error`; no `fatal`.
 - **LOG-04** Routing is a property of the level, not the caller: `error` → the next report tick,
