@@ -14,7 +14,7 @@
 // build the thing now, so the interface lives here and moves to the port at N5 UNCHANGED — the
 // same call N1 made for EnvSpec (KRN-06): ship the shape the port will carry, in the module that
 // needs it, and re-home it later without rewriting it.
-import { existsSync } from "node:fs";
+import { existsSync, statSync, readFileSync } from "node:fs";
 import { isAbsolute, join, sep } from "node:path";
 import type { Mode } from "../kernel/runtime/gate.ts";
 import { projectPath, ROOT } from "../kernel/paths.ts";
@@ -148,11 +148,20 @@ export const JOB_ENTRYPOINT = "host/run.ts";
  * DIRECTLY — `[join(root, script), []]`, relying on the script's own shebang. `node` cannot run a
  * bash script, and nothing caught the disagreement because SCHEDULE has never held a `script:`
  * entry (N4's watchdog, JOB-O10, is the first). ONE function now serves both consumers, so the two
- * spellings cannot drift apart. J4.11 grows this further (a `.ts` branch through `node`, a
- * `validate()` executable-bit rule) — this is N3's minimal fix: the two consumers agree.
+ * spellings cannot drift apart.
+ *
+ * J4.11 (a FIX to SUP-03/05/08, no new feature id — N4 is the phase that first writes a `script:`
+ * entry, so this is where ruling 5's second half had to land) finishes it: a `.sh` carries its own
+ * shebang, so no interpreter is named — a bare `bash` would be a PATH lookup in cron's stripped
+ * environment (N2 F1's hazard) and `/bin/bash` a door-1 literal that moves between distributions.
+ * A `.ts` has no shebang and must name one explicitly. `validate()`'s rules 12a/12b (below) are
+ * what make the first arm safe: nothing here checks the exec bit or a shebang — a script rendered
+ * with no interpreter and no permission to run itself would fail silently at spawn time, at 3am,
+ * with SUP-05's whole point being that this is a BOOT-time refusal instead.
  */
 export function scriptCommandOf(root: string, script: string): readonly [cmd: string, args: readonly string[]] {
-  return [join(root, script), []];
+  const abs = join(root, script);
+  return script.endsWith(".sh") ? [abs, []] : [process.execPath, [abs]];
 }
 
 export function commandOf(e: ScheduleEntry): string {
@@ -250,6 +259,24 @@ export function validate(entries: readonly ScheduleEntry[] = SCHEDULE, opts: Val
       } else {
         const p = join(root, e.script);
         if (!existsSync(p)) err(e.name, `script does not exist: ${p}`);
+        else {
+          // 12a. the extension dispatch — scriptCommandOf only knows two shapes (SUP-03 fix).
+          if (!e.script.endsWith(".ts") && !e.script.endsWith(".sh")) {
+            err(e.name, `script must end in .ts or .sh, got ${JSON.stringify(e.script)}`);
+          } else if (e.script.endsWith(".sh")) {
+            // 12b. a .sh carries its own shebang and is exec'd DIRECTLY (no interpreter named), so
+            // both must hold at boot — a stray `chmod -x` or a missing `#!` would otherwise fail
+            // silently at spawn time (SUP-05). A .ts is handed to node explicitly and needs
+            // neither.
+            const mode = statSync(p).mode;
+            if ((mode & 0o111) === 0) {
+              err(e.name, `script ${p} is not executable — a chmod -x silently disables it (SUP-05)`);
+            }
+            if (!readFileSync(p, "utf8").startsWith("#!")) {
+              err(e.name, `script ${p} does not start with #! — it is rendered with no interpreter (SUP-05)`);
+            }
+          }
+        }
       }
     }
 

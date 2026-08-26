@@ -602,6 +602,18 @@ test("8. SUP-03: the recorded spawn options", async () => {
     assert.deepEqual(call.args, []);
     assert.deepEqual([call.cmd, call.args], scriptCommandOf(h.root, "scripts/probe.sh"));
   }
+  // J4.11: a .ts script: entry ALSO goes through scriptCommandOf, not an inline reimplementation
+  // that only happens to agree with it on the .sh arm — this is what actually discriminates
+  // spawnChild's own script dispatch from a hand-inlined `[join(root, script), []]` (AC3), which
+  // the .sh case above cannot: both shapes render identically for a .sh script.
+  {
+    const h = makeHarness();
+    const e = entry({ job: undefined, script: "scripts/probe.ts", log: join(h.root, "t.log") });
+    await runEntry(e, { ...h.deps, programs: { "scripts/probe.ts": program() } });
+    const call = h.spawnCalls[0]!;
+    assert.deepEqual([call.cmd, call.args], scriptCommandOf(h.root, "scripts/probe.ts"));
+    assert.equal(call.cmd, process.execPath);
+  }
 });
 
 test("9. SUP-04: all three env layers", async () => {

@@ -6,6 +6,7 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { join } from "node:path";
 import {
   SCHEDULE,
   PROGRAMS,
@@ -125,4 +126,12 @@ test("8. commandOf and scriptCommandOf agree — one spelling, checked (R3, SUP-
     commandOf(e).includes([cmd, ...args].join(" ")),
     `commandOf's rendering must contain exactly what scriptCommandOf renders`,
   );
+});
+
+test("9. a .ts script names its interpreter — process.execPath, then the absolute path (J4.11, SUP-03 fix)", () => {
+  const [cmd, args] = scriptCommandOf(ROOT, "host/x.ts");
+  assert.equal(cmd, process.execPath);
+  assert.deepEqual([...args], [join(ROOT, "host/x.ts")]);
+  // Never exec'd bare — a .ts has no shebang of its own.
+  assert.notEqual(cmd, join(ROOT, "host/x.ts"));
 });

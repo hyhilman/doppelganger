@@ -58,14 +58,16 @@ function withPrograms<T>(rows: Readonly<Record<string, Program>>, fn: () => T): 
 }
 
 /** A ScheduleEntry that passes the REAL validate()'s checks with no opts: an absolute log path
- *  under a real LOG_ROOT, and a script that genuinely exists at the real ROOT (validate() only
- *  checks existence, not that it is runnable — package.json is a stable, always-present file). */
+ *  under a real LOG_ROOT, and a script that genuinely exists at the real ROOT. `.ts`, not
+ *  `.json` — J4.11's rules 12a/12b make validate() check the extension (and, for a `.sh`, the
+ *  exec bit and a shebang); `kernel/paths.ts` is a stable, always-present `.ts` file that needs
+ *  neither. */
 function validEntry(over: Partial<ScheduleEntry> = {}): ScheduleEntry {
   return {
     name: "watch-probe",
     cron: "* * * * *",
     log: projectPath(".doppelganger/logs/crontab-test-probe.log"),
-    script: "package.json",
+    script: "kernel/paths.ts",
     why: "fixture entry for cli/crontab.test.ts",
     ...over,
   };
@@ -353,12 +355,13 @@ test("21. render's exact output over a one-entry bootstrap fixture, pinned liter
       "# Generated from host/schedule.ts — do not hand-edit. `npm run crontab check` diffs it.",
       "# BOOTSTRAP ONLY: everything else is scheduled by host/supervisor.ts.",
       "# a short fixture reason",
-      // R3 (SUP-03) fixed the disagreement between commandOf's script: branch and spawnChild:
-      // a script is executed directly via its own shebang, never through a `node` prefix (`node`
-      // cannot run a bash script). This hand-built line reflects that, independent of
-      // scriptCommandOf itself — see the test's own header comment for why that independence
-      // matters.
-      `${e.cron} cd ${ROOT} && ${ROOT}/${e.script} >> ${e.log} 2>&1`,
+      // R3 (SUP-03) fixed the disagreement between commandOf's script: branch and spawnChild for
+      // a `.sh` script — executed directly via its own shebang, never through a `node` prefix
+      // (`node` cannot run a bash script). J4.11 adds the OTHER arm: a `.ts` script (this
+      // fixture, since J4.11 — validate()'s rule 12a) has no shebang and IS handed to `node`
+      // explicitly. This hand-built line reflects that, independent of scriptCommandOf itself —
+      // see the test's own header comment for why that independence matters.
+      `${e.cron} cd ${ROOT} && ${process.execPath} ${ROOT}/${e.script} >> ${e.log} 2>&1`,
       "# <<< doppelganger:alpha managed block <<<",
     ];
     assert.deepEqual(out, expected);

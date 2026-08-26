@@ -9,7 +9,7 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, writeFileSync, mkdirSync, rmSync } from "node:fs";
+import { mkdtempSync, writeFileSync, mkdirSync, rmSync, chmodSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { validate, type ValidateOpts } from "./schedule.ts";
@@ -21,6 +21,19 @@ writeFileSync(join(jobsDir, "probe.ts"), "export {};\n");
 writeFileSync(join(jobsDir, "orphan.ts"), "export {};\n");
 mkdirSync(join(root, "scripts"), { recursive: true });
 writeFileSync(join(root, "scripts", "probe.sh"), "#!/bin/sh\n");
+
+// J4.11 (SUP-03, SUP-05, SUP-08 fix) — rules 12a/12b's own fixtures, five shapes covering the
+// grid: extension x (executable, shebang).
+writeFileSync(join(root, "scripts", "probe.py"), "print('hi')\n");
+writeFileSync(join(root, "scripts", "noexec.sh"), "#!/bin/sh\necho hi\n");
+chmodSync(join(root, "scripts", "noexec.sh"), 0o644); // shebang, NOT executable
+writeFileSync(join(root, "scripts", "noshebang.sh"), "echo hi\n");
+chmodSync(join(root, "scripts", "noshebang.sh"), 0o755); // executable, NO shebang
+writeFileSync(join(root, "scripts", "good.sh"), "#!/bin/sh\necho hi\n");
+chmodSync(join(root, "scripts", "good.sh"), 0o755); // both — accepted
+writeFileSync(join(root, "scripts", "good.ts"), "export {};\n");
+// good.ts is deliberately left at the writeFileSync default mode (not executable, no shebang) —
+// 12b applies to .sh only, so this must still be ACCEPTED.
 
 const LOG_ROOT = join(tmpdir(), "dg-logs");
 
@@ -148,6 +161,40 @@ test("rule 12: script is absolute (INS-02)", () => {
     () => validate([e], baseOpts({ programs: { "/abs/script.sh": baseProgram() } })),
     /entry "watch-probe": script must be project-relative, not absolute/,
   );
+});
+
+test("rule 12a: script must end in .ts or .sh", () => {
+  const e = baseEntry({ job: undefined, script: "scripts/probe.py" });
+  assert.throws(
+    () => validate([e], baseOpts({ programs: { "scripts/probe.py": baseProgram() } })),
+    /entry "watch-probe": script must end in \.ts or \.sh, got "scripts\/probe\.py"/,
+  );
+});
+
+test("rule 12b: a .sh script that is not executable is refused", () => {
+  const e = baseEntry({ job: undefined, script: "scripts/noexec.sh" });
+  assert.throws(
+    () => validate([e], baseOpts({ programs: { "scripts/noexec.sh": baseProgram() } })),
+    /entry "watch-probe": script .*noexec\.sh is not executable — a chmod -x silently disables it \(SUP-05\)/,
+  );
+});
+
+test("rule 12b: a .sh script with no shebang is refused", () => {
+  const e = baseEntry({ job: undefined, script: "scripts/noshebang.sh" });
+  assert.throws(
+    () => validate([e], baseOpts({ programs: { "scripts/noshebang.sh": baseProgram() } })),
+    /entry "watch-probe": script .*noshebang\.sh does not start with #! — it is rendered with no interpreter \(SUP-05\)/,
+  );
+});
+
+test("rule 12b: a .sh script that is executable and starts with #! is accepted", () => {
+  const e = baseEntry({ job: undefined, script: "scripts/good.sh" });
+  assert.doesNotThrow(() => validate([e], baseOpts({ programs: { "scripts/good.sh": baseProgram() } })));
+});
+
+test("rule 12b does not over-reach: a .ts script needs no exec bit and no shebang", () => {
+  const e = baseEntry({ job: undefined, script: "scripts/good.ts" });
+  assert.doesNotThrow(() => validate([e], baseOpts({ programs: { "scripts/good.ts": baseProgram() } })));
 });
 
 test("rule 13: maxRunMin is present and not > 0", () => {

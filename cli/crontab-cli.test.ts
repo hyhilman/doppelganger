@@ -106,14 +106,15 @@ function tmpDir(): string {
 }
 
 /** The one bootstrap entry every DO-list test needs to have a real rendered command line to test
- *  against — `script: "package.json"` passes validate()'s existence check against the real ROOT,
- *  the same trick cli/crontab.test.ts uses. */
+ *  against — `script: "kernel/paths.ts"` passes validate()'s existence check against the real
+ *  ROOT, the same trick cli/crontab.test.ts uses. `.ts`, not `.json`: J4.11's rule 12a checks the
+ *  extension, and a `.ts` needs no exec bit or shebang (unlike a `.sh`, rule 12b). */
 function bootstrapFixtureEntry(over: Partial<ScheduleEntry> = {}): ScheduleEntry {
   return {
     name: "watch-crontab-cli-fixture",
     cron: "*/5 * * * *",
     log: projectPath(".doppelganger/logs/crontab-cli-fixture.log"),
-    script: "package.json",
+    script: "kernel/paths.ts",
     supervised: false,
     why: "fixture bootstrap entry for cli/crontab-cli.test.ts",
     ...over,
