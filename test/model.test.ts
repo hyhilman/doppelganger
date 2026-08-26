@@ -18,6 +18,13 @@ import { JOBS } from "../host/jobs/index.ts";
 const ROOT = new URL("..", import.meta.url).pathname.replace(/\/$/, "");
 const SCANNED_DIRS = ["kernel", "host", "plugins", "cli"];
 
+// P4 (plan/N4-uac.md) — measured 2026-08-26: kernel/runtime/quota.fixture.ts's tier-1 rows survive
+// the model-literal scan (test 6) only because every recorded wording happens to contain an
+// apostrophe ("You've") that ends the character class early — a coincidence one added row
+// destroys ("claude-code exited with code 3: boom" matches outright). test/layout.test.ts's own
+// realFiles() already excludes *.fixture.ts for exactly this reason (a fixture is not shipped
+// behaviour); this walker now does too. Paid for below: no non-test file may import a
+// *.fixture.ts, so a "claude-…" literal in a fixture can never reach production code.
 function allNonTestTsFiles(): string[] {
   const out: string[] = [];
   const walk = (dir: string): void => {
@@ -25,7 +32,7 @@ function allNonTestTsFiles(): string[] {
       const full = join(dir, entry);
       const st = statSync(full);
       if (st.isDirectory()) walk(full);
-      else if (entry.endsWith(".ts") && !entry.endsWith(".test.ts")) out.push(full);
+      else if (entry.endsWith(".ts") && !entry.endsWith(".test.ts") && !entry.endsWith(".fixture.ts")) out.push(full);
     }
   };
   for (const d of SCANNED_DIRS) {
@@ -363,4 +370,13 @@ test("7. HRN-14's companion scan — a bypass run declares local: true", () => {
     }
   }
   assert.deepEqual(bad, [], "a job literal whose permissionMode resolves to bypassPermissions must also carry local: true (HRN-14)");
+});
+
+test("8. P4 — no non-test file imports a *.fixture.ts, which is what test 6's exclusion is paid for with", () => {
+  const files = allNonTestTsFiles(); // already excludes *.fixture.ts and *.test.ts
+  const importRe = /from\s*["']([^"']*\.fixture\.ts)["']/;
+  const offenders = files
+    .filter((f) => importRe.test(readFileSync(f, "utf8")))
+    .map((f) => f.slice(ROOT.length + 1));
+  assert.deepEqual(offenders, [], "a claude-… literal in a fixture must never be importable by production code");
 });

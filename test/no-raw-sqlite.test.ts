@@ -17,6 +17,7 @@ const ALLOWED: Record<string, string> = {
   "kernel/runtime/db.test.ts": "needs a raw, unwrapped, contending second connection",
   "kernel/runtime/db-sharing.test.ts": "TST-20's trap-2 fixture holds a lock from a SEPARATE process",
   "test/node.test.ts": "N0's capability probe — proves type stripping runs at all",
+  "kernel/runtime/quota.test.ts": "QUOTA_FIXTURE_RECHECK's opt-in read of the reference's own quota.db, read-only, never run by default (J4.8)",
 };
 
 function walk(dir: string, out: string[]): void {

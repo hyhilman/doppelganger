@@ -3,13 +3,15 @@
 
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
-import { mkdtempSync, rmSync } from "node:fs";
+import { spawnSync, execFileSync } from "node:child_process";
+import { mkdtempSync, rmSync, writeFileSync, chmodSync, existsSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { pathToFileURL } from "node:url";
 import { projectPath } from "../kernel/paths.ts";
 import { closeAll } from "../kernel/runtime/db.ts";
 import { read as readLease } from "../kernel/runtime/lease.ts";
+import { isPaused as quotaIsPaused, QUOTA_SCOPE } from "../kernel/runtime/quota.ts";
 import { SUPERVISOR_MAX_RUN_MIN, SUPERVISOR_KILL_GRACE_MS } from "./supervisor.ts";
 import type { Job } from "../kernel/ports/job.ts";
 import type { Runner, RunRequest, RunResult } from "../kernel/ports/runner.ts";
@@ -19,19 +21,25 @@ import type { PassDeps } from "./jobs/nightly-sandcastle.ts";
 
 const ROOT = new URL("..", import.meta.url).pathname.replace(/\/$/, "");
 
-// LSE-04 lands runNamed on the lease store — every test in this file that calls runNamed now
-// claims an hourly key, so LEASE_DB is redirected the same way kernel/runtime/lease.test.ts does.
+// LSE-04 lands runNamed on the lease store, and QTA-01/05 land it on the quota store — every test
+// in this file that calls runNamed now claims an hourly key and can trip the breaker, so both are
+// redirected the same way their own test files do.
 let leaseDir: string;
+let quotaDir: string;
 
 before(() => {
   leaseDir = mkdtempSync(join(tmpdir(), "run-lease-"));
   process.env.LEASE_DB = join(leaseDir, "lease.db");
+  quotaDir = mkdtempSync(join(tmpdir(), "run-quota-"));
+  process.env.QUOTA_DB = join(quotaDir, "quota.db");
 });
 
 after(() => {
   closeAll();
   delete process.env.LEASE_DB;
+  delete process.env.QUOTA_DB;
   rmSync(leaseDir, { recursive: true, force: true });
+  rmSync(quotaDir, { recursive: true, force: true });
 });
 
 let jobCounter = 0;
@@ -214,4 +222,260 @@ test("11. the TTL is the derived one — SUPERVISOR_MAX_RUN_MIN's bound plus the
   const ttlMs = new Date(row.expiresAt).getTime() - new Date(row.claimedAt).getTime();
   const derived = SUPERVISOR_MAX_RUN_MIN * 60_000 + SUPERVISOR_KILL_GRACE_MS;
   assert.ok(Math.abs(ttlMs - derived) < 1_000, `ttlMs=${ttlMs} not within 1s of derived=${derived}`);
+});
+
+// ---------------------------------------------------------------------------------------------
+// J4.8 (QTA-01, QTA-05) — the account breaker's producer and consumer, both gated on job.exec.
+// ---------------------------------------------------------------------------------------------
+
+function fakeExecJob(overrides: Partial<Job> = {}): Job {
+  const name = freshName();
+  return {
+    name,
+    description: "d",
+    plugin: "nightly",
+    permissionMode: "auto",
+    exec: (async () => {}) as unknown as Job["exec"],
+    ...overrides,
+  };
+}
+
+test("12. an exec: job never reads the breaker — it runs even while the account is walled", async () => {
+  const { pause, clearPause } = await import("../kernel/runtime/quota.ts");
+  pause(QUOTA_SCOPE, "weekly limit reached");
+  try {
+    let calls = 0;
+    const job = fakeExecJob({
+      exec: (async () => {
+        calls++;
+      }) as unknown as Job["exec"],
+    });
+    const code = await runNamed(job, fakePassDeps());
+    assert.equal(code, 0);
+    assert.equal(calls, 1, "an exec: job must run even with the breaker open");
+  } finally {
+    clearPause(QUOTA_SCOPE);
+  }
+});
+
+test("13. an exec: job never SETS the breaker — a matching message still re-throws, breaker stays closed", async () => {
+  const job = fakeExecJob({
+    exec: (async () => {
+      throw new Error("usage limit reached");
+    }) as unknown as Job["exec"],
+  });
+  await assert.rejects(() => runNamed(job, fakePassDeps()), /usage limit reached/);
+  assert.equal(quotaIsPaused(QUOTA_SCOPE), false, "an exec: job's own failure must never open the breaker");
+});
+
+test("14. the reference's source scan, ported — every registered job with NO skill (a purely deterministic exec: job) imports neither quota.ts nor calls runJob(", () => {
+  // Derived from JOBS, never a hand-typed name list — a new deterministic job is covered without
+  // an edit. `job.skill !== undefined` is what runNamed itself gates on (not `job.exec ===
+  // undefined`): nightly-sandcastle carries BOTH fields and its own exec calls runJob internally
+  // — it is the one job that DOES spawn a model, so it is correctly EXCLUDED from this scan by
+  // having a skill, not by name.
+  for (const job of JOBS) {
+    if (job.skill !== undefined) continue;
+    assert.ok(job.exec !== undefined, `${job.name}: a job with no skill must set exec (D10)`);
+    const file = projectPath(`host/jobs/${job.name}.ts`);
+    const src = readFileSync(file, "utf8");
+    assert.ok(!/from\s*["'][^"']*\/quota\.ts["']/.test(src), `${job.name}: a deterministic job must not import quota.ts`);
+    assert.ok(!/\brunJob\s*\(/.test(src), `${job.name}: a deterministic job must not call runJob(`);
+  }
+});
+
+// ---------------------------------------------------------------------------------------------
+// J4.8 — the whole park loop, end to end, no model call. A fake `claude` on PATH stands in for
+// the real CLI (N3's own layer B, measured ~100ms) — the REAL sandcastleRunner, the REAL run(),
+// the REAL rejection, the REAL errText, in a real child process. HOME is always a fresh
+// mkdtempSync directory, so nothing here can ever reach the developer's real ~/.gitconfig.
+// ---------------------------------------------------------------------------------------------
+
+function makeRepo(): string {
+  const repo = mkdtempSync(join(tmpdir(), "run-park-repo-"));
+  execFileSync("git", ["init", "-q", "-b", "main", repo]);
+  execFileSync("git", ["-C", repo, "config", "user.name", "t"]);
+  execFileSync("git", ["-C", repo, "config", "user.email", "t@example.com"]);
+  execFileSync("git", ["-C", repo, "commit", "-q", "--allow-empty", "-m", "init"]);
+  return repo;
+}
+
+/** Writes an executable file named `name` into a fresh bin directory and returns that directory —
+ *  the runner.test.ts precedent, a local copy (never imported from a .test.ts file). */
+function makeFakeBin(name: string, script: string): string {
+  const bin = mkdtempSync(join(tmpdir(), "run-park-fakebin-"));
+  const file = join(bin, name);
+  writeFileSync(file, `#!/usr/bin/env node\n${script}\n`);
+  chmodSync(file, 0o755);
+  return bin;
+}
+
+const RUN_URL = pathToFileURL(join(ROOT, "host/run.ts")).href;
+const RUNNER_URL = pathToFileURL(join(ROOT, "host/runner.ts")).href;
+const QUOTA_URL = pathToFileURL(join(ROOT, "kernel/runtime/quota.ts")).href;
+
+interface DriverOpts {
+  readonly bin: string;
+  readonly repo: string;
+  readonly jobName: string;
+  readonly leaseDb: string;
+  readonly quotaDb: string;
+  /** JS lines run inside the driver, before `runNamed` is called (e.g. seeding a pause()). */
+  readonly extraSetup?: string;
+}
+
+/** Spawns a real Node child that calls the real `runNamed`, wired to the real `sandcastleRunner` —
+ *  never a re-implementation (N2 F3). Prints one `RESULT:` JSON line the caller parses. */
+function runDriver(opts: DriverOpts): { code: number | null; result: Record<string, unknown> | null; stdout: string; stderr: string } {
+  const home = mkdtempSync(join(tmpdir(), "run-park-home-"));
+  const scratch = mkdtempSync(join(tmpdir(), "run-park-scratch-"));
+  const driverPath = join(scratch, "driver.mjs");
+  writeFileSync(
+    driverPath,
+    [
+      `import { runNamed } from ${JSON.stringify(RUN_URL)};`,
+      `import { sandcastleRunner } from ${JSON.stringify(RUNNER_URL)};`,
+      `import { isPaused, inspect, QUOTA_SCOPE } from ${JSON.stringify(QUOTA_URL)};`,
+      `const job = { name: ${JSON.stringify(opts.jobName)}, description: "d", plugin: "nightly", skill: ${JSON.stringify(opts.jobName)}, permissionMode: "bypassPermissions", local: true, model: "claude-opus-5" };`,
+      `const runner = sandcastleRunner({ gitConfigGlobal: ${JSON.stringify(join(scratch, "gitconfig"))}, gitSshCommand: "/bin/false" });`,
+      `const deps = {`,
+      `  root: ${JSON.stringify(opts.repo)},`,
+      `  runner,`,
+      `  git: () => "",`,
+      `  now: () => new Date(),`,
+      `  db: undefined,`,
+      `  log: { debug(){}, info(){}, warn(){}, error(){}, raw(){} },`,
+      `  worktreeRoot: ${JSON.stringify(join(scratch, "wt"))},`,
+      `  runLogPath: () => ${JSON.stringify(join(scratch, "run.log"))},`,
+      `  runIn: () => ({ ok: true, out: "" }),`,
+      `  scratchRoot: ${JSON.stringify(join(scratch, "scratch2"))},`,
+      `  jobs: [],`,
+      `};`,
+      opts.extraSetup ?? "",
+      `let code = null, threw = null;`,
+      `try { code = await runNamed(job, deps); } catch (e) { threw = e instanceof Error ? e.message : String(e); }`,
+      `const result = { code, threw, isPaused: isPaused(QUOTA_SCOPE), limit: inspect(QUOTA_SCOPE).limit };`,
+      `process.stdout.write("RESULT:" + JSON.stringify(result) + "\\n");`,
+    ].join("\n"),
+  );
+
+  const r = spawnSync(process.execPath, [driverPath], {
+    cwd: ROOT,
+    env: { PATH: `${opts.bin}:${process.env.PATH ?? ""}`, HOME: home, LEASE_DB: opts.leaseDb, QUOTA_DB: opts.quotaDb },
+    encoding: "utf8",
+    timeout: 30_000,
+  });
+  const line = r.stdout.split("\n").find((l) => l.startsWith("RESULT:"));
+  return {
+    code: r.status,
+    result: line ? (JSON.parse(line.slice("RESULT:".length)) as Record<string, unknown>) : null,
+    stdout: r.stdout,
+    stderr: r.stderr,
+  };
+}
+
+const CLAUDE_SPEND_LIMIT = [
+  "process.stdin.resume();",
+  'let data = "";',
+  'process.stdin.on("data", (c) => { data += c; });',
+  'process.stdin.on("end", () => {',
+  '  process.stderr.write("You\'ve hit your org\'s monthly spend limit\\n");',
+  "  process.exit(1);",
+  "});",
+].join("\n");
+
+const CLAUDE_NON_LIMIT_FAILURE = [
+  "process.stdin.resume();",
+  'let data = "";',
+  'process.stdin.on("data", (c) => { data += c; });',
+  'process.stdin.on("end", () => {',
+  '  process.stderr.write("worker blew up\\n");',
+  "  process.exit(1);",
+  "});",
+].join("\n");
+
+test("15. the whole park loop, no model call — a fake claude that walls with the tier-1 spend wording", () => {
+  const repo = makeRepo();
+  const bin = makeFakeBin("claude", CLAUDE_SPEND_LIMIT);
+  const leaseDb = join(mkdtempSync(join(tmpdir(), "run-park-lease-")), "lease.db");
+  const quotaDb = join(mkdtempSync(join(tmpdir(), "run-park-quota-")), "quota.db");
+
+  const { code, result, stdout, stderr } = runDriver({ bin, repo, jobName: "probe-park", leaseDb, quotaDb });
+  assert.equal(code, 0, `driver did not exit 0. stdout:\n${stdout}\nstderr:\n${stderr}`);
+  assert.ok(result, `no RESULT line. stdout:\n${stdout}`);
+  assert.equal(result!.code, 0, "runNamed must return 0 — a wall is a skipped tick, not a failure");
+  assert.equal(result!.threw, null);
+  assert.equal(result!.isPaused, true);
+  assert.equal(result!.limit, "spend");
+});
+
+test("16. the consumer refuses before it spawns — QTA-05's next real task IS the probe, proved against a real spawn", () => {
+  const repo = makeRepo();
+  const markerFile = join(mkdtempSync(join(tmpdir(), "run-park-marker-")), "marker");
+  const claudeHappy = [
+    "process.stdin.resume();",
+    'let data = "";',
+    'process.stdin.on("data", (c) => { data += c; });',
+    'process.stdin.on("end", () => {',
+    `  require("node:fs").writeFileSync(${JSON.stringify(markerFile)}, "spawned");`,
+    '  console.log("<<<SANDCASTLE");',
+    '  console.log("goal=probe");',
+    '  console.log("outcome=none");',
+    '  console.log("files=-");',
+    '  console.log("ids=-");',
+    '  console.log("summary=nothing to do");',
+    '  console.log("verified=none");',
+    '  console.log("SANDCASTLE>>>");',
+    '  console.log("<promise>COMPLETE</promise>");',
+    "  process.exit(0);",
+    "});",
+  ].join("\n");
+  const bin = makeFakeBin("claude", claudeHappy);
+  const leaseDb = join(mkdtempSync(join(tmpdir(), "run-park-lease-")), "lease.db");
+  const quotaDb = join(mkdtempSync(join(tmpdir(), "run-park-quota-")), "quota.db");
+
+  // Breaker OPEN before the driver even starts: the fake claude must never be exec'd.
+  const seed1 = runDriver({
+    bin,
+    repo,
+    jobName: "probe-refuse",
+    leaseDb,
+    quotaDb,
+    extraSetup: [
+      `const qm0 = await import(${JSON.stringify(QUOTA_URL)});`,
+      `qm0.pause(qm0.QUOTA_SCOPE, "weekly limit reached");`,
+    ].join("\n"),
+  });
+  void seed1;
+  assert.equal(existsSync(markerFile), false, "the fake claude must never have been exec'd while the breaker is open");
+
+  // Now push the breaker's window into the past — QTA-05: the NEXT real task is the probe, no
+  // separate prober.
+  const after = runDriver({
+    bin,
+    repo,
+    jobName: "probe-refuse-2",
+    leaseDb,
+    quotaDb,
+    extraSetup: [
+      `const m = await import(${JSON.stringify(QUOTA_URL)});`,
+      `const d = (await import(${JSON.stringify(pathToFileURL(join(ROOT, "kernel/runtime/db.ts")).href)})).openDb((await import(${JSON.stringify(pathToFileURL(join(ROOT, "kernel/paths.ts")).href)})).dbPath("quota"));`,
+      `d.metaSet("quota", "until:" + m.QUOTA_SCOPE, new Date(Date.now() - 60_000).toISOString());`,
+    ].join("\n"),
+  });
+  assert.equal(after.result?.code, 0, `driver stdout:\n${after.stdout}\nstderr:\n${after.stderr}`);
+  assert.equal(existsSync(markerFile), true, "IS executed once the window has lapsed — the real spawn happened");
+});
+
+test("17. a non-limit failure still throws — worker blew up rejects, and nothing is parked", () => {
+  const repo = makeRepo();
+  const bin = makeFakeBin("claude", CLAUDE_NON_LIMIT_FAILURE);
+  const leaseDb = join(mkdtempSync(join(tmpdir(), "run-park-lease-")), "lease.db");
+  const quotaDb = join(mkdtempSync(join(tmpdir(), "run-park-quota-")), "quota.db");
+
+  const { result, stdout, stderr } = runDriver({ bin, repo, jobName: "probe-nonlimit", leaseDb, quotaDb });
+  assert.ok(result, `no RESULT line. stdout:\n${stdout}\nstderr:\n${stderr}`);
+  assert.equal(result!.code, null, "runNamed must reject, never resolve, on a non-limit failure");
+  assert.match(String(result!.threw), /worker blew up/);
+  assert.equal(result!.isPaused, false, "a non-limit failure must never open the breaker");
 });

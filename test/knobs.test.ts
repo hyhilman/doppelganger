@@ -33,6 +33,12 @@ import { CRONTAB_CMD_ENV, CRONTAB_DRY_RUN_ENV } from "../cli/crontab.ts";
 import { SKILLS_DRY_RUN_ENV } from "../cli/skills.ts";
 import { LEASE_CLEAR_DRY_RUN_ENV } from "../cli/lease-clear.ts";
 import {
+  QUOTA_SCOPE_ENV,
+  QUOTA_PAUSE_MS_ENV,
+  QUOTA_PAUSE_MS_FAMILY_ENV,
+  QUOTA_DARK_GAP_MS_ENV,
+} from "../kernel/runtime/quota.ts";
+import {
   NIGHTLY_NO_SANDCASTLE_ENV,
   NIGHTLY_SANDCASTLE_BASE_ENV,
   NIGHTLY_SANDCASTLE_DRY_RUN_ENV,
@@ -179,6 +185,30 @@ const ROWS: readonly RowMeta[] = [
     file: "cli/lease-clear.ts",
     constName: "LEASE_CLEAR_DRY_RUN_ENV",
     readers: ["envStr"],
+  },
+  {
+    spec: QUOTA_SCOPE_ENV,
+    file: "kernel/runtime/quota.ts",
+    constName: "QUOTA_SCOPE_ENV",
+    readers: ["envStr"],
+  },
+  {
+    spec: QUOTA_PAUSE_MS_ENV,
+    file: "kernel/runtime/quota.ts",
+    constName: "QUOTA_PAUSE_MS_ENV",
+    readers: ["envNum"],
+  },
+  {
+    spec: QUOTA_PAUSE_MS_FAMILY_ENV,
+    file: "kernel/runtime/quota.ts",
+    constName: "QUOTA_PAUSE_MS_FAMILY_ENV",
+    readers: [],
+  },
+  {
+    spec: QUOTA_DARK_GAP_MS_ENV,
+    file: "kernel/runtime/quota.ts",
+    constName: "QUOTA_DARK_GAP_MS_ENV",
+    readers: ["envNum"],
   },
   {
     spec: NIGHTLY_NO_SANDCASTLE_ENV,
@@ -387,7 +417,7 @@ test("6. every row appears in roadmap.md Section 2.27", () => {
   }
 });
 
-test("7. envDynamic has exactly two call sites (paths.ts's <NAME>_DB, gate.ts's LOCK_STARVE_N_<JOB>)", () => {
+test("7. envDynamic has exactly three call sites (paths.ts's <NAME>_DB, gate.ts's LOCK_STARVE_N_<JOB>, quota.ts's QUOTA_PAUSE_MS_<CLASS>)", () => {
   const files = allNonTestTsFiles();
 
   const callSites: string[] = [];
@@ -398,7 +428,7 @@ test("7. envDynamic has exactly two call sites (paths.ts's <NAME>_DB, gate.ts's 
     const calls = f.endsWith("kernel/config.ts") ? occurrences - 1 : occurrences;
     for (let i = 0; i < calls; i++) callSites.push(f.slice(ROOT.length + 1));
   }
-  assert.deepEqual(callSites.sort(), ["kernel/runtime/gate.ts", "kernel/paths.ts"].sort());
+  assert.deepEqual(callSites.sort(), ["kernel/runtime/gate.ts", "kernel/paths.ts", "kernel/runtime/quota.ts"].sort());
 
   const configSrc = readFileSync(join(ROOT, "kernel/config.ts"), "utf8");
   assert.match(configSrc, /<NAME>_DB/); // the comment naming the family, beside the definition

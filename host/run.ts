@@ -13,9 +13,10 @@ import { logger } from "../kernel/runtime/log/emit.ts";
 import { git } from "../kernel/runtime/exec.ts";
 import { runJob } from "../kernel/runtime/runjob.ts";
 import { withLease } from "../kernel/runtime/lease.ts";
+import { isLimitError, limitClass, isPaused, pausedUntil, pause, QUOTA_SCOPE } from "../kernel/runtime/quota.ts";
 import { projectPath, ROOT, dbPath } from "../kernel/paths.ts";
 import { byStage } from "../kernel/stages.ts";
-import { parentEnv } from "../kernel/config.ts";
+import { parentEnv, errText } from "../kernel/config.ts";
 import type { Job } from "../kernel/ports/job.ts";
 import { sandcastleRunner } from "./runner.ts";
 import { JOBS } from "./jobs/index.ts";
@@ -63,36 +64,64 @@ export function jobListing(jobs: readonly Job[]): string {
  * beside a scheduled tick, or a second checkout (INS-05). The TTL is DERIVED from SUP-13's own
  * bound (`SUPERVISOR_MAX_RUN_MIN` — past which the supervisor has already SIGKILLed the child)
  * plus the kill grace, never chosen. A refusal is a skipped tick, exit 0, logged at `info` with
- * the exact `lease-clear` command an operator needs (the same shape as `quota-paused`, J4.8, and
- * for the same reason — INV-10's spirit: a refusal costs the work nothing).
+ * the exact `lease-clear` command an operator needs (the same shape as `quota-paused` below, and
+ * for the same reason — INV-10's spirit: a refusal costs the work nothing). The lease wrapper is
+ * NOT gated on `job.exec` — a double-run is a hazard for every job shape, model or not.
+ *
+ * QTA-01/05 — the producer and the consumer of the account breaker, BOTH gated on
+ * `job.skill !== undefined`, NEVER on `job.exec === undefined`: `nightly-sandcastle` carries BOTH
+ * fields (skill for SKL-01/render, exec for D10's own dispatch above), and its `exec`
+ * (`execPass`) calls `runJob` internally — it is the one job in this repo that spawns a model, and
+ * an `exec`-keyed gate would exempt it from the very breaker it exists to protect. `skill` is what
+ * actually says "this job's run reaches an agent," in EITHER dispatch shape. A job with no skill
+ * at all (a purely deterministic `exec:` job, e.g. `ops-cron-check`) spawns no model, so it can
+ * neither hit a plan wall nor legitimately open one — ungated, it would be SKIPPED by a wall it
+ * could not have caused, and its own unrelated failure could OPEN one and park every job on the
+ * host (the reference's 2026-08-07 incident). The consumer refuses BEFORE the lease is even
+ * attempted — a wall costs the tick nothing, not even a claimed hour.
  */
 export async function runNamed(job: Job, deps: PassDeps): Promise<number> {
+  const spawnsAgent = job.skill !== undefined;
+
+  if (spawnsAgent && isPaused(QUOTA_SCOPE)) {
+    deps.log.info("quota-paused", { until: pausedUntil(QUOTA_SCOPE) ?? "" });
+    return 0; // a wall is a skipped tick, never a failure (INV-10)
+  }
+
   const hour = deps.now().toISOString().slice(0, 13); // "2026-08-26T22"
   const key = `${job.name}@${hour}`;
-  const got = await withLease(
-    "job",
-    key,
-    async () => {
-      if (job.exec !== undefined) {
-        await (job.exec as unknown as (deps: PassDeps) => Promise<void>)(deps);
-        return;
-      }
-      const result = await runJob(job, { runner: deps.runner, cwd: deps.root, logPath: deps.runLogPath(job.name) });
-      process.stderr.write(
-        `iterations=${result.iterations} commits=${result.commits.length} completionSignal=${result.completionSignal ?? "none"}\n`,
-      );
-    },
-    { ttlMs: SUPERVISOR_MAX_RUN_MIN * 60_000 + SUPERVISOR_KILL_GRACE_MS, maxAttempts: 3 },
-  );
-  if (!got.ran) {
-    deps.log.info("lease-held", {
+  try {
+    const got = await withLease(
+      "job",
       key,
-      reason: got.reason,
-      msg: `another run of ${job.name} owns this hour — \`npm run lease-clear -- job ${key}\` to release it`,
-    });
+      async () => {
+        if (job.exec !== undefined) {
+          await (job.exec as unknown as (deps: PassDeps) => Promise<void>)(deps);
+          return;
+        }
+        const result = await runJob(job, { runner: deps.runner, cwd: deps.root, logPath: deps.runLogPath(job.name) });
+        process.stderr.write(
+          `iterations=${result.iterations} commits=${result.commits.length} completionSignal=${result.completionSignal ?? "none"}\n`,
+        );
+      },
+      { ttlMs: SUPERVISOR_MAX_RUN_MIN * 60_000 + SUPERVISOR_KILL_GRACE_MS, maxAttempts: 3 },
+    );
+    if (!got.ran) {
+      deps.log.info("lease-held", {
+        key,
+        reason: got.reason,
+        msg: `another run of ${job.name} owns this hour — \`npm run lease-clear -- job ${key}\` to release it`,
+      });
+      return 0;
+    }
+    return 0;
+  } catch (e) {
+    const msg = errText(e);
+    if (!spawnsAgent || !isLimitError(msg)) throw e;
+    const until = pause(QUOTA_SCOPE, msg);
+    deps.log.warn("quota-parked", { until, class: limitClass(msg) });
     return 0;
   }
-  return 0;
 }
 
 // ---------------------------------------------------------------------------------------------

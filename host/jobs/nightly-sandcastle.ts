@@ -170,7 +170,7 @@ export function nextGoal(
 // kernel/runtime/log/tail.ts opens the store named "log", not one named "logtail").
 // ---------------------------------------------------------------------------------------------
 
-export const DB_NAMESPACES = ["nightly", "log", "lease"] as const;
+export const DB_NAMESPACES = ["nightly", "log", "lease", "quota"] as const;
 
 // ---------------------------------------------------------------------------------------------
 // The import smoke — this repo has no `tsx`; Node strips types natively. Measured on Node
