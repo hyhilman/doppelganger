@@ -302,6 +302,10 @@ test("3. every model literal is PINNED, across every quote spelling — includin
     [],
   );
   assert.ok(PINNED.test(DEFAULTS.model), `DEFAULTS.model itself must be PINNED, got ${JSON.stringify(DEFAULTS.model)}`);
+  assert.ok(
+    PINNED.test(DEFAULTS.shedModel),
+    `DEFAULTS.shedModel itself must be PINNED (J4.9, ruling 8) — a downshift target held to a looser rule than model would defeat HRN-11, got ${JSON.stringify(DEFAULTS.shedModel)}`,
+  );
 });
 
 test("4. no model literal is an ALIAS — including DEFAULTS.model itself", () => {
@@ -314,6 +318,10 @@ test("4. no model literal is an ALIAS — including DEFAULTS.model itself", () =
   assert.ok(
     !ALIASES.some((re) => re.test(DEFAULTS.model)),
     `DEFAULTS.model itself must not match an alias pattern, got ${JSON.stringify(DEFAULTS.model)}`,
+  );
+  assert.ok(
+    !ALIASES.some((re) => re.test(DEFAULTS.shedModel)),
+    `DEFAULTS.shedModel itself must not match an alias pattern (J4.9), got ${JSON.stringify(DEFAULTS.shedModel)}`,
   );
 });
 

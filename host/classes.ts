@@ -1,0 +1,32 @@
+// J4.9 (QTA-08) — the host's own value-class vocabulary. `kernel/runtime/shed.ts`'s `decideShed`
+// is pure and knows only the three class NAMES; this file is the one place that says which real
+// job is which class, because a kernel module naming "nightly-sandcastle" would import the host's
+// vocabulary, which D1 forbids — the same call §5 Q1 already made for gate resources: the host
+// names its own things.
+import type { JobClass } from "../kernel/runtime/shed.ts";
+
+/** A job whose failure to run tonight costs nothing but a delay — SKIPPED outright under a recent
+ *  spend wall (QTA-08). A value-class decision, not a refactor: host/classes.test.ts pins this
+ *  exact list, so widening it is a deliberate edit, never a drive-by. */
+export const CHORE: readonly string[] = ["nightly-sandcastle"];
+
+/** A job with a human waiting on its output — NEVER skipped, NEVER downshifted. Empty at N4:
+ *  nothing in this repo has a human waiting on it yet. The empty list is a CHECKED claim
+ *  (host/classes.test.ts test 9), not a placeholder — the first review-class job forces an
+ *  explicit choice here, the same call host/config.ts made for `REFRESH_WINDOW = null`. */
+export const REVIEW: readonly string[] = [];
+
+/** Everything else — downshifted under a recent spend wall, never skipped. Empty at N4; filled in
+ *  by J4.12 (`ops-cron-check`) and J4.14 (`watchdog.sh`) — pinned here first, before either entry
+ *  exists, so the three-way split's SHAPE (host/classes.test.ts test 9) is fixed in advance. */
+export const WATCH: readonly string[] = [];
+
+/** An unlisted name defaults to `"watch"` — the safe default: never skipped, downshifted like
+ *  every other job not explicitly waiting on a human. Called from two places that must agree only
+ *  by convention (host/classes.test.ts test 11): `host/supervisor.ts`'s `realShouldShed` (J4.10)
+ *  hands it `programOf(e)`, `host/run.ts`'s `runNamed` (J4.10) hands it `job.name` directly. */
+export function classOf(name: string): JobClass {
+  if (CHORE.includes(name)) return "chore";
+  if (REVIEW.includes(name)) return "review";
+  return "watch";
+}

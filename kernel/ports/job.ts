@@ -30,9 +30,20 @@ export type PermissionMode = (typeof PERMISSION_MODES)[number];
 
 /** HRN-01: ONE place. `model` is a pinned version, never a floating alias (HRN-11) — test/model.ts
  *  (J3.10) scans the whole repo for every OTHER model literal, so this is the one that is allowed
- *  to exist. */
-export const DEFAULTS: { readonly model: string; readonly effort: Effort; readonly permissionMode: PermissionMode } = {
+ *  to exist.
+ *
+ *  `shedModel` (J4.9, ruling 8, QTA-08) is the downshift target `kernel/runtime/shed.ts`'s
+ *  `shedModel()` moves an opus request to under a recent spend wall — it lives HERE, not in
+ *  shed.ts, for the same reason `model` does: one place, held to the same PINNED/ALIAS rules
+ *  (test/model.test.ts tests 3/4), so a downshift can never land on a floating alias either. */
+export const DEFAULTS: {
+  readonly model: string;
+  readonly shedModel: string;
+  readonly effort: Effort;
+  readonly permissionMode: PermissionMode;
+} = {
   model: "claude-opus-5",
+  shedModel: "claude-sonnet-5",
   effort: "high",
   permissionMode: "bypassPermissions",
 };

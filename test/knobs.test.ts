@@ -38,6 +38,7 @@ import {
   QUOTA_PAUSE_MS_FAMILY_ENV,
   QUOTA_DARK_GAP_MS_ENV,
 } from "../kernel/runtime/quota.ts";
+import { QUOTA_SHED_WINDOW_MS_ENV } from "../kernel/runtime/shed.ts";
 import {
   NIGHTLY_NO_SANDCASTLE_ENV,
   NIGHTLY_SANDCASTLE_BASE_ENV,
@@ -208,6 +209,12 @@ const ROWS: readonly RowMeta[] = [
     spec: QUOTA_DARK_GAP_MS_ENV,
     file: "kernel/runtime/quota.ts",
     constName: "QUOTA_DARK_GAP_MS_ENV",
+    readers: ["envNum"],
+  },
+  {
+    spec: QUOTA_SHED_WINDOW_MS_ENV,
+    file: "kernel/runtime/shed.ts",
+    constName: "QUOTA_SHED_WINDOW_MS_ENV",
     readers: ["envNum"],
   },
   {
@@ -397,6 +404,10 @@ test("5. every defaulted row's default is the value you get, resolved in a scrub
   assert.equal(
     scrubbedChild("import('./host/supervisor.ts').then(m=>console.log(m.SUPERVISOR_DRAIN_MS))"),
     "30000",
+  );
+  assert.equal(
+    scrubbedChild("import('./kernel/runtime/shed.ts').then(m=>console.log(m.SHED_WINDOW_MS()))"),
+    "86400000",
   );
   // INSTANCE, ENGINE_ROOT and <NAME>_DB carry no `default` — two have computed fallbacks (a
   // basename, cwd), one is a family with no single value — so they are skipped here by name.

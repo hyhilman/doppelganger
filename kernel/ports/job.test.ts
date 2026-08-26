@@ -41,16 +41,16 @@ test("2. skillOf returns name when skill is absent, and skill when present", () 
   assert.equal(skillOf(withoutSkill), "nightly-x");
 });
 
-test("3. DEFAULTS.model is the file's only model literal, across every quote spelling", () => {
+test("3. DEFAULTS.model and DEFAULTS.shedModel are the file's only model literals, across every quote spelling (J4.9, ruling 8)", () => {
   const src = readFileSync(fileURLToPath(new URL("./job.ts", import.meta.url)), "utf8");
   const re = /(["'`])claude-[^"'`]*\1/g;
   const matches = [...src.matchAll(re)].map((m) => m[0]);
   assert.equal(
     matches.length,
-    1,
-    `expected exactly one model literal in job.ts, found ${matches.length}: ${matches.join(", ")}`,
+    2,
+    `expected exactly two model literals in job.ts (DEFAULTS.model, DEFAULTS.shedModel), found ${matches.length}: ${matches.join(", ")}`,
   );
-  assert.equal(matches[0], `"${DEFAULTS.model}"`);
+  assert.deepEqual(matches, [`"${DEFAULTS.model}"`, `"${DEFAULTS.shedModel}"`]);
 });
 
 test("4. DEFAULTS.permissionMode is a member of PERMISSION_MODES, which excludes plan/acceptEdits/default (HRN-07)", () => {
