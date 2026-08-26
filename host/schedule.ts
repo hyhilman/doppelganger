@@ -14,7 +14,14 @@
 // build the thing now, so the interface lives here and moves to the port at N5 UNCHANGED — the
 // same call N1 made for EnvSpec (KRN-06): ship the shape the port will carry, in the module that
 // needs it, and re-home it later without rewriting it.
+import { existsSync } from "node:fs";
+import { isAbsolute, join, sep } from "node:path";
 import type { Mode } from "../kernel/runtime/gate.ts";
+import { projectPath, ROOT } from "../kernel/paths.ts";
+import { stageOf, MISC, STAGES } from "../kernel/stages.ts";
+import { LOG_ROOTS } from "../kernel/runtime/log/tail.ts";
+import { RESOURCE_NAMES, REFRESH_WINDOW, type RefreshWindow } from "./config.ts";
+import { parseFive } from "./cron.ts";
 
 export interface ScheduleEntry {
   readonly name: string;
@@ -81,3 +88,163 @@ export const supervisedEntries = (s: readonly ScheduleEntry[] = SCHEDULE): reado
 /** The complement: entries the crontab bootstrap block times directly (SUP-08). */
 export const bootstrapEntries = (s: readonly ScheduleEntry[] = SCHEDULE): readonly ScheduleEntry[] =>
   s.filter((e) => e.supervised === false);
+
+/**
+ * The one-line shell command a `supervised: false` entry renders into the crontab bootstrap block
+ * (SUP-08, `cli/crontab.ts`, J2.15) — exported so validate()'s rule 23 and the crontab renderer
+ * never spell it twice. Deterministic and pure: no path is resolved here beyond the already-
+ * computed `ROOT` constant.
+ */
+export function commandOf(e: ScheduleEntry): string {
+  const target = e.job !== undefined ? `host/jobs/${e.job}.ts` : (e.script ?? "");
+  return `cd ${ROOT} && node ${target} >> ${e.log} 2>&1`;
+}
+
+/** A `%` not preceded by `\` — cron reads an unescaped `%` as a newline, and everything after it
+ *  becomes the command's stdin (rule 23). */
+const UNESCAPED_PERCENT = /(?<!\\)%/;
+
+export interface ValidateOpts {
+  readonly programs?: Readonly<Record<string, Program>>;
+  readonly resourceNames?: readonly string[];
+  readonly refreshWindow?: RefreshWindow | null;
+  readonly logRoots?: readonly string[];
+  readonly jobsDir?: string;
+  readonly root?: string;
+}
+
+/**
+ * SUP-05: the boot gate. Collects every fault over every entry (SUPERVISED OR NOT — the
+ * bootstrap-only ones need checking too, since crontab check calls this) and throws ONCE, each
+ * line naming its entry. `opts` defaults to the real values, computed HERE rather than at module
+ * scope (J2.3 door 6), so a caller writes `validate()` and a test writes
+ * `validate([e], { logRoots: [tmp] })`.
+ *
+ * `validate([])` does not throw (host/validate.test.ts test 1) — an empty schedule is valid BY
+ * DECISION, not by the absence of a subject to check.
+ */
+export function validate(entries: readonly ScheduleEntry[] = SCHEDULE, opts: ValidateOpts = {}): void {
+  const {
+    programs = PROGRAMS,
+    resourceNames = RESOURCE_NAMES,
+    refreshWindow = REFRESH_WINDOW,
+    logRoots = LOG_ROOTS,
+    jobsDir = projectPath("host/jobs"),
+    root = ROOT,
+  } = opts;
+
+  const errs: string[] = [];
+  const err = (name: string, msg: string): void => {
+    errs.push(`entry "${name}": ${msg}`);
+  };
+
+  const seenNames = new Set<string>();
+  let sawBootstrap = false;
+
+  for (const e of entries) {
+    // 1. duplicate name
+    if (seenNames.has(e.name)) err(e.name, "duplicate name");
+    seenNames.add(e.name);
+
+    // 2. stage prefix (SUP-20)
+    if (stageOf(e.name) === MISC) {
+      err(e.name, `name carries no known stage prefix (SUP-20): one of ${STAGES.join(", ")}`);
+    }
+
+    // 3/4. cron shape and grammar
+    const cronFields = e.cron.trim().split(/\s+/);
+    if (cronFields.length !== 5) {
+      err(e.name, `cron must be exactly 5 whitespace-separated fields, got ${cronFields.length}: ${JSON.stringify(e.cron)}`);
+    } else {
+      const pr = parseFive(e.cron);
+      if (!pr.ok) for (const p of pr.problems) err(e.name, `cron: ${p}`);
+    }
+
+    // 5/6. log absolute, and under a known root
+    if (!isAbsolute(e.log)) {
+      err(e.name, `log must be an absolute path: ${JSON.stringify(e.log)}`);
+    } else if (!logRoots.some((r) => e.log === r || e.log.startsWith(r + sep))) {
+      err(e.name, `log ${JSON.stringify(e.log)} is not under a known log root (SUP-18): [${logRoots.join(", ")}]`);
+    }
+
+    // 7. why non-empty
+    if (e.why.trim().length === 0) err(e.name, "why must be non-empty");
+
+    // 8/9. exactly one of job/script
+    if (e.job !== undefined && e.script !== undefined) err(e.name, "both job and script are set");
+    if (e.job === undefined && e.script === undefined) err(e.name, "neither job nor script is set");
+
+    // 10. job file exists
+    if (e.job !== undefined) {
+      const p = join(jobsDir, `${e.job}.ts`);
+      if (!existsSync(p)) err(e.name, `job file does not exist: ${p}`);
+    }
+
+    // 11/12. script exists, and is project-relative
+    if (e.script !== undefined) {
+      if (isAbsolute(e.script)) {
+        err(e.name, `script must be project-relative, not absolute (INS-02): ${JSON.stringify(e.script)}`);
+      } else {
+        const p = join(root, e.script);
+        if (!existsSync(p)) err(e.name, `script does not exist: ${p}`);
+      }
+    }
+
+    // 13. maxRunMin > 0
+    if (e.maxRunMin !== undefined && !(e.maxRunMin > 0)) {
+      err(e.name, `maxRunMin must be > 0, got ${e.maxRunMin}`);
+    }
+
+    // 14-20: the program row
+    const program = programs[programOf(e)];
+    if (!program) {
+      err(e.name, `no PROGRAMS row for program ${JSON.stringify(programOf(e))}`);
+    } else {
+      if (program.resources) {
+        for (const r of program.resources) {
+          if (!resourceNames.includes(r)) {
+            err(e.name, `program ${JSON.stringify(programOf(e))} names unknown resource ${JSON.stringify(r)}`);
+          }
+        }
+      }
+      if (program.gate === "shared" && program.resources !== undefined) {
+        err(e.name, `program ${JSON.stringify(programOf(e))}: gate "shared" must not set resources — a reader takes all`);
+      }
+      if (program.gate === "none" && (!program.whyNoGate || program.whyNoGate.trim().length === 0)) {
+        err(e.name, `program ${JSON.stringify(programOf(e))}: gate "none" requires a non-empty whyNoGate (GAT-07)`);
+      }
+      if (typeof program.dotenv !== "boolean") {
+        err(e.name, `program ${JSON.stringify(programOf(e))}: dotenv must be a boolean`);
+      }
+      if (e.gateWait && program.gate === "none") {
+        err(e.name, `gateWait is set but program ${JSON.stringify(programOf(e))} has gate "none" — nothing to wait for`);
+      }
+      if (e.clearsRefreshWindow && program.gate === "none") {
+        err(e.name, `clearsRefreshWindow is set but program ${JSON.stringify(programOf(e))} has gate "none" — it blocks nothing`);
+      }
+    }
+
+    // 21. clearsRefreshWindow needs a real window
+    if (e.clearsRefreshWindow && refreshWindow === null) {
+      err(e.name, "clearsRefreshWindow is set but host/config.ts's REFRESH_WINDOW is null — there is nothing to clear");
+    }
+
+    // 22. at most one supervised: false (SUP-09 says exactly one; an empty schedule has zero)
+    if (e.supervised === false) {
+      if (sawBootstrap) {
+        err(e.name, "more than one entry sets supervised: false (SUP-09) — at most one is allowed");
+      }
+      sawBootstrap = true;
+
+      // 23. unescaped % in the rendered bootstrap command
+      const cmd = commandOf(e);
+      if (UNESCAPED_PERCENT.test(cmd)) {
+        err(e.name, `rendered bootstrap command contains an unescaped % (SUP-08): ${JSON.stringify(cmd)}`);
+      }
+    }
+  }
+
+  if (errs.length > 0) {
+    throw new Error(`host/schedule.ts is invalid:\n  - ${errs.join("\n  - ")}`);
+  }
+}

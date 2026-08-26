@@ -251,17 +251,22 @@ letters and nothing else.
   append child stdout/stderr to the entry's `log:` → release.
 - **SUP-04** `dotenv: false` is load-bearing: a knob reachable only from an `env:` prefix on the entry.
 - **SUP-05** `validate()` on **every boot** and every render, over every entry incl. unsupervised:
-  duplicate name · non-5-field cron · relative `log` · empty `why` · both `job` and `script` ·
-  neither · missing `src/jobs/<job>.ts` · missing script on disk · no `PROGRAMS` row · writer naming
-  an unknown resource · reader naming resources · `gateWait` on an ungated program ·
-  `clearsRefreshWindow` on an ungated program · unescaped `%` in a bootstrap command.
+  duplicate name · non-5-field cron · relative `log` · **`log` not under one of the two log roots
+  (SUP-18, added at J2.9)** · empty `why` · both `job` and `script` · neither · missing
+  `src/jobs/<job>.ts` · missing script on disk · no `PROGRAMS` row · writer naming an unknown
+  resource · reader naming resources · `gateWait` on an ungated program · `clearsRefreshWindow` on
+  an ungated program · **`clearsRefreshWindow` while the refresh window is `null` (added at J2.9,
+  N2 ships no live window)** · **`gate: "none"` with no non-empty `whyNoGate` (GAT-07, added at
+  J2.9)** · unescaped `%` in a bootstrap command.
 - **SUP-06** A boot refusal is loud: restart loop + watchdog reports within 15 min.
 - **SUP-07** Croner-vs-POSIX parity test over every expression across a fixed 14-day window.
 - **SUP-08** Bootstrap crontab block: `render` / `sync` / `check` / `sync --adopt`; managed markers;
   foreign lines untouched; duplicate detection refuses a plain splice. Markers are per-INSTANCE
   (INS-03) — the crontab is the one host-global surface two checkouts cannot avoid sharing.
 - **SUP-09** `supervised: false` — exactly one entry (the watchdog), because a liveness probe
-  scheduled by the process it probes reports nothing in the case that matters.
+  scheduled by the process it probes reports nothing in the case that matters. **`validate()`'s
+  enforceable form is "at most one" (reworded at J2.9): an empty schedule has zero, and "exactly
+  one" would refuse the state N2 ships in.**
 - **SUP-10** Refresh window stated ONCE (`inRefreshWindow`); `clearsRefreshWindow: true` drops a
   firing before the self-lock and before the gate.
 - **SUP-11** The flag bounds where a pass may **start**, never how long it **runs** — long passes
