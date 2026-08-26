@@ -1,15 +1,16 @@
 // J0.10 (SKL-01, SKL-03, SKL-04, SKL-06, SKL-07, SKL-08, SUP-20) — gate the worked example.
 //
 // The nightly-sandcastle skill already landed (plugins/nightly/skills/nightly-sandcastle/
-// and its rendered .claude/skills/ copy). N0 does not build the `skills render|sync|check`
-// CLI — that is N3 (SKL-04, TST-23). This file writes the pure render(source) function as a
-// local helper and asserts it against the one entry on disk. N3 moves it into cli/ unchanged
-// and adds the verbs around it.
+// and its rendered .claude/skills/ copy). N0 did not build the `skills render|sync|check`
+// CLI — that is N3 (SKL-04, TST-23, cli/skills.ts, J3.7), which is why `render` is imported
+// from there now rather than defined here a second time: a second copy of a render function
+// is drift with two authors (J3.7's own module header).
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync, readdirSync, lstatSync } from "node:fs";
 import { join } from "node:path";
+import { render } from "../cli/skills.ts";
 
 const ROOT = new URL("..", import.meta.url).pathname.replace(/\/$/, "");
 const JOB_NAME = "nightly-sandcastle";
@@ -17,26 +18,6 @@ const SOURCE_DIR = `plugins/nightly/skills/${JOB_NAME}`;
 const SOURCE_FILE = `${SOURCE_DIR}/SKILL.md`;
 const RENDERED_DIR = `.claude/skills/${JOB_NAME}`;
 const RENDERED_FILE = `${RENDERED_DIR}/SKILL.md`;
-
-// render(source) = frontmatter block, byte for byte + the two managed marker lines + the
-// rest of the source file, byte for byte. §5 Q0's render rule, restated as code.
-function render(sourceText: string, srcDirPosix: string): string {
-  const firstDelim = "---\n";
-  if (!sourceText.startsWith(firstDelim)) {
-    throw new Error("source does not start with a --- frontmatter delimiter");
-  }
-  const closeIndex = sourceText.indexOf("\n---\n", firstDelim.length - 1);
-  if (closeIndex === -1) {
-    throw new Error("source has no closing --- frontmatter delimiter");
-  }
-  const frontmatterEnd = closeIndex + "\n---\n".length;
-  const frontmatterBlock = sourceText.slice(0, frontmatterEnd);
-  const rest = sourceText.slice(frontmatterEnd);
-  const marker1 = `<!-- managed:doppelganger-skills v=1 src=${srcDirPosix} -->\n`;
-  const marker2 =
-    "<!-- rendered by `skills render` — do not edit; edit the source and re-render (SKL-04) -->\n";
-  return frontmatterBlock + marker1 + marker2 + rest;
-}
 
 // A key: value frontmatter reader, not a YAML parser. A skill whose frontmatter needs more
 // than this is a skill to simplify.

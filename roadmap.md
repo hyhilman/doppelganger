@@ -1141,13 +1141,16 @@ unattended pass and by a human at a terminal, under ONE name.
   `^<!-- managed:doppelganger-skills v=(\d+) src=(\S+) -->$`, so the filesystem answers "did we
   create this?" with no second store to keep in sync. Given that: an entry whose marker matches is
   OURS; anything else (no `SKILL.md`, or one without that line) is FOREIGN and never touched, never
-  overwritten, never counted as drift. `check` reports five findings: **missing** (a registered job
+  overwritten, never counted as drift. `check` reports six findings: **missing** (a registered job
   with no rendered file), **drift** (the bytes differ from `render(source)`), **orphan** (an OURS
   entry not named by a registered job), **collision** (a FOREIGN entry occupying a registered job's
-  name), **stray** (an OURS directory holding anything but `SKILL.md`). `sync` REMOVES an orphan
-  and REFUSES a stray or a collision rather than guessing. SKL-06 only DETECTS the orphan — without
-  this row, deleting a job leaves a red build and a manual `rm`, which is housekeeping the tool
-  declined to do.
+  name), **stray** (an OURS directory holding anything but `SKILL.md`), **source-missing** (a
+  registered job whose plugin-owned source file, `plugins/<x>/skills/<name>/SKILL.md`, is gone).
+  The sixth exists because the first five do not cover a missing SOURCE — without it, `check` would
+  report `missing` and `sync` would then throw a raw `ENOENT` reading a file that is not there
+  (J3.7). `sync` REMOVES an orphan and REFUSES a stray, a collision or a source-missing rather than
+  guessing. SKL-06 only DETECTS the orphan — without this row, deleting a job leaves a red build and
+  a manual `rm`, which is housekeeping the tool declined to do.
 
 ---
 
