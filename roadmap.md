@@ -177,8 +177,9 @@ letters and nothing else.
   and capped at 30 min; otherwise a contended tick SKIPS.
 - **GAT-09** Never hand-pick a wait: a blocked pass holds its self-lock, so the ticks it waits
   through are the ticks it forces to skip.
-- **GAT-10** Lock-starve visibility: `lockloss:<job>` counters, `BACKLOG_LOCK_STARVE_N`, plus a
-  per-job raised threshold (`_N_TODO_EXEC`).
+- **GAT-10** Lock-starve visibility: `lockloss:<job>` counters, `LOCK_STARVE_N`, plus a
+  per-job raised threshold (`_N_TODO_EXEC`). **Renamed from `BACKLOG_LOCK_STARVE_N` at J2.12**: the
+  `BACKLOG_` prefix is a pipeline stage name, and this is a property of the GATE, not the backlog.
 
 ### 2.4 Runtime — leases (`LSE`)
 
@@ -976,14 +977,14 @@ Every knob in the reference, to be re-homed as `EnvSpec` rows on the owning plug
 - **Core/paths**: `INSTANCE`, `XENITH_ROOT`(→`ENGINE_ROOT`), `XENITH_TRACKER`(→`ENGINE_TRACKER`),
   `ENGINE_ROLE`, `ENGINE_VERSION`, `ENGINE_STATE_DIR`, `BROKER_SOCK`, `<NAME>_DB`,
   `SQLITE_BUSY_TIMEOUT_MS`, `SUPERVISOR_MAX_RUN_MIN`, `LOG_LEVEL`, `EXEC_TIMEOUT_MS`,
-  `GATE_WAIT_CAP_S`, `SUPERVISOR_KILL_GRACE_MS`, `SUPERVISOR_SPAWN_STAGGER_MS`.
+  `GATE_WAIT_CAP_S`, `SUPERVISOR_KILL_GRACE_MS`, `SUPERVISOR_SPAWN_STAGGER_MS`, `LOCK_STARVE_N`,
+  `LOCK_STARVE_N_<JOB>`.
 - **Switch/pipeline**: `SWITCH_MAX_BATCH`, `SWITCH_DRY_RUN`, `INTENT_MODEL`, `STEP_CAP_ROUTE`,
   `STEP_CAP_WATCH`, `STEP_CAP_BRIEF`, `STEP_CAP_DEFAULT`, `BACKLOG_DB`.
 - **Brief**: `BRIEF_MODE`, `BRIEF_CAP`, `BRIEF_READ_CAP`, `BRIEF_DRY_RUN`, `SLACK_WEEKLY_DRY_RUN`.
 - **Health**: `SWITCH_STALE_H`, `SLACK_FETCH_STALE_H`, `BACKLOG_STUCK_H`, `BACKLOG_UNKNOWN_MAX`,
   `BACKLOG_UNTRIAGED_AGE_H`, `BACKLOG_BREACH_COOLDOWN_H`, `BACKLOG_OK_EVERY_H`, `BACKLOG_DLQ_MAX`,
-  `BACKLOG_DARK_H`, `BACKLOG_LOCK_STARVE_N`, `BACKLOG_LOCK_STARVE_N_TODO_EXEC`,
-  `BACKLOG_HEALTH_DRY_RUN`, `LOG_REPORT_STALE_M`.
+  `BACKLOG_DARK_H`, `BACKLOG_HEALTH_DRY_RUN`, `LOG_REPORT_STALE_M`.
 - **Log report**: `LOG_REPORT_COOLDOWN_M`, `LOG_REPORT_MAX_KEYS`, `LOG_MAX_BYTES`,
   `LOG_MAX_READ_BYTES`, `LOG_REPORT_DRY_RUN`, `LOG_DB`.
 - **Slack**: `SLACK_NOTIFY`, `SLACK_CHANNEL`, `SLACK_DB`, `SLACK_FETCH_LIMIT`,

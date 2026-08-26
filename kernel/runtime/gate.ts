@@ -61,6 +61,14 @@
 // `ResourceInternal` (this file's per-resource state) is never exported; `state()` is the only view
 // a caller gets, which is what makes the exhaustive tests a test of the CONTRACT rather than of the
 // internals.
+//
+// GAT-10, lock-starve visibility, DECLINED IN PART. What is real at N2 is the LINE SHAPE the
+// counter reads (`lock-held`, with `job=` carrying the PROGRAM — J2.11's own choice, restated
+// here because it is what makes this row work at all: emitting the entry name would split one
+// counter N ways) and the THRESHOLD it is compared against (`starveThreshold`, below). The counter
+// itself — `lockloss:<job>` — is written by `ops-log-report` (JOB-O02, N5), which does not exist
+// yet; declined here rather than built with no consumer to argue with (D9).
+import { envDynamic, envNum, type EnvSpec } from "../config.ts";
 
 export type Mode = "shared" | "excl";
 
@@ -283,4 +291,33 @@ export function createGate(names: readonly string[]): Gate {
     selfHeld: (key: string) => selfSet.has(key),
     state,
   };
+}
+
+export const LOCK_STARVE_N_ENV: EnvSpec = {
+  key: "LOCK_STARVE_N",
+  default: "6",
+  why: "consecutive lock-held skips before a job counts as starved at the gate (GAT-10)",
+};
+
+export const LOCK_STARVE_FAMILY_ENV: EnvSpec = {
+  key: "LOCK_STARVE_N_<JOB>",
+  why: "raise the starve threshold for one job whose cadence makes 6 skips normal (GAT-10)",
+};
+
+/**
+ * The per-job lock-starve threshold: `LOCK_STARVE_N_<JOB>` (the job's name, uppercased, hyphens to
+ * underscores) if set, else the base `LOCK_STARVE_N` (default 6). A non-numeric override throws
+ * naming the key and the value — a silent fallback here is exactly the 3am class N1 rejected.
+ */
+export function starveThreshold(job: string): number {
+  const familyKey = `LOCK_STARVE_N_${job.toUpperCase().replace(/-/g, "_")}`;
+  const raw = envDynamic(familyKey);
+  if (raw === undefined) return envNum(LOCK_STARVE_N_ENV);
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n < 0) {
+    throw new Error(
+      `${familyKey}: not a non-negative number: ${JSON.stringify(raw)} — ${LOCK_STARVE_FAMILY_ENV.why}`,
+    );
+  }
+  return n;
 }

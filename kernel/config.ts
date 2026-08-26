@@ -73,8 +73,17 @@ export function envNum(spec: EnvSpec): number {
 
 export const errText = (e: unknown): string => (e instanceof Error ? e.message : String(e));
 
-/** `FOO_BAR`, or the one documented family form `<NAME>_DB`. */
+/** `FOO_BAR`. */
 const KEY_RE = /^[A-Z][A-Z0-9_]*$/;
+
+/**
+ * A knob FAMILY row — no single key a reader can resolve directly, so the row's own `key` carries
+ * exactly one `<PLACEHOLDER>` marking where the variable part goes: `<NAME>_DB` (DBS-07),
+ * `LOCK_STARVE_N_<JOB>` (GAT-10). Generalised from the first family (J2.12) rather than
+ * special-cased per family — KRN-06 (roadmap.md Gaps item 4) still cannot express a family as a
+ * single readable key; this is the shape check's half of the workaround.
+ */
+const FAMILY_KEY_RE = /^[A-Z0-9_]*<[A-Z]+>[A-Z0-9_]*$/;
 
 /**
  * The rule every real `EnvSpec` row must satisfy: key shape, a one-line non-empty `why`, and never
@@ -83,8 +92,8 @@ const KEY_RE = /^[A-Z][A-Z0-9_]*$/;
  */
 export function assertSpecShape(rows: readonly EnvSpec[]): void {
   for (const row of rows) {
-    if (!KEY_RE.test(row.key) && row.key !== "<NAME>_DB") {
-      throw new Error(`EnvSpec ${row.key}: key must match ${KEY_RE} or be the <NAME>_DB family`);
+    if (!KEY_RE.test(row.key) && !FAMILY_KEY_RE.test(row.key)) {
+      throw new Error(`EnvSpec ${row.key}: key must match ${KEY_RE} or a <PLACEHOLDER> family form`);
     }
     if (row.why.length === 0 || row.why.includes("\n")) {
       throw new Error(`EnvSpec ${row.key}: why must be one non-empty line`);

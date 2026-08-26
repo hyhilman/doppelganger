@@ -8,9 +8,11 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { createGate, type Mode } from "./gate.ts";
+import { spawnSync } from "node:child_process";
+import { createGate, type Mode, starveThreshold } from "./gate.ts";
 
 const NAMES = ["a", "b", "c"] as const;
+const ROOT = new URL("../..", import.meta.url).pathname.replace(/\/$/, "");
 
 interface Req {
   readonly mode: Mode;
@@ -386,4 +388,79 @@ test("19. mixed reader/writer liveness across multiple resources, three parties,
   const reader2 = await reader2Promise;
   assert.ok(reader2, "the second reader must get in once the writer releases");
   reader2!.release();
+});
+
+// -------------------------------------------------------------------------------------------
+// J2.12 (GAT-10) — lock-starve visibility: the threshold half. The COUNTER (lockloss:<job>) is
+// JOB-O02's (N5); these tests cover starveThreshold, the pure resolver its threshold comes from.
+// -------------------------------------------------------------------------------------------
+
+function scrubbedChild(code: string, env: Record<string, string> = {}): string {
+  const r = spawnSync(process.execPath, ["-e", code], {
+    cwd: ROOT,
+    env: { PATH: process.env.PATH ?? "", ...env },
+    encoding: "utf8",
+  });
+  assert.equal(r.status, 0, `child failed: ${r.stderr}`);
+  return r.stdout.trim();
+}
+
+test("20. starveThreshold defaults to 6", () => {
+  // A scrubbed child, not process.env manipulation in-process: starveThreshold reads its env
+  // DYNAMICALLY, per call (unlike LOG_LEVEL, which a module resolves once at import) — so this
+  // check does not strictly need a child process to observe the default. It uses one anyway so
+  // this assertion never depends on running before, or cleaning up after, this same file's other
+  // tests, which do set LOCK_STARVE_N and LOCK_STARVE_N_TODO_EXEC directly on process.env.
+  const out = scrubbedChild(
+    "import('./kernel/runtime/gate.ts').then(m=>console.log(m.starveThreshold('nightly-sandcastle')))",
+  );
+  assert.equal(out, "6");
+});
+
+test("21. LOCK_STARVE_N moves every job's threshold", () => {
+  const prev = process.env.LOCK_STARVE_N;
+  process.env.LOCK_STARVE_N = "9";
+  try {
+    assert.equal(starveThreshold("nightly-sandcastle"), 9);
+    assert.equal(starveThreshold("todo-exec"), 9);
+  } finally {
+    if (prev === undefined) delete process.env.LOCK_STARVE_N;
+    else process.env.LOCK_STARVE_N = prev;
+  }
+});
+
+test("22. LOCK_STARVE_N_TODO_EXEC moves only todo-exec", () => {
+  const prev = process.env.LOCK_STARVE_N_TODO_EXEC;
+  process.env.LOCK_STARVE_N_TODO_EXEC = "72";
+  try {
+    assert.equal(starveThreshold("todo-exec"), 72);
+    assert.equal(starveThreshold("nightly-sandcastle"), 6, "an unrelated job must stay at the base threshold");
+  } finally {
+    if (prev === undefined) delete process.env.LOCK_STARVE_N_TODO_EXEC;
+    else process.env.LOCK_STARVE_N_TODO_EXEC = prev;
+  }
+});
+
+test("23. the hyphen-to-underscore mapping is exact", () => {
+  const impossibleKey = "LOCK_STARVE_N_TODO-EXEC"; // no real shell can set a name with a hyphen
+  const env = process.env as Record<string, string | undefined>;
+  const prev = env[impossibleKey];
+  env[impossibleKey] = "999";
+  try {
+    assert.equal(starveThreshold("todo-exec"), 6, "a hyphenated env name must never be read");
+  } finally {
+    if (prev === undefined) delete env[impossibleKey];
+    else env[impossibleKey] = prev;
+  }
+});
+
+test("24. a non-numeric override throws naming the key and the value", () => {
+  const prev = process.env.LOCK_STARVE_N_TODO_EXEC;
+  process.env.LOCK_STARVE_N_TODO_EXEC = "lots";
+  try {
+    assert.throws(() => starveThreshold("todo-exec"), /LOCK_STARVE_N_TODO_EXEC.*"lots"/);
+  } finally {
+    if (prev === undefined) delete process.env.LOCK_STARVE_N_TODO_EXEC;
+    else process.env.LOCK_STARVE_N_TODO_EXEC = prev;
+  }
 });

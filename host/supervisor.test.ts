@@ -547,3 +547,21 @@ test("15. a real child, once", async () => {
   assert.match(content, /hi/);
   assert.match(content, /bad/);
 });
+
+test("16. GAT-10: job= is the PROGRAM, not the entry — splitting the counter would disarm the alarm", async () => {
+  const h = makeHarness(undefined, () => {});
+  const releaseSelf = h.deps.gate.acquireSelf("todo-triage");
+  assert.ok(releaseSelf);
+  const eWeekday = entry({ name: "todo-triage-weekday", job: "todo-triage" });
+  const eWeekend = entry({ name: "todo-triage-weekend", job: "todo-triage" });
+  const deps = { ...h.deps, programs: { "todo-triage": program() } };
+  const { lines } = await withLog(async () => {
+    await runEntry(eWeekday, deps);
+    await runEntry(eWeekend, deps);
+  });
+  const lockHeld = lines.filter((l) => l.event === "lock-held" && l.fields.mode === "self");
+  assert.equal(lockHeld.length, 2, "both entries must lose the self-lock");
+  assert.equal(lockHeld[0]!.job, "todo-triage");
+  assert.equal(lockHeld[1]!.job, "todo-triage");
+  releaseSelf();
+});

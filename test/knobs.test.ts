@@ -17,6 +17,7 @@ import { assertSpecShape, type EnvSpec } from "../kernel/config.ts";
 import { INSTANCE_ENV } from "../kernel/instance.ts";
 import { ENGINE_ROOT_ENV, STATE_DIR_ENV, NAME_DB_ENV } from "../kernel/paths.ts";
 import { BUSY_TIMEOUT_ENV } from "../kernel/runtime/db.ts";
+import { LOCK_STARVE_N_ENV, LOCK_STARVE_FAMILY_ENV } from "../kernel/runtime/gate.ts";
 import { LOG_LEVEL_ENV } from "../kernel/runtime/log/emit.ts";
 import { LOG_MAX_BYTES_ENV, LOG_MAX_READ_BYTES_ENV } from "../kernel/runtime/log/tail.ts";
 import { EXEC_TIMEOUT_MS_ENV } from "../kernel/runtime/exec.ts";
@@ -68,6 +69,18 @@ const ROWS: readonly RowMeta[] = [
   { spec: STATE_DIR_ENV, file: "kernel/paths.ts", constName: "STATE_DIR_ENV", readers: ["envStr"] },
   { spec: NAME_DB_ENV, file: "kernel/paths.ts", constName: "NAME_DB_ENV", readers: [] },
   { spec: BUSY_TIMEOUT_ENV, file: "kernel/runtime/db.ts", constName: "BUSY_TIMEOUT_ENV", readers: ["envNum"] },
+  {
+    spec: LOCK_STARVE_N_ENV,
+    file: "kernel/runtime/gate.ts",
+    constName: "LOCK_STARVE_N_ENV",
+    readers: ["envNum"],
+  },
+  {
+    spec: LOCK_STARVE_FAMILY_ENV,
+    file: "kernel/runtime/gate.ts",
+    constName: "LOCK_STARVE_FAMILY_ENV",
+    readers: [],
+  },
   { spec: LOG_LEVEL_ENV, file: "kernel/runtime/log/emit.ts", constName: "LOG_LEVEL_ENV", readers: ["envStr"] },
   {
     spec: LOG_MAX_BYTES_ENV,
@@ -266,7 +279,7 @@ test("6. every row appears in roadmap.md Section 2.27", () => {
   }
 });
 
-test("7. envDynamic has exactly one call site (in paths.ts), and its definition names the family", () => {
+test("7. envDynamic has exactly two call sites (paths.ts's <NAME>_DB, gate.ts's LOCK_STARVE_N_<JOB>)", () => {
   const files = allNonTestTsFiles();
 
   const callSites: string[] = [];
@@ -274,10 +287,10 @@ test("7. envDynamic has exactly one call site (in paths.ts), and its definition 
     const src = readFileSync(f, "utf8");
     const occurrences = (src.match(/envDynamic\(/g) ?? []).length;
     // config.ts's own `export function envDynamic(` is the definition, not a call — subtract it.
-    const calls = f.endsWith("config.ts") ? occurrences - 1 : occurrences;
+    const calls = f.endsWith("kernel/config.ts") ? occurrences - 1 : occurrences;
     for (let i = 0; i < calls; i++) callSites.push(f.slice(ROOT.length + 1));
   }
-  assert.deepEqual(callSites, ["kernel/paths.ts"]);
+  assert.deepEqual(callSites.sort(), ["kernel/runtime/gate.ts", "kernel/paths.ts"].sort());
 
   const configSrc = readFileSync(join(ROOT, "kernel/config.ts"), "utf8");
   assert.match(configSrc, /<NAME>_DB/); // the comment naming the family, beside the definition
