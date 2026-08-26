@@ -27,8 +27,8 @@ Advance only when VERIFY comes back with nothing blocking.
 | Phase | Items | Est. | Plan | Gap | Build | Verify |
 |-------|-------|------|------|-----|-------|--------|
 | N0 — Ground truth | 11 | 2 d | ✅ | ✅ | ✅ | ⚠ |
-| N1 — Kernel the loop needs | 26 | 1.5–2 wk | ✅ | ✅ | ✅ | — |
-| N2 — Supervisor + gate | 32 | 1 wk | — | — | — | — |
+| N1 — Kernel the loop needs | 26 | 1.5–2 wk | ✅ | ✅ | ✅ | ✅ |
+| N2 — Supervisor + gate | 32 | 1 wk | ▶ | — | — | — |
 | N3 — Harness + skills + the pass | 34 | 1.5–2 wk | — | — | — | — |
 | N4 — Safe to leave alone | 22 | 1 wk | — | — | — | — |
 
@@ -122,4 +122,12 @@ Legend: `—` not started · `▶` running · `✅` done · `⚠` done with open
   12).** J1.18's gate works today because this plan added the two N1 keys §2.27 was missing.
   Decide whether §2.27 survives KRN-04 (N5) or is generated from it.
 - **No row says a test may leave nothing in the checkout (N1 Gaps item 13).** J1.5, J1.12 and
-  J1.17 each assert it by hand; a `TST-` row would give them something to cite.
+  J1.17 each assert it by hand. N1 F4 now gates it once for the whole checkout
+  (`test/layout.test.ts` assertion 13), after a stray `leak.db` survived a full phase unnoticed —
+  it was gitignored, so `git status` stayed clean. A `TST-` row would give the gate something to
+  cite.
+- **A gate that pattern-matches ONE spelling of an import is not a gate.** N1 shipped three that
+  did: the INS-02 write register, the DBS-06 driver allowlist, and the KRN-06 knob scan. A live
+  `writeFileSync` reached `pool.ts` through a default import, through a named binding used as a
+  namespace, and through a dynamic `import()` — green every time. All three are fixed. Any future
+  gate that reads source text must cover every spelling, or say in a comment which it cannot.
