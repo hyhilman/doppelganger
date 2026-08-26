@@ -38,10 +38,13 @@ function allTsFiles(): string[] {
 // Door 1 — no hardcoded path, no homedir()/tmpdir() in the kernel
 // ---------------------------------------------------------------------------------------------
 //
-// Matches a STRING literal (never a regex literal) whose first character is "/" or "~". The
-// lookbehind requires the opening quote to sit in a value position (after =([{,: or whitespace) —
-// without it, a regex literal like /"/g or /\\"/g reads as a quote-then-slash and false-positives
-// on kernel/runtime/log/{emit,parse}.ts's own escaping code.
+// Matches a STRING literal (never a regex literal) whose first character is "/" or "~" — quoted
+// with `"`, `'`, OR a template literal's backtick (F5, N2 VERIFY: the original two-quote-char
+// class left a plain, no-interpolation backtick path like `` `/etc/passwd` `` invisible in EVERY
+// scanned file, not only cli/crontab.ts). The lookbehind requires the opening quote to sit in a
+// value position (after =([{,: or whitespace) — without it, a regex literal like /"/g or /\\"/g
+// reads as a quote-then-slash and false-positives on kernel/runtime/log/{emit,parse}.ts's own
+// escaping code.
 //
 // NO EXCEPTION (F1/F2, N2 VERIFY): `cli/crontab.ts`'s `CRONTAB_CMD_ENV` used to carry
 // `default: "/usr/bin/crontab"` — a real, absolute crontab binary on most hosts, which meant a
@@ -50,15 +53,31 @@ function allTsFiles(): string[] {
 // `required: true`, so the literal no longer exists in that file at all — this door needed a
 // scoped exception before and needs none now. If a hardcoded absolute path ever reappears in
 // `cli/crontab.ts`, this door must trip on it like anywhere else.
-const HARDCODED_PATH = /(?<=[=(\[{,:\s])(["'])[/~]/;
+const HARDCODED_PATH = /(?<=[=(\[{,:\s])(["'`])[/~]/;
+
+/** Strips block and line comments before door 1 scans — needed ONLY because of the backtick arm
+ *  above (F5): this repo's own prose writes an inline-code path like `` `~/.gitconfig` `` or
+ *  `` `/S` `` constantly, in both `//` lines and `/** *\/` blocks, and every one of those is now a
+ *  backtick immediately followed by `/` or `~` in a value position — a real false positive, not a
+ *  real hardcoded path. A real path literal is never inside a comment, so stripping comments first
+ *  can only remove false positives, never hide a true one. Naive on purpose (no lexer): a `//`
+ *  inside a real string literal gets cut too, which is the same "honest limit" door 5 already
+ *  states for its own text scan. */
+function stripComments(src: string): string {
+  const noBlockComments = src.replace(/\/\*[\s\S]*?\*\//g, "");
+  return noBlockComments
+    .split("\n")
+    .map((line) => line.replace(/\/\/.*$/, ""))
+    .join("\n");
+}
 
 test("1. door 1 — no hardcoded path literal, no homedir()/tmpdir() in kernel/, host/, cli/", () => {
   const files = allTsFiles();
   const offenders: string[] = [];
   for (const f of files) {
-    const src = readFileSync(f, "utf8");
+    const code = stripComments(readFileSync(f, "utf8"));
     const rel = f.slice(ROOT.length + 1);
-    if (HARDCODED_PATH.test(src) || /\bhomedir\(|\bos\.homedir\b|\btmpdir\(|\bos\.tmpdir\b/.test(src)) {
+    if (HARDCODED_PATH.test(code) || /\bhomedir\(|\bos\.homedir\b|\btmpdir\(|\bos\.tmpdir\b/.test(code)) {
       offenders.push(rel);
     }
   }
