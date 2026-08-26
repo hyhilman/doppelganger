@@ -7,7 +7,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync, readdirSync, statSync, existsSync } from "node:fs";
-import { matchesGlob, join } from "node:path";
+import { matchesGlob, join, relative } from "node:path";
 
 const ROOT = new URL("..", import.meta.url).pathname.replace(/\/$/, "");
 
@@ -493,9 +493,33 @@ const DOPPELGANGER_ALLOWLIST = new Set([
   "supervisor.status.json",
 ]);
 
-test("15. .doppelganger/ holds only allowlisted entries", () => {
+test("15. .doppelganger/ holds only allowlisted entries, recursively", () => {
   const dir = join(ROOT, ".doppelganger");
   if (!existsSync(dir)) return;
-  const offenders = readdirSync(dir).filter((entry) => !DOPPELGANGER_ALLOWLIST.has(entry));
+  // N3 F6: the sweep is RECURSIVE. The flat readdirSync missed a stray at
+  // .doppelganger/state/junk.db, and .gitignore hides the whole tree from git status — the exact
+  // pair that let ./leak.db survive a full phase in N1. scratch/ and worktrees/ are excluded:
+  // their CONTENTS are throwaway by design (their top-level names are still checked).
+  const THROWAWAY = new Set(["scratch", "worktrees"]);
+  const offenders: string[] = [];
+  const sweep = (d: string, top: boolean): void => {
+    for (const entry of readdirSync(d, { withFileTypes: true })) {
+      if (top && !DOPPELGANGER_ALLOWLIST.has(entry.name)) {
+        offenders.push(entry.name);
+        continue;
+      }
+      if (entry.isDirectory()) {
+        if (top && THROWAWAY.has(entry.name)) continue;
+        sweep(join(d, entry.name), false);
+        continue;
+      }
+      // Below the top level, only the stray-store shapes are offenders — run logs and heartbeats
+      // are the directory's job. A database file outside a redirect is never legitimate here.
+      if (!top && /\.db(-wal|-shm)?$/.test(entry.name)) {
+        offenders.push(relative(dir, join(d, entry.name)));
+      }
+    }
+  };
+  sweep(dir, true);
   assert.deepEqual(offenders, [], `.doppelganger/ holds an entry the allowlist does not cover: ${offenders.join(", ")}`);
 });
