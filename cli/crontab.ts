@@ -1,12 +1,22 @@
 // J2.15 (SUP-08 pure half, INS-03, TST-16) — the crontab managed block: per-instance markers and
-// the pure string transforms that read/write it. This file has NO side effect: no `readCrontab`,
-// no `install`, no argv block. J2.16 adds those — until then `test/writes.test.ts`'s door 5 stays
-// quiet and a grep for this file's process/filesystem calls counts zero (plan/N2-uac.md J2.15 AC7).
+// the pure string transforms that read/write it.
+//
+// J2.16 (SUP-08 impure half, SAF-01, SAF-05) adds the side effects: `readCrontab`/`install`
+// (both go through `run()`, kernel/runtime/exec.ts's one execFileSync call site, HRN-19) and the
+// `render`/`sync`/`check` command dispatcher the argv block calls.
+//
+// LAYER 0, READ THIS FIRST: `readCrontab` and `install` refuse a command name that is not an
+// absolute path. `execFileSync` with a bare name does a PATH lookup, and the thing PATH finds is
+// the user's REAL crontab — so a test, a mutation, or a future caller that ever passes a bare
+// `"crontab"` (or forgets to pass anything at all, landing on some other default) is unreachable,
+// not merely discouraged. This is the guard that makes every RED mutation this job's ACs describe
+// safe to perform: without it, a mutated `sync` reaching `install` would overwrite the developer's
+// own crontab, which is exactly the failure the plan's own first draft had.
 //
 // `cli/` is `private: true` (cli/package.json) — this is an app-internal path, not a published
-// import, so reaching into `host/schedule.ts` for `validate`/`bootstrapEntries`/`commandOf` is
-// fine at N2. Whether `cli` publishes at all is still open (ADO-01, plan/N0-uac.md's Gaps item 1)
-// — that decision belongs there, not here.
+// import, so reaching into `host/schedule.ts` for `validate`/`bootstrapEntries`/`commandOf`/
+// `SCHEDULE` is fine at N2. Whether `cli` publishes at all is still open (ADO-01, plan/N0-uac.md's
+// Gaps item 1) — that decision belongs there, not here.
 //
 // INS-03: the crontab is the one resource two checkouts on the same host cannot avoid sharing, so
 // its markers carry the instance name and every transform here operates on ONE instance's region,
@@ -16,8 +26,11 @@
 // by an older version reads as foreign under the new text and gets APPENDED beside, never
 // overwritten. That is the correct behaviour for a marker change, and it is the reason
 // `sync --adopt` exists: it re-adopts what the old markers left behind.
-import { validate, bootstrapEntries, commandOf, type ScheduleEntry } from "../host/schedule.ts";
+import { isAbsolute } from "node:path";
+import { validate, bootstrapEntries, supervisedEntries, commandOf, SCHEDULE, type ScheduleEntry } from "../host/schedule.ts";
 import { INSTANCE } from "../kernel/instance.ts";
+import { run as execCmd, BASE } from "../kernel/runtime/exec.ts";
+import { envStr, type EnvSpec } from "../kernel/config.ts";
 
 /** A half-open-by-name, closed-by-index line range: `[start, end]`, both inclusive, into a
  *  `lines` array — the begin marker at `start`, the end marker at `end`. */
@@ -331,4 +344,169 @@ export function diff(want: readonly string[], got: readonly string[]): string[] 
     i++;
   }
   return out;
+}
+
+// ---------------------------------------------------------------------------------------------
+// J2.16 — the impure half: readCrontab/install (layer 0 first), the safe-run knobs, and the
+// render/sync/check dispatcher. See the module header for why layer 0 exists.
+// ---------------------------------------------------------------------------------------------
+
+/** Layer 0. The one line that makes a bare command name unreachable: `execFileSync` with a bare
+ *  name does a PATH lookup, and the thing PATH finds is the user's real crontab. Called first, by
+ *  BOTH `readCrontab` and `install`, before either touches a process. */
+function assertAbsoluteCmd(cmd: string): void {
+  if (!isAbsolute(cmd)) {
+    throw new Error(
+      `crontab command must be an absolute path, got ${cmd} — a bare name is a PATH lookup, and the thing PATH finds is the user's real crontab`,
+    );
+  }
+}
+
+export const CRONTAB_CMD_ENV: EnvSpec = {
+  key: "CRONTAB_CMD",
+  default: "/usr/bin/crontab",
+  why: "the crontab binary this tool calls (SAF-05's throwaway-store analogue); must be absolute (layer 0) — a bare name is a PATH lookup",
+};
+
+export const CRONTAB_DRY_RUN_ENV: EnvSpec = {
+  key: "CRONTAB_DRY_RUN",
+  default: "0",
+  why: "sync prints the crontab it would install and calls nothing (SAF-01); it still reads, since the read is what makes the printed diff true",
+};
+
+/**
+ * `crontab -l`, or `""` when the user has no crontab (a real, non-zero-status `crontab -l` exit —
+ * distinct from the command failing to even START, e.g. ENOENT on a bad `cmd`, which re-throws:
+ * a missing binary must fail loudly, never look like an empty crontab).
+ */
+export function readCrontab(cmd: string): string {
+  assertAbsoluteCmd(cmd);
+  try {
+    return execCmd(cmd, ["-l"]);
+  } catch (e) {
+    const status = (e as { status?: number | null }).status;
+    if (typeof status === "number") return ""; // crontab -l: no crontab installed for this user
+    throw e; // the command itself never ran (ENOENT, EACCES, ...) — never silently "no crontab"
+  }
+}
+
+/** `crontab -`, piping `text` in on stdin — the same `stdio`/`input` shape `ghIn` already uses. */
+export function install(cmd: string, text: string): void {
+  assertAbsoluteCmd(cmd);
+  execCmd(cmd, ["-"], { ...BASE, stdio: ["pipe", "pipe", "pipe"], input: text });
+}
+
+export interface CrontabDeps {
+  readonly cmd: string;
+  readonly instance: string;
+  readonly schedule: readonly ScheduleEntry[];
+  readonly dryRun: boolean;
+}
+
+/** The line every success message ends with — "counts what is installed" (SUP-01): `bootstrap` is
+ *  read off the block ITSELF (the lines that are actual crontab entries, not the schedule array),
+ *  `supervised` off `deps.schedule` via `supervisedEntries` — never `deps.schedule.length`, which
+ *  would count entries this tool never renders at all. */
+function tally(block: readonly string[], deps: CrontabDeps): string {
+  const bootstrapCount = block.filter(isCommand).length;
+  const supervisedCount = supervisedEntries(deps.schedule).length;
+  return `${bootstrapCount} bootstrap entries (${supervisedCount} more run under host/supervisor.ts)`;
+}
+
+function cmdRender(deps: CrontabDeps): { out: string; err: string; code: number } {
+  const block = render(deps.schedule, deps.instance);
+  return { out: `${block.join("\n")}\n`, err: "", code: 0 };
+}
+
+function cmdSync(deps: CrontabDeps, adoptFlag: boolean): { out: string; err: string; code: number } {
+  const block = render(deps.schedule, deps.instance);
+  const raw = readCrontab(deps.cmd);
+
+  if (!adoptFlag) {
+    const dupes = collisions(raw, block, deps.instance);
+    if (dupes.length > 0) {
+      const lines = dupes.map((l) => `  ${l}`).join("\n");
+      return {
+        out: "",
+        err: `sync refused: ${dupes.length} unmanaged line(s) duplicate a rendered command:\n${lines}\nre-run as \`npm run crontab sync -- --adopt\``,
+        code: 1,
+      };
+    }
+  }
+
+  const hadBlock = installedBlock(raw, deps.instance) !== null;
+  const base = adoptFlag ? adopt(raw, block, deps.instance) : raw;
+  const next = splice(base, block, deps.instance);
+
+  if (next === raw) {
+    return { out: "already in sync — nothing written\n", err: "", code: 0 };
+  }
+
+  if (deps.dryRun) {
+    return { out: next, err: "", code: 0 };
+  }
+
+  install(deps.cmd, next);
+  const verb = hadBlock ? "the managed block was updated" : "a new managed block was appended";
+  return { out: `${verb} — ${tally(block, deps)}\n`, err: "", code: 0 };
+}
+
+function cmdCheck(deps: CrontabDeps): { out: string; err: string; code: number } {
+  const block = render(deps.schedule, deps.instance);
+  const raw = readCrontab(deps.cmd);
+  const installed = installedBlock(raw, deps.instance);
+
+  if (installed === null) {
+    if (legacyRange(toLines(raw)) !== null) {
+      return {
+        out: "",
+        err: `an unnamed managed block is installed — run \`npm run crontab sync -- --adopt\` to claim it for instance ${JSON.stringify(deps.instance)}`,
+        code: 1,
+      };
+    }
+    return { out: "", err: "no managed block installed — run `npm run crontab sync`", code: 1 };
+  }
+
+  const inSync = installed.length === block.length && installed.every((l, i) => l === block[i]);
+  if (inSync) {
+    return { out: `crontab check: in sync — ${tally(block, deps)}\n`, err: "", code: 0 };
+  }
+
+  const lines = diff(block, installed);
+  return { out: "", err: ["crontab check: drift detected", ...lines].join("\n"), code: 1 };
+}
+
+/**
+ * The command dispatcher: text in (argv), text and a code out — nothing here touches a stream, so
+ * every command is assertable without capturing one. Every path through this function is caught,
+ * so a thrown `validate()`/layer-0 refusal becomes `{ code: 1 }` rather than an uncaught rejection.
+ */
+export function run(argv: readonly string[], deps: CrontabDeps): { out: string; err: string; code: number } {
+  try {
+    const [name, ...rest] = argv;
+    if (name === "render") return cmdRender(deps);
+    if (name === "sync") return cmdSync(deps, rest.includes("--adopt"));
+    if (name === "check") return cmdCheck(deps);
+    return { out: "", err: `unknown command ${JSON.stringify(name ?? "")} — expected one of: render, sync, check`, code: 1 };
+  } catch (e) {
+    return { out: "", err: e instanceof Error ? e.message : String(e), code: 1 };
+  }
+}
+
+// ---------------------------------------------------------------------------------------------
+// The argv block. UNTESTED BY CONSTRUCTION (plan/N2-uac.md ruling 1) — no test imports this file
+// in a way that reaches it. Resolves the knobs (ruling 2: only here, never at module scope),
+// dispatches to `run`, and writes the two streams itself.
+// ---------------------------------------------------------------------------------------------
+if (import.meta.filename === process.argv[1]) {
+  const deps: CrontabDeps = {
+    cmd: envStr(CRONTAB_CMD_ENV),
+    instance: INSTANCE,
+    schedule: SCHEDULE,
+    dryRun: envStr(CRONTAB_DRY_RUN_ENV) === "1",
+  };
+  const result = run(process.argv.slice(2), deps);
+  if (result.out) process.stdout.write(result.out);
+  if (result.err) process.stderr.write(result.err.endsWith("\n") ? result.err : `${result.err}\n`);
+  process.exitCode = result.code;
 }

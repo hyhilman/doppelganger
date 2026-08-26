@@ -41,17 +41,29 @@ function allTsFiles(): string[] {
 // Matches a STRING literal (never a regex literal) whose first character is "/" or "~". The
 // lookbehind requires the opening quote to sit in a value position (after =([{,: or whitespace) —
 // without it, a regex literal like /"/g or /\\"/g reads as a quote-then-slash and false-positives
-// on kernel/runtime/log/{emit,parse}.ts's own escaping code. Nothing needed an allowlist entry once
-// the lookbehind was added — measured, this repo has none today.
+// on kernel/runtime/log/{emit,parse}.ts's own escaping code.
+//
+// ONE narrow, named exception (J2.16): `cli/crontab.ts`'s `CRONTAB_CMD_ENV` default is
+// `"/usr/bin/crontab"` — an absolute path to an EXTERNAL SYSTEM BINARY, not a project write path
+// INS-02 governs, and layer 0 (plan/N2-uac.md J2.16) requires this default to be exactly this:
+// absolute, never a bare name a PATH lookup could resolve onto the wrong crontab. Scoped to the
+// literal itself, not the whole file — the allowed substring is stripped from a COPY of the source
+// before scanning, so any OTHER hardcoded path added to this file still trips the door.
 const HARDCODED_PATH = /(?<=[=(\[{,:\s])(["'])[/~]/;
+const DOOR1_ALLOWED_LITERAL: Readonly<Record<string, string>> = {
+  "cli/crontab.ts": '"/usr/bin/crontab"',
+};
 
 test("1. door 1 — no hardcoded path literal, no homedir()/tmpdir() in kernel/, host/, cli/", () => {
   const files = allTsFiles();
   const offenders: string[] = [];
   for (const f of files) {
     const src = readFileSync(f, "utf8");
-    if (HARDCODED_PATH.test(src) || /\bhomedir\(|\bos\.homedir\b|\btmpdir\(|\bos\.tmpdir\b/.test(src)) {
-      offenders.push(f.slice(ROOT.length + 1));
+    const rel = f.slice(ROOT.length + 1);
+    const allowed = DOOR1_ALLOWED_LITERAL[rel];
+    const scanned = allowed !== undefined ? src.split(allowed).join("") : src;
+    if (HARDCODED_PATH.test(scanned) || /\bhomedir\(|\bos\.homedir\b|\btmpdir\(|\bos\.tmpdir\b/.test(src)) {
+      offenders.push(rel);
     }
   }
   assert.deepEqual(offenders, []);
@@ -264,7 +276,13 @@ interface CommandRegisterEntry {
   reason: string;
 }
 
-const COMMAND_REGISTER: Record<string, CommandRegisterEntry> = {};
+const COMMAND_REGISTER: Record<string, CommandRegisterEntry> = {
+  "cli/crontab.ts": {
+    command: "crontab",
+    category: "INSTANCE-discriminated",
+    reason: "the managed block, delimited by markers carrying INSTANCE (INS-03)",
+  },
+};
 
 test("5. door 5 — every file naming an externally-mutating command signs COMMAND_REGISTER", () => {
   const files = allTsFiles();

@@ -28,6 +28,7 @@ import {
   SUPERVISOR_SPAWN_STAGGER_MS_ENV,
   SUPERVISOR_DRAIN_MS_ENV,
 } from "../host/supervisor.ts";
+import { CRONTAB_CMD_ENV, CRONTAB_DRY_RUN_ENV } from "../cli/crontab.ts";
 
 const ROOT = new URL("..", import.meta.url).pathname.replace(/\/$/, "");
 
@@ -130,6 +131,18 @@ const ROWS: readonly RowMeta[] = [
     file: "kernel/runtime/exec.ts",
     constName: "EXEC_TIMEOUT_MS_ENV",
     readers: ["envNum"],
+  },
+  {
+    spec: CRONTAB_CMD_ENV,
+    file: "cli/crontab.ts",
+    constName: "CRONTAB_CMD_ENV",
+    readers: ["envStr"],
+  },
+  {
+    spec: CRONTAB_DRY_RUN_ENV,
+    file: "cli/crontab.ts",
+    constName: "CRONTAB_DRY_RUN_ENV",
+    readers: ["envStr"],
   },
 ];
 

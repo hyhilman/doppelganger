@@ -14,7 +14,8 @@
   "scripts": {
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "pretest": "npm run typecheck",
-    "test": "node --test \"kernel/**/*.test.ts\" \"plugins/**/*.test.ts\" \"host/**/*.test.ts\" \"cli/**/*.test.ts\" \"test/**/*.test.ts\""
+    "test": "node --test \"kernel/**/*.test.ts\" \"plugins/**/*.test.ts\" \"host/**/*.test.ts\" \"cli/**/*.test.ts\" \"test/**/*.test.ts\"",
+    "crontab": "node cli/crontab.ts"
   },
   "devDependencies": {
     "@types/node": "22.20.1",
