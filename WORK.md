@@ -135,40 +135,40 @@ Rows marked **moved** are listed once, where they were dropped, so nothing goes 
 
 ## N3 — The harness and the pass · 1.5–2 wk · **34 items**
 
-- [ ] **HRN-01** `DEFAULTS` in ONE place: `model`
-- [ ] **HRN-02** `defineJob` identity helper
-- [ ] **HRN-07** `permissionMode` is load-bearing on a host runner
-- [ ] **HRN-10** Sentinel payload parsing: last `<<<TAG … TAG>>>` block wins
-- [ ] **HRN-11** Every agent run **names its model**
-- [ ] **HRN-12** `worktree` realization + `{{WORKTREE}}` prompt placeholder, so a review reads the PR's o
-- [ ] **HRN-13** `taskClass` declared at the call site that knows the work is implementation-shaped.
-- [ ] **HRN-14** `job.local` pins a shared-master writer to one node.
-- [ ] **HRN-15** `OPUS_GUIDANCE`
-- [ ] **HRN-16** Every run
-- [ ] **SKL-01** `defineJob({ skill })`
-- [ ] **SKL-02** ONE skill per JOB, never per plugin
-- [ ] **SKL-03** The plugin owns the file: `plugins/<x>/skills/<job>/SKILL.md`
-- [ ] **SKL-04** `.claude/skills/` is RENDERED from the manifests, never hand-edited
-- [ ] **SKL-05** Code declares
-- [ ] **SKL-06** The gate runs both ways: every `job.skill` resolves to a real directory, and every skill
-- [ ] **SKL-07** What may NOT move into a skill: guard matrices, verdict parsing, eligibility, and every
-- [ ] **SKL-08** A skill's only inputs are `promptArgs`
-- [ ] **SKL-09** The free safe-run surface: the file a job runs unattended is the file a human runs at `/
-- [ ] **SKL-10** `sync` PRUNES, and the crontab precedent does not survive the port: SUP-08's "foreign li
-- [ ] **JOB-C15** `nightly-sandcastle`
-- [ ] **SAF-01** Per-job `*_DRY_RUN`
-- [ ] **SAF-02** Per-job shadow modes
-- [ ] **SAF-03** Per-job `*_MAX=1`
-- [ ] **SAF-04** Per-job `*_MAX=0` / `*_LIMIT=0`
-- [ ] **SAF-05** Throwaway DB redirection
-- [ ] **SAF-06** Child/single-item modes
-- [ ] **SAF-07** The one non-free dry run must be documented as such
-- [ ] **INS-06** Corollary, free: `INSTANCE` is the cheapest isolation for a real smoke test
-- [ ] **TST-08** Every agent run names its model.
-- [ ] **TST-09** Every job file and schedule entry carries a known stage prefix.
-- [ ] **TST-19** Per-job pure decisions pinned directly
-- [ ] **TST-23** `skills check`
-- [ ] **TST-24** SKL-06 both ways
+- [x] (J3.2) **HRN-01** `DEFAULTS` in ONE place: `model`
+- [x] (J3.2, J3.6, J3.14) **HRN-02** `defineJob` identity helper
+- [x] (J3.2, J3.3) **HRN-07** `permissionMode` is load-bearing on a host runner
+- [x] (J3.4, J3.8) **HRN-10** Sentinel payload parsing: last `<<<TAG … TAG>>>` block wins
+- [x] (J3.3, J3.10, J3.17) **HRN-11** Every agent run **names its model**
+- [x] (J3.5, J3.6) **HRN-12** `worktree` realization + `{{WORKTREE}}` prompt placeholder, so a review reads the PR's o
+- [x] (J3.2, J3.6) **HRN-13** `taskClass` declared at the call site that knows the work is implementation-shaped.
+- [x] (J3.10) **HRN-14** `job.local` pins a shared-master writer to one node.
+- [x] (J3.2) **HRN-15** `OPUS_GUIDANCE`
+- [x] (J3.6) **HRN-16** Every run
+- [x] (J3.2, J3.16) **SKL-01** `defineJob({ skill })`
+- [x] (J3.8, J3.13) **SKL-02** ONE skill per JOB, never per plugin
+- [x] (J3.7) **SKL-03** The plugin owns the file: `plugins/<x>/skills/<job>/SKILL.md`
+- [x] (J3.1, J3.7, J3.9) **SKL-04** `.claude/skills/` is RENDERED from the manifests, never hand-edited
+- [x] (J3.7, J3.8, J3.14, J3.16) **SKL-05** Code declares
+- [x] (J3.13) **SKL-06** The gate runs both ways: every `job.skill` resolves to a real directory, and every skill
+- [x] (J3.8, J3.13) **SKL-07** What may NOT move into a skill: guard matrices, verdict parsing, eligibility, and every
+- [x] (J3.6) **SKL-08** A skill's only inputs are `promptArgs`
+- [x] (J3.13) **SKL-09** The free safe-run surface: the file a job runs unattended is the file a human runs at `/
+- [x] (J3.7, J3.9) **SKL-10** `sync` PRUNES, and the crontab precedent does not survive the port: SUP-08's "foreign li
+- [x] (J3.1, J3.8, J3.11, J3.12, J3.17) **JOB-C15** `nightly-sandcastle`
+- [x] (J3.9, J3.12) **SAF-01** Per-job `*_DRY_RUN`
+- [x] (J3.12) **SAF-02** Per-job shadow modes
+- [x] (J3.12) **SAF-03** Per-job `*_MAX=1`
+- [x] (J3.12) **SAF-04** Per-job `*_MAX=0` / `*_LIMIT=0`
+- [x] (J3.11, J3.12) **SAF-05** Throwaway DB redirection
+- [x] (J3.12) **SAF-06** Child/single-item modes
+- [x] (J3.12, J3.17) **SAF-07** The one non-free dry run must be documented as such
+- [x] (J3.12) **INS-06** Corollary, free: `INSTANCE` is the cheapest isolation for a real smoke test
+- [x] (J3.10) **TST-08** Every agent run names its model.
+- [x] (J3.15, J3.16) **TST-09** Every job file and schedule entry carries a known stage prefix.
+- [x] (J3.8, J3.11, J3.17) **TST-19** Per-job pure decisions pinned directly
+- [x] (J3.7, J3.9, J3.13) **TST-23** `skills check`
+- [x] (J3.13) **TST-24** SKL-06 both ways
 
 <details><summary>moved out of this milestone</summary>
 
@@ -176,6 +176,12 @@ Rows marked **moved** are listed once, where they were dropped, so nothing goes 
 - ~~**SAF-08**~~ cut by D17 · the safe-run table is a doc; keep the knobs, drop the table
 
 </details>
+
+**A real entry exists, a real job file backs it, and the exact command the supervisor spawns runs a
+real agent against a real skill, gates its diff on the full suite plus an import smoke plus a dry
+run, and lands it with `merge --ff-only`. The loop is not yet safe to leave alone: nothing parks on
+a quota wall, a killed pass leaves a lease nobody reaps, no watchdog says when it stops, and
+nothing starts the supervisor. That is N4.**
 
 ## N4 — Safe to leave alone · 1 wk · **22 items**
 

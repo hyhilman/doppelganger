@@ -29,7 +29,7 @@ Advance only when VERIFY comes back with nothing blocking.
 | N0 — Ground truth | 11 | 2 d | ✅ | ✅ | ✅ | ⚠ |
 | N1 — Kernel the loop needs | 26 | 1.5–2 wk | ✅ | ✅ | ✅ | ✅ |
 | N2 — Supervisor and gate, no entry yet | 32 | 1 wk | ✅ | ✅ | ✅ | ✅ |
-| N3 — Harness + skills + the pass | 34 | 1.5–2 wk | ✅ | ✅ | ⚠ | ✅ |
+| N3 — Harness + skills + the pass | 34 | 1.5–2 wk | ✅ | ✅ | ✅ | ✅ |
 | N4 — Safe to leave alone | 22 | 1 wk | — | — | — | — |
 
 Legend: `—` not started · `▶` running · `✅` done · `⚠` done with open follow-ups.
@@ -103,19 +103,73 @@ Legend: `—` not started · `▶` running · `✅` done · `⚠` done with open
   The cost — a gate held for up to `N × stagger` — is stated and asserted.
 - **`isAbsolute` on the crontab command (J2.16)** — the one line that makes a bare-name PATH
   lookup unreachable, and therefore makes the destructive mutation in AC3 performable at all.
+- **J3.17's real pass, what it measured (N3 close, J3.18).** `@ai-hero/sandcastle` is real, and
+  every N3-uac measurement of it held up against a real paid run · `jobRunner` spawns
+  `host/run.ts <job>`, never the job file directly — the first draft's version would have run
+  nothing, silently, every night (this plan's own headline defect, named in `plan/N3-uac.md`'s
+  own opening paragraph) · `run()` writes `~/.gitconfig` (4,523 duplicate `safe.directory` lines
+  measured on this host before the fix) and `GIT_CONFIG_GLOBAL` is the fix, inherited by the
+  agent child (which is what lets it commit inside a worktree it did not create), needing its own
+  parent directory to exist first · an unattended agent can reach `origin` over SSH, and
+  `GIT_SSH_COMMAND=/bin/false` is the gate · layer B (a fake `claude` earlier on `PATH`) makes the
+  real `run()` path testable for free, with no paid call · "pinned" is a shape predicate plus an
+  alias denylist plus a runtime `assertPinned` check, never a promise that one exact string never
+  changes · the CLI's advertised permission-mode list, its actually-accepted set, and sandcastle's
+  own type union are three different lists, and N3 pins none of them — it owns a two-member
+  allowlist and gates every literal against it.
 
 ## Open items the loop must not silently skip
 
-- **J3.17 — the one real paid agent run. WAITING ON THE USER.** Everything else in N3 is built,
-  verified, and follow-up-fixed (16 jobs + 9 fix commits). The fake-claude pyramid proves the
-  plumbing; only a real run proves the pass. The two commands are in plan/N3-uac.md J3.17 and in
-  the conversation. A failing first pass is still a result — its stdout becomes the TST-19
-  fixture either way. J3.18 (ticking WORK.md, the phase close) runs after it.
-- **CI stopped triggering on push (2026-08-26 ~15:00).** Pushes bfef2cb, 71f6f12 and the empty
-  retrigger eec52f7 produced NO workflow runs; Actions is enabled and 4 earlier runs exist, the
-  last a real failure at 14:32 (the identity bug, fixed in 71f6f12). Likely a GitHub-side delay
-  or incident. The identity fix is PROVEN locally by reproducing CI's condition (empty HOME, no
-  git config: 9 fail → 0). Check `gh run list --branch dev` before trusting the badge.
+- **R1 — the real pass's headline finding (N3 close, J3.18): one verdict did not end the run.**
+  The 2026-08-26 paid pass ran 6 Opus iterations against a 20-iteration cap for one intended
+  improvement. Cause: `runJob`'s default `completionSignal` is sandcastle's own
+  `<promise>COMPLETE</promise>`, a string the `nightly-sandcastle` skill never emits (it emits a
+  `<<<SANDCASTLE ... SANDCASTLE>>>` block instead) — read in
+  `node_modules/@ai-hero/sandcastle/dist/index.js`'s `orchestrate()`: the loop only stops early on
+  a literal substring match of the signal in the agent's accumulated stdout, and otherwise runs
+  every iteration up to the cap. Fixed with `nightlySandcastleJob.maxIterations = 1` (over making
+  the signal match, or hooking the runner to stop on a parsed verdict): it matches the skill's own
+  contract ("one pass, one improvement ... report ONCE") and is one field read by the dry-run and
+  real-run paths alike. Gated by `host/runner.test.ts` test 13 — a fake `claude` that emits a real
+  verdict but never sandcastle's signal, driven with the job's OWN configured `maxIterations`, so a
+  regression that removes the field is caught, not silently re-defaulted to 20.
+- **R2 — a real pass's runtime litter tripped five repo-wide walkers and one drift gate (N3 close,
+  J3.18, INS-02).** `.doppelganger/worktrees/<job>/` is a second full checkout (own
+  `package.json`, `node_modules`, `*.test.ts` files); five walkers
+  (`test/commands.test.ts`, `test/deps.test.ts`, `test/layout.test.ts`, `test/no-raw-sqlite.test.ts`,
+  `test/toolchain.test.ts`) skipped `.git`/`node_modules` only at the repo top level and walked
+  straight into it. Separately, `test/layout.test.ts` assertion 15 called any `.db` file below
+  `.doppelganger/`'s top level an offender, but `.doppelganger/state/` is `dbPath()`'s DESIGNED
+  home for every integration's database — so a normal run's own `nightly.db` tripped the gate
+  meant to catch a leak. Both fixed: the walkers now also skip an entry named `worktrees` directly
+  under `.doppelganger`; assertion 15 now reads `DB_NAMESPACES` (itself gated as a superset of
+  every real `dbPath(` call site) and excuses a `.db` file in `state/` under one of those real
+  names, while still catching anything else there or anywhere else in the tree. N1 F4's original
+  stray-`leak.db` detection is unchanged and still fires.
+- **R3 — `commandOf` and `spawnChild` disagreed on a `script:` entry's command (N3 close, J3.18,
+  SUP-03).** N3 F1's exact defect shape, one row over: `commandOf` rendered `node <script>`
+  unconditionally, while `spawnChild` executed the script file directly via its own shebang.
+  Nothing caught it because `SCHEDULE` has never held a `script:` entry — N4's watchdog
+  (JOB-O10) is the first, and would have tripped on it immediately. Fixed the same way N3 F1
+  was: one function, `scriptCommandOf(root, script)`, that both consumers call. The fuller
+  `.sh`/`.ts` dispatch and the `validate()` executable-bit rule stay J4.11's job, not smuggled in
+  here.
+- **R4 — the Ships-line drift gate (test 14) would have THROWN, not merely failed, the moment N3
+  was ticked (N3 close, J3.18, TST-06).** Its token classifier only recognised a plain id as
+  PREFIX-DIGITS; N3's own Ships line names `JOB-C15`, and every `JOB-` id carries one infix letter
+  before its digits. Fixed on both sides of the comparison (`expandShipsIds` and `workPhaseIds`)
+  before N3 was ticked, proven with a scratch, never-committed copy of WORK.md with every N3 box
+  ticked: the old regex threw `roadmap.md N3's Ships line has a token this drift gate cannot
+  classify: "JOB-C15"`; the fixed one produces a clean diff instead.
+- **CI is triggering on push; the earlier "stopped triggering" note is retired.**
+  `gh run list --branch dev` (checked 2026-08-26, this session): the most recent push before this
+  session ("Plan N4 — 16 jobs...", run `32992202936`) completed **successfully**. One earlier run,
+  for 71f6f12 (run `32984580094`), has sat in `queued` state for 2+ hours with no jobs listed — a
+  one-off GitHub-side scheduling stall on that single run, not a persistent stop, since the next
+  push after it triggered and completed normally. This session's own commits (R1–R4, J3.18) are
+  **not pushed** — the task's safety rule for this session is "do not push" — so there is no new
+  run to check for them; the next push should confirm CI is still green.
+
 
 - **A "guard" that checks the wrong property is not a guard (N2 F1).** The crontab command was
   gated on `isAbsolute`, which stops a PATH lookup — while the knob's own default was

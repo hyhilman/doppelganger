@@ -1331,7 +1331,7 @@ realization · `parseVerdict` for the `<<<SANDCASTLE` block · **the ship gate**
 smoke + a dry run of every changed file with the DB redirected to a scratch dir) · `merge --ff-only`
 with ff-miss rebase-retry recovery · goal rotation state · `OPUS_GUIDANCE` · the SKL mechanism with
 its `render`/`sync`/`check` verbs.
-**Ships:** HRN-01…02, HRN-07, HRN-10…19, SKL-01…10, JOB-C15, SAF-01…08, INS-06,
+**Ships:** HRN-01…02, HRN-07, HRN-10…16, SKL-01…10, JOB-C15, SAF-01…07, INS-06,
 TST-08, TST-09, TST-19, TST-23, TST-24.
 **Gate:** `npm test` green · `skills check` clean · every agent run names its model (TST-08) ·
 one pass at `*_DRY_RUN` and one at `*_MAX=1`.
