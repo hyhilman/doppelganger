@@ -81,6 +81,16 @@ const DOOR1_EXCEPTIONS: readonly { file: string; literal: string; count: number;
     why: "the skill-invocation prefix /<name> - a command prefix, not a path" },
   { file: "cli/skills.ts", literal: '"/"', count: 1,
     why: "the POSIX separator - one character, not a path" },
+  { file: "kernel/runtime/proc.ts", literal: '"/proc/self/ns/pid"', count: 1,
+    why: "the pid-namespace inode link - a kernel interface read, not a write path (LSE-11)" },
+  { file: "kernel/runtime/proc.ts", literal: '"/proc/stat"', count: 1,
+    why: "the kernel boot-time origin /proc/<pid>/stat counts from - a read (LSE-11)" },
+  { file: "kernel/runtime/proc.ts", literal: "`/proc/${pid}/stat`", count: 1,
+    why: "one process's stat line - the ONE positive liveness read (LSE-11)" },
+  { file: "kernel/runtime/proc.ts", literal: '"/proc/self/mountinfo"', count: 1,
+    why: "the /proc mount's own options - the hidepid downgrade that keeps ENOENT honest (LSE-11)" },
+  { file: "kernel/runtime/proc.ts", literal: '"/proc"', count: 1,
+    why: "the mount-point FIELD VALUE mountinfo's own line is compared against, not a path this file opens (LSE-11)" },
 ];
 
 /** Strips block and line comments before door 1 scans — needed ONLY because of the backtick arm
