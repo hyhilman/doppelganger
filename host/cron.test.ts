@@ -132,6 +132,14 @@ test("10. the early stop is real and is what makes gateWait usable", () => {
 });
 
 test("11. gateWait is memoised: the second call is not slower", () => {
+  // F8 (N2 VERIFY): `e0` below is a sixth, previously unlisted timing assertion — the plan's
+  // exceptions table said "all five". Measured COLD (this test filtered to run alone, e.g. `--
+  // test-name-pattern`, so nothing has warmed up croner yet): 18-19ms, ~5x headroom against the
+  // original 100ms bound — the tightest in the phase (rows 3/4 sit at ~1000x/~100x). Measured WARM
+  // (the normal `npm test` path — test 8 above already calls gateWait("53 8 * * *") once, so this
+  // is not really a first call in practice): ~0ms. Real risk under `npm test` is low, but raised to
+  // 300ms anyway for a cold or reordered run, cheap insurance against the tightest bound in the
+  // phase; see plan/N2-uac.md's exceptions table row 7.
   const t0 = Date.now();
   const first = gateWait("53 8 * * *");
   const e0 = Date.now() - t0;
@@ -139,7 +147,7 @@ test("11. gateWait is memoised: the second call is not slower", () => {
   const second = gateWait("53 8 * * *");
   const e1 = Date.now() - t1;
   assert.equal(first, second);
-  assert.ok(e0 < 100, `first call: expected < 100ms, got ${e0}ms`);
+  assert.ok(e0 < 300, `first call: expected < 300ms, got ${e0}ms`);
   assert.ok(e1 < 100, `second (memoised) call: expected < 100ms, got ${e1}ms`);
 });
 

@@ -658,8 +658,9 @@ proves they did not.
 
 Every other assertion in this phase is synchronous or awaits an already-settled promise. **The first
 draft claimed three exceptions and had five**, and two of the missing ones were upper bounds — the
-flaky direction — sitting in J2.8 with no entry here. A sixth was added later, at N2 VERIFY
-follow-up F7 (host/supervisor.test.ts test 38) — all six are listed.
+flaky direction — sitting in J2.8 with no entry here. A sixth was added at N2 VERIFY follow-up F7
+(host/supervisor.test.ts test 38) and a seventh found by the SAME pass, already sitting in J2.8
+unlisted (F8) — all seven are listed.
 
 | # | Where | Assertion | Direction | Headroom | Why it cannot race |
 |---|---|---|---|---|---|
@@ -669,12 +670,13 @@ follow-up F7 (host/supervisor.test.ts test 38) — all six are listed.
 | 4 | J2.8 test 11 | the memoised second `gateWait` call is `< 100` ms | **upper** | ~100× | Same measurement: 1 ms served, and the un-memoised path it guards is seconds. Asserted as a flat bound, never as a ratio between two sub-millisecond numbers. |
 | 5 | J2.11 group 7 | second spawn starts `>= 20` ms after the first, with `spawnStaggerMs = 30` | lower | 10 ms | Same direction as row 1. |
 | 6 | F7, host/supervisor.test.ts test 38 | a `spawnSlot(0)` probe called right after `runEntry` returns resolves in `< 150` ms, with `spawnStaggerMs = 300` | **upper** | 150 ms (100%) | Proves step 6 returned BEFORE `runEntry` ever called `spawnSlot` — if it had, the probe would inherit `spawnSlot`'s queued 300 ms delay for its NEXT caller. Same shape as row 2: if it ever flakes, raise `spawnStaggerMs` and keep the `< spawnStaggerMs / 2` shape. |
+| 7 | F8, J2.8 test 11 | the FIRST, unmemoised `gateWait("53 8 * * *")` returns in `< 300` ms (raised from 100) | **upper** | context-dependent (see note) | Measured COLD (this test alone, e.g. `--test-name-pattern` — nothing has warmed up croner yet): 18-19 ms, ~5× headroom against the original 100 ms bound, the tightest in the phase. Measured WARM (the real `npm test` path — test 8 above already calls this same `gateWait("53 8 * * *")` once): ~0 ms, effectively unbounded headroom. Raised to 300 ms anyway: cheap insurance for a cold or reordered run, never the failure mode `npm test` itself hits. |
 
-Two lower bounds (1, 5) and four upper ones (2, 3, 4, 6). Rows 3 and 4 are upper bounds but not races:
-each guards a difference of three orders of magnitude, not a difference of tens of milliseconds. Rows
-2 and 6 are the upper bounds whose headroom is of the same size as the thing they measure; if either
-ever flakes the fix is to raise the underlying delay and keep the `< half` shape, never to delete the
-assertion.
+Two lower bounds (1, 5) and five upper ones (2, 3, 4, 6, 7). Rows 3 and 4 are upper bounds but not
+races: each guards a difference of three orders of magnitude, not a difference of tens of
+milliseconds. Rows 2 and 6 are upper bounds whose headroom is of the same size as the thing they
+measure; row 7 sits between them and rows 3/4 after being raised. If any of 2, 6 or 7 ever flakes the
+fix is to raise the underlying delay/bound and keep the same shape, never to delete the assertion.
 
 **One `testDeps` default is load-bearing for this budget: `spawnStaggerMs = 0`.** `spawnChain` in
 `kernel/runtime/pool.ts` is module-global and never resets, so `node --test` running one file in one
