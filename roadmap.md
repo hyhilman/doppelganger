@@ -72,8 +72,11 @@ kernel/                   the framework. imports no plugin, ever.
     payload.ts  worktree.ts  runjob.ts        v0 · N3
     log/   emit.ts  log.sh  parse.ts  route.ts  cause.ts  tail.ts  index.ts   v0 · N1
     gate.ts                                   v0 · N2
+    proc.ts                pid liveness in the CALLER's namespace (LSE-11)      v0 · N4
     lease.ts                                  v0 · N4
-    queue.ts  quota.ts  shed.ts               v1
+    quota.ts  shed.ts      the account breaker and the value tiers (QTA)        v0 · N4
+    delivery.ts            the delivery stamp contract (JOB-O11)                v0 · N4
+    queue.ts                                  v1
   contracts/              drift-gate suite factory a host repo calls
 plugins/
   git/  ops/  nightly/                        v0 builtins
@@ -88,9 +91,13 @@ host/                     the app. owns its own schedule, its own resources.
   window.ts               entriesInWindow — the refresh-window allowlist (SUP-12) N2
   runner.ts               the @ai-hero/sandcastle adapter (D2)                 N3
   run.ts                  the ONE argv block — what jobRunner spawns           N3
+  classes.ts              the job value classes chore/watch/review (QTA-08)    N4
+  watchdog.sh             liveness outside the supervisor, bash only (JOB-O10) N4
+  watchdog.probe.ts       two lines the watchdog RUNS to prove node strips types N4
   jobs/
     index.ts              the hand-registered job list (SKL-05)                N3
     nightly-sandcastle.ts one small verified improvement, gated (JOB-C15)      N3
+    ops-cron-check.ts     crontab drift, logged every run (JOB-O09)            N4
 cli/                      operator surfaces
   crontab.ts              render | sync | check | sync --adopt (SUP-08)       N2
   skills.ts               render | sync | check (SKL-04)                      N3
@@ -1059,7 +1066,9 @@ Every knob in the reference, to be re-homed as `EnvSpec` rows on the owning plug
 - **Git ops**: `RESET_FORCE_DIRTY`, `RESET_FORCE_AHEAD`, `RESET_CHECKOUT_MAIN`,
   `RESET_ENSURE_WORKTREES`, `RESET_DRY_RUN`, `RECUT_BRANCHES`, `RECUT_FORCE`, `RECUT_DRY_RUN`.
 - **Retention**: `RETENTION_QUEUE_DAYS`, `RETENTION_LEASE_DAYS`, `RETENTION_DRY_RUN`.
-- **Watchdog**: `WATCHDOG_STALE_M`, `WATCHDOG_SUPERVISOR_STALE_M`, `WATCHDOG_COOLDOWN_M`.
+- **Watchdog**: `WATCHDOG_SUPERVISOR_STALE_M`, `WATCHDOG_DRY_RUN`. `WATCHDOG_STALE_M` (no reporter
+  to watch — JOB-O02, N5) and `WATCHDOG_COOLDOWN_M` (no Slack send to cool down — v1) are declined
+  at N4, each for a subject that does not exist yet (ruling 6).
 
 ### 2.28 Safe-run surface (`SAF`)
 
@@ -1338,8 +1347,12 @@ one pass at `*_DRY_RUN` and one at `*_MAX=1`.
 **Deferred:** HRN-03…06 (session runner) and dispatch → M9/M11, unchanged.
 
 ### N4 — Safe to leave alone · **1 week**
-`quota.ts` breaker + classes · `shed.ts` value tiers · leases · watchdog + delivery stamp · log report.
-**Ships:** QTA-01…10, LSE-01…12, INS-04, JOB-O09…12, TST-17 (lease + breaker half).
+`quota.ts` breaker + classes · `shed.ts` value tiers · leases · watchdog + delivery stamp.
+**Ships:** QTA-01, QTA-05…09, LSE-01…11, INS-04, JOB-O09, JOB-O10, JOB-O11, TST-17.
+**Not shipped, deliberately:** QTA-02…04 (worker-side classification, release and `claimNext` — M9,
+each needs the queue) · QTA-10 (M10, needs the health digest) · LSE-12 (M9, the serial-group lease
+needs the queue) · JOB-O12 (M10, mutual watching needs the health job) · `ops-lease-reap` (JOB-O03,
+N5 — the boot sweep is LSE-09 and lands here; the one-minute cadence does not).
 **Gate:** a walled account parks and recovers inside one window · a killed pass does not wedge the
 next one · every reaper guard fails toward **not** reaping.
 
