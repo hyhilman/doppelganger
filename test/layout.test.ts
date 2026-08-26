@@ -137,3 +137,111 @@ test("11. tsconfig.json include names kernel, plugins, host, cli and test", () =
     );
   }
 });
+
+// J1.19 (INS-02, §1) — the §1 module map. Reads what J1.1 wrote nineteen commits earlier, so no
+// commit both writes the map and asserts it.
+
+interface KernelMapEntry {
+  path: string; // relative to kernel/
+  tags: string[];
+}
+
+/** Parse §1's kernel/ block (from the fenced layout diagram) into one entry per named file, each
+ *  carrying its milestone tag(s) (N1, N2, N4, N5, v0, v1 — a row can carry more than one, e.g.
+ *  "v0 · N1"). Directory-only lines (ports/, runtime/, contracts/) update the current prefix and
+ *  produce no entry of their own; contracts/ names no files at all. */
+function parseKernelBlock(): KernelMapEntry[] {
+  const roadmap = readFileSync(join(ROOT, "roadmap.md"), "utf8");
+  const start = roadmap.indexOf("kernel/                   the framework");
+  const end = roadmap.indexOf("\nplugins/", start);
+  const block = roadmap.slice(start, end);
+
+  const TAG_RE = /\b(N1|N2|N4|N5|v0|v1)\b/g;
+  const entries: KernelMapEntry[] = [];
+  let currentDir = "";
+
+  for (const line of block.split("\n").slice(1)) {
+    if (!line.trim()) continue;
+    const indent = line.length - line.trimStart().length;
+    const content = line.trim();
+
+    if (indent === 2) {
+      const dirOnly = /^([a-z]+)\/$/.exec(content);
+      if (dirOnly) {
+        currentDir = `${dirOnly[1]}/`;
+        continue;
+      }
+      if (!/^\S+\.(?:ts|sh)\s/.test(content)) continue; // e.g. contracts/'s bare prose line
+      const [name] = content.split(/\s+/);
+      const tags = [...content.matchAll(TAG_RE)].map((m) => m[1]!);
+      entries.push({ path: name!, tags });
+      continue;
+    }
+
+    if (indent === 4) {
+      const tokens = content.split(/\s+/);
+      let i = 0;
+      let subPrefix = currentDir;
+      if (tokens[0] === "log/") {
+        subPrefix = `${currentDir}log/`;
+        i = 1;
+      }
+      const files: string[] = [];
+      while (i < tokens.length && /\.(?:ts|sh)$/.test(tokens[i]!)) {
+        files.push(tokens[i]!);
+        i++;
+      }
+      const tagText = tokens.slice(i).join(" ");
+      const tags = [...tagText.matchAll(TAG_RE)].map((m) => m[1]!);
+      for (const f of files) entries.push({ path: `${subPrefix}${f}`, tags });
+    }
+  }
+  return entries;
+}
+
+/** Every real *.ts/*.sh file under kernel/, excluding *.test.ts and fixtures (values.fixture.ts,
+ *  and anything under a directory literally named fixtures/ — a fixture is not shipped behaviour). */
+function realKernelFiles(): string[] {
+  const out: string[] = [];
+  const walk = (dir: string, rel: string): void => {
+    for (const entry of readdirSync(dir)) {
+      if (entry === "fixtures") continue;
+      const full = join(dir, entry);
+      const nextRel = rel === "" ? entry : `${rel}/${entry}`;
+      if (statSync(full).isDirectory()) {
+        walk(full, nextRel);
+      } else if (
+        (entry.endsWith(".ts") || entry.endsWith(".sh")) &&
+        !entry.endsWith(".test.ts") &&
+        !entry.endsWith(".fixture.ts")
+      ) {
+        out.push(nextRel);
+      }
+    }
+  };
+  walk(join(ROOT, "kernel"), "");
+  return out;
+}
+
+test("12. every real kernel/ file is named in §1, and every §1 row matches disk (N1 present, N2/N4/N5/v1 absent)", () => {
+  const entries = parseKernelBlock();
+  const named = new Set(entries.map((e) => e.path));
+  const real = new Set(realKernelFiles());
+
+  for (const path of real) {
+    assert.ok(named.has(path), `kernel/${path} exists on disk but is not named in §1's layout block`);
+  }
+
+  for (const entry of entries) {
+    const shouldExist = entry.tags.includes("N1");
+    const exists = real.has(entry.path);
+    if (shouldExist) {
+      assert.ok(exists, `§1 names kernel/${entry.path} as N1 (${entry.tags.join(",")}), but it is absent from disk`);
+    } else {
+      assert.ok(
+        !exists,
+        `§1 names kernel/${entry.path} as ${entry.tags.join(",")} (not N1), but it exists on disk — a §1 row must be absent or real, never a placeholder for the wrong milestone`,
+      );
+    }
+  }
+});
