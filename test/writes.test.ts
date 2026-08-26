@@ -312,11 +312,38 @@ test("5. door 5 — every file naming an externally-mutating command signs COMMA
 // SAME list — six members: projectPath, dbPath, mkdirSync, createWriteStream, readFileSync,
 // writeFileSync.
 //
-// What it cannot see: a top-level call routed through a helper defined in the same file. Accepted —
-// the required-deps typing is the real enforcement; this door is the cheap second line.
+// What it cannot see: a top-level call routed through a helper defined in the same file, or one
+// spread across a multi-line top-level declaration's continuation lines. Accepted — the
+// required-deps typing is the real enforcement; this door is the cheap second line.
+//
+// F4 (N2 VERIFY): this door used to match the SIX MEMBER NAMES themselves at the call site, so
+// `import { readFileSync as rfs } from "node:fs"` plus a module-scope `rfs(...)` matched nothing —
+// the call site never spells `readFileSync` at all. LOOP.md's standing rule ("one spelling is not
+// a gate"), fifth occurrence. Fixed by resolving each file's own LOCAL name for each member FIRST
+// (following `as`, the same alias syntax door 3 already strips in the other direction), then
+// building that file's call/decl patterns from the LOCAL names actually in scope there, aliased or
+// not — never from the fixed member-name list directly.
 const MODULE_SCOPE_MEMBERS = "projectPath|dbPath|mkdirSync|createWriteStream|readFileSync|writeFileSync";
-const MODULE_SCOPE_DECL_RE = new RegExp(`^(export )?(const|let|var)\\b.*\\b(${MODULE_SCOPE_MEMBERS})\\(`);
-const MODULE_SCOPE_CALL_RE = new RegExp(`\\b(${MODULE_SCOPE_MEMBERS})\\(`);
+const MODULE_SCOPE_MEMBER_RE = new RegExp(`^(${MODULE_SCOPE_MEMBERS})$`);
+
+/** Every LOCAL name one of `MODULE_SCOPE_MEMBERS` is bound to in `src`, via ANY `import { ... }
+ *  from "..."` clause — `local -> original`. An unaliased import binds `local === original`. */
+function moduleScopeLocalNames(src: string): Map<string, string> {
+  const map = new Map<string, string>();
+  const importRe = /import\s*\{([^}]*)\}\s*from\s*["'][^"']+["']/g;
+  let m: RegExpExecArray | null;
+  while ((m = importRe.exec(src)) != null) {
+    for (const raw of m[1]!.split(",")) {
+      const item = raw.trim();
+      if (item.length === 0) continue;
+      const parts = item.split(/\s+as\s+/).map((s) => s.trim());
+      const original = parts[0]!;
+      const local = (parts[1] ?? parts[0])!;
+      if (MODULE_SCOPE_MEMBER_RE.test(original)) map.set(local, original);
+    }
+  }
+  return map;
+}
 
 function findModuleScopeOffenders(): string[] {
   const offenders: string[] = [];
@@ -328,15 +355,24 @@ function findModuleScopeOffenders(): string[] {
     for (const f of files) {
       const src = readFileSync(f, "utf8");
       const rel = f.slice(ROOT.length + 1);
+      const localNames = moduleScopeLocalNames(src);
+      if (localNames.size === 0) continue;
+      const alt = [...localNames.keys()].join("|");
+      const declRe = new RegExp(`^(export )?(const|let|var)\\b.*\\b(${alt})\\(`);
+      const callRe = new RegExp(`\\b(${alt})\\(`);
+      const describe = (local: string): string => {
+        const original = localNames.get(local)!;
+        return local === original ? `${rel}: module-scope ${original}(` : `${rel}: module-scope ${original}( via local alias "${local}"`;
+      };
       for (const line of src.split("\n")) {
-        const declMatch = MODULE_SCOPE_DECL_RE.exec(line);
+        const declMatch = declRe.exec(line);
         if (declMatch) {
-          offenders.push(`${rel}: module-scope ${declMatch[3]}(`);
+          offenders.push(describe(declMatch[3]!));
           continue;
         }
         if (!/^\s/.test(line)) {
-          const callMatch = MODULE_SCOPE_CALL_RE.exec(line);
-          if (callMatch) offenders.push(`${rel}: module-scope ${callMatch[1]}(`);
+          const callMatch = callRe.exec(line);
+          if (callMatch) offenders.push(describe(callMatch[1]!));
         }
       }
     }
