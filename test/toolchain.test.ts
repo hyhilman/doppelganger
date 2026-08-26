@@ -114,11 +114,14 @@ test("2. no linter/bundler config file exists at any level", () => {
   }
 });
 
-test("3. the RUN path (test, pretest, typecheck) never compiles anything", () => {
+test("3. the RUN path (test, pretest, typecheck, posttest, prepare) never compiles anything", () => {
   for (const pkgPath of allPackageJsonPaths()) {
     const pkg = JSON.parse(readFileSync(join(ROOT, pkgPath), "utf8"));
     const scripts = pkg.scripts ?? {};
-    for (const key of ["test", "pretest", "typecheck"]) {
+    // "test, pretest, typecheck" was the scanned list, but a compile hidden in posttest (runs
+    // right after test, on the same path) or prepare (runs on every npm install, including a
+    // fresh CI checkout) would pass unseen. Both are on the run path exactly like the other three.
+    for (const key of ["test", "pretest", "typecheck", "posttest", "prepare"]) {
       const command: string | undefined = scripts[key];
       if (!command) continue;
       for (const forbidden of ["npm run build", "tsc -p tsconfig.build", "dist/"]) {
