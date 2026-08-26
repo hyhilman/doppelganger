@@ -188,6 +188,12 @@ finished. Every label has exactly one definition in one file, read by both runti
 - **Both halves of the skill gate** (SKL-06, TST-24): every `job.skill` resolves to a real directory,
   and every skill directory is named by a registered job. An orphan skill is a prompt nothing runs.
 - Test fixtures are lifted from **real** data, never invented (TST-19).
+- **Tests share a filesystem, so a database path that is not unique leaks between test FILES.**
+  Settle what you seed. Two traps: `openDb` caches by path, so a reused path inside one file hands
+  two tests one connection and one already-migrated schema; and `node --test` gives each file its
+  own process, so a reused path ACROSS files leaks rows with no cache to make it obvious — and a
+  held `BEGIN IMMEDIATE` turns it into a `SQLITE_BUSY` that reads as a product fault. Every test
+  database lives under `mkdtempSync(tmpdir())`, one directory per file, one file per test.
 
 ## Build order
 

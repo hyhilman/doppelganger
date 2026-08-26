@@ -15,6 +15,7 @@ const ROOT = new URL("..", import.meta.url).pathname.replace(/\/$/, "");
 const ALLOWED: Record<string, string> = {
   "kernel/runtime/db.ts": "the ONE module that opens node:sqlite and wraps it (DBS-01, DBS-06)",
   "kernel/runtime/db.test.ts": "needs a raw, unwrapped, contending second connection",
+  "kernel/runtime/db-sharing.test.ts": "TST-20's trap-2 fixture holds a lock from a SEPARATE process",
   "test/node.test.ts": "N0's capability probe — proves type stripping runs at all",
 };
 
