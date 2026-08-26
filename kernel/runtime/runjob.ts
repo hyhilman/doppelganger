@@ -28,10 +28,9 @@ export function buildPrompt(job: Job, args: Readonly<Record<string, string>>): s
   const argLines = Object.keys(args)
     .sort()
     .map((k) => `${k}=${args[k]}`);
-  // The skill-invocation slash, spelled as a / escape rather than a literal `/` right after a
-  // quote — test/writes.test.ts's door 1 reads any quote immediately followed by `/` or `~` as a
-  // hardcoded PATH (INS-02) with no exception, and this is a slash COMMAND prefix, not a path.
-  const skillLine = `\u002F${skillOf(job)}`;
+  // The skill-invocation slash — a COMMAND prefix, not a path. Signed in test/writes.test.ts's
+  // DOOR1_EXCEPTIONS (N3 F2); door 1 decodes escapes now, so no spelling hides from it.
+  const skillLine = `/${skillOf(job)}`;
   return [OPUS_GUIDANCE, "", skillLine, "", ...argLines].join("\n");
 }
 

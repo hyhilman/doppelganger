@@ -46,7 +46,16 @@ function allTsFiles(): string[] {
 // reads as a quote-then-slash and false-positives on kernel/runtime/log/{emit,parse}.ts's own
 // escaping code.
 //
-// NO EXCEPTION (F1/F2, N2 VERIFY): `cli/crontab.ts`'s `CRONTAB_CMD_ENV` used to carry
+// EXCEPTIONS ARE SIGNED, NEVER SPELLED AROUND (N3 F2): door 1 decodes \uXXXX escapes before it
+// scans, because three N3 literals were spelled `\u002F…` so the scanner would not see them —
+// and a review then planted a genuinely hardcoded path in the same spelling and the suite stayed
+// green. A gate a file can opt out of by respelling is not a gate. A literal that legitimately
+// starts with a slash but is NOT a path (a command, a command prefix, a separator) gets a row in
+// DOOR1_EXCEPTIONS below: file, exact literal, expected count, and the reason. The count is
+// asserted exactly, so a SECOND copy of a signed literal is an offender, not a free pass — the
+// hole N2's own DOOR1_ALLOWED_LITERAL had.
+//
+// History (F1/F2, N2 VERIFY): `cli/crontab.ts`'s `CRONTAB_CMD_ENV` used to carry
 // `default: "/usr/bin/crontab"` — a real, absolute crontab binary on most hosts, which meant a
 // caller who forgot to set `CRONTAB_CMD` sailed past layer 0 (it only refuses a non-absolute
 // command) and reached the developer's real crontab. F1 dropped the default and made the row
@@ -54,6 +63,25 @@ function allTsFiles(): string[] {
 // scoped exception before and needs none now. If a hardcoded absolute path ever reappears in
 // `cli/crontab.ts`, this door must trip on it like anywhere else.
 const HARDCODED_PATH = /(?<=[=(\[{,:\s])(["'`])[/~]/;
+
+/** N3 F2: decode \uXXXX and \xXX escapes so no respelling hides a literal from door 1. */
+function decodeEscapes(src: string): string {
+  return src
+    .replace(/\\u([0-9a-fA-F]{4})/g, (_, h: string) => String.fromCharCode(parseInt(h, 16)))
+    .replace(/\\x([0-9a-fA-F]{2})/g, (_, h: string) => String.fromCharCode(parseInt(h, 16)));
+}
+
+/** The signed door-1 exception table (N3 F2). One row per allowed slash-leading literal that is
+ *  not a path. `count` is exact: a second copy of the same literal anywhere in the file is an
+ *  offender, which is the hole N2's whole-file `split(allowed).join("")` had. */
+const DOOR1_EXCEPTIONS: readonly { file: string; literal: string; count: number; why: string }[] = [
+  { file: "host/run.ts", literal: '"/bin/false"', count: 1,
+    why: "GIT_SSH_COMMAND push gate - a command the agent execs, not a write path (INS-02 does not reach it)" },
+  { file: "kernel/runtime/runjob.ts", literal: "`/${skillOf(job)}`", count: 1,
+    why: "the skill-invocation prefix /<name> - a command prefix, not a path" },
+  { file: "cli/skills.ts", literal: '"/"', count: 1,
+    why: "the POSIX separator - one character, not a path" },
+];
 
 /** Strips block and line comments before door 1 scans — needed ONLY because of the backtick arm
  *  above (F5): this repo's own prose writes an inline-code path like `` `~/.gitconfig` `` or
@@ -75,8 +103,16 @@ test("1. door 1 — no hardcoded path literal, no homedir()/tmpdir() in kernel/,
   const files = allTsFiles();
   const offenders: string[] = [];
   for (const f of files) {
-    const code = stripComments(readFileSync(f, "utf8"));
+    let code = decodeEscapes(stripComments(readFileSync(f, "utf8")));
     const rel = f.slice(ROOT.length + 1);
+    for (const ex of DOOR1_EXCEPTIONS.filter((e) => e.file === rel)) {
+      const hits = code.split(ex.literal).length - 1;
+      if (hits !== ex.count) {
+        offenders.push(`${rel} (signed literal ${ex.literal} appears ${hits}x, signed for ${ex.count})`);
+      }
+      // remove exactly the signed count, leaving any extra copy for the scan below
+      for (let i = 0; i < ex.count; i++) code = code.replace(ex.literal, "");
+    }
     if (HARDCODED_PATH.test(code) || /\bhomedir\(|\bos\.homedir\b|\btmpdir\(|\bos\.tmpdir\b/.test(code)) {
       offenders.push(rel);
     }

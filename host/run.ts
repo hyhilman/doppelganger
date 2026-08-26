@@ -86,10 +86,9 @@ if (import.meta.filename === process.argv[1]) {
       root: ROOT,
       runner: sandcastleRunner({
         gitConfigGlobal: projectPath(".doppelganger/gitconfig"),
-        // ruling 6 — a leading "/" right after the quote reads as a hardcoded path literal to
-        // door 1 (test/writes.test.ts); / is the same slash to the runtime and invisible
-        // to that scanner (kernel/runtime/runjob.ts's skill-name prompt line is the same trick).
-        gitSshCommand: "\u002Fbin/false",
+        // The push gate (N3): a COMMAND, not a write path. Signed in test/writes.test.ts's
+        // DOOR1_EXCEPTIONS (N3 F2); door 1 decodes escapes now, so no spelling hides from it.
+        gitSshCommand: "/bin/false",
       }),
       git,
       now: () => new Date(),
