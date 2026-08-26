@@ -28,8 +28,8 @@ Advance only when VERIFY comes back with nothing blocking.
 |-------|-------|------|------|-----|-------|--------|
 | N0 — Ground truth | 11 | 2 d | ✅ | ✅ | ✅ | ⚠ |
 | N1 — Kernel the loop needs | 26 | 1.5–2 wk | ✅ | ✅ | ✅ | ✅ |
-| N2 — Supervisor + gate | 32 | 1 wk | ✅ | ✅ | ✅ | ⚠ |
-| N3 — Harness + skills + the pass | 34 | 1.5–2 wk | — | — | — | — |
+| N2 — Supervisor and gate, no entry yet | 32 | 1 wk | ✅ | ✅ | ✅ | ✅ |
+| N3 — Harness + skills + the pass | 34 | 1.5–2 wk | ▶ | — | — | — |
 | N4 — Safe to leave alone | 22 | 1 wk | — | — | — | — |
 
 Legend: `—` not started · `▶` running · `✅` done · `⚠` done with open follow-ups.
@@ -106,7 +106,17 @@ Legend: `—` not started · `▶` running · `✅` done · `⚠` done with open
 
 ## Open items the loop must not silently skip
 
-- **J0.13 AC4 — CI has never run.** `dev` is not pushed, so no GitHub Actions run exists and
+- **A "guard" that checks the wrong property is not a guard (N2 F1).** The crontab command was
+  gated on `isAbsolute`, which stops a PATH lookup — while the knob's own default was
+  `/usr/bin/crontab`, an absolute path to the real binary. The check passed and the reader
+  returned the developer's real crontab. The knob is now `required: true` with no default, so
+  forgetting it throws. When a header claims something is "unreachable", read the defaults.
+- **Code being right is not the same as being gated (N2 F3).** Deleting the `releaseSelf()` call
+  on the gate-failure path left the whole suite green. Every N3 behaviour that matters needs a
+  test that goes red when it is deleted, not a reviewer who reads it and agrees.
+- **J0.13 AC4 — CLOSED.** CI ran green on a real runner: `https://github.com/hyhilman/doppelganger/actions/runs/32952736069`.
+  `dev` is pushed at the end of every phase from now on (the user authorised this 2026-08-26).
+- **(historic) J0.13 AC4 — CI had never run.** `dev` is not pushed, so no GitHub Actions run exists and
   no run URL is recorded. The workflow content is correct and its shape was proved locally:
   a fresh clone + `npm ci` + `CORPUS_OVERRIDE=/nonexistent npm test` exits 0 and reports
   `# SKIP reference corpus absent`, which is what AC5 wanted to observe. Residual risk is
@@ -172,13 +182,6 @@ Legend: `—` not started · `▶` running · `✅` done · `⚠` done with open
   is deliberately not a workspace, so nothing is phantom today, but TST-25's sibling clause ("no
   workspace names another workspace's `src/` by path") will have to rule on this at N5. Whether
   `cli` publishes at all decides it; still undecided.
-- **§3's N2 line and `WORK.md` still disagree on the shipped ID range (plan/N2-uac.md Gaps item
-  11), left as is by this job's own scope.** §3 says N2 ships `SUP-01…21` and `TST-17 (gate half)`;
-  `WORK.md`'s N2 section (this job) lists `SUP-01…18` only, with `SUP-19`/`SUP-21` under "moved out
-  of this milestone", and does not mention TST-17 at all (N4 claims it, per plan/N2-uac.md Gaps
-  item 11's own finding). J2.18's instruction was "§3's N2 body already describes only mechanisms,
-  so nothing else in it moves" — the retitle happened, the `Ships:` line did not. Whoever edits §3
-  next should reconcile it with `WORK.md`, which is the source of truth for what actually shipped.
 - **SUP-07 does not bound the parity corpus, and the walk is O(firings) (plan/N2-uac.md Gaps item
   6).** Measured: one `* * * * *` expression costs ~3.4s of croner time over 14 days, and the
   22-form corpus in `host/parity.test.ts` costs ~7-8s total were it not gated behind
