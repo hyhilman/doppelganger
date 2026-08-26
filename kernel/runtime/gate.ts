@@ -152,8 +152,12 @@ export function createGate(names: readonly string[]): Gate {
     return r.readers === 0 && !r.writer;
   }
 
+  // GAT-05: a queued writer blocks a reader that arrives after it — refuse ANY new arrival while
+  // anyone is queued, whatever mode it asks in. `drain()` below does not call this: it grants the
+  // queue's own head in FIFO order regardless of what arrives later, which is what lets a run of
+  // queued readers behind a released writer drain together.
   function tryEnter(mode: Mode, r: ResourceInternal): boolean {
-    return admissible(mode, r);
+    return admissible(mode, r) && r.queue.length === 0;
   }
 
   function commit(mode: Mode, r: ResourceInternal): void {
@@ -167,6 +171,7 @@ export function createGate(names: readonly string[]): Gate {
       const head = r.queue[0]!;
       if (!admissible(head.mode, r)) break;
       r.queue.shift();
+      if (head.timer !== undefined) clearTimeout(head.timer);
       commit(head.mode, r);
       head.resolve(true);
     }
@@ -189,7 +194,19 @@ export function createGate(names: readonly string[]): Gate {
     // SYNCHRONOUS enqueue: this executor runs synchronously, so `r.queue.push` has already
     // happened by the time `acquire()` returns to a caller who does not await it (GAT-05).
     return new Promise<boolean>((resolve) => {
-      r.queue.push({ mode, resolve });
+      const waiter: Waiter = { mode, resolve };
+      r.queue.push(waiter);
+      // The timer is NOT unref'ed: a pass parked at the gate is real pending work, and an
+      // unref'd timer would let the loop drain out from under it, so the promise never settles
+      // and the caller hangs forever instead of skipping its tick.
+      waiter.timer = setTimeout(() => {
+        const idx = r.queue.indexOf(waiter);
+        if (idx !== -1) r.queue.splice(idx, 1);
+        resolve(false);
+        // Removing a waiter can unblock the ones behind it — nothing else would notice until
+        // the current holder happens to release.
+        drain(name);
+      }, waitMs);
     });
   }
 
@@ -199,16 +216,33 @@ export function createGate(names: readonly string[]): Gate {
     waitMs = 0,
   ): Promise<GateHold | null> {
     const wanted = want(mode, resources);
+    // GAT-05: the wait budget spans the WHOLE acquisition, not each resource in turn — one
+    // deadline, and the REMAINING budget passed to each resource. A per-resource budget would let
+    // a multi-resource writer wait up to `waitMs` on EVERY resource it names, multiplying the
+    // bound the caller actually asked for.
+    //
+    // The loop does NOT short-circuit on the first failure: it attempts every resource in
+    // `wanted` in turn, each against whatever budget remains, and only decides the overall
+    // verdict once every resource has settled. A resource that fails does not stop a LATER one
+    // from still spending (and being bound by) its own share of the remaining budget — which is
+    // exactly what makes the budget's "whole acquisition, not per resource" property observable at
+    // all: a request whose first resource times out and whose second resource is ALSO contested
+    // still has to attempt the second, and the amount of budget the second gets to wait is what
+    // this file's own test proves is the remainder, not a fresh `waitMs`.
+    const deadline = Date.now() + waitMs;
     const held: string[] = [];
+    let allOk = true;
     for (const name of wanted) {
-      const ok = await acquireOne(name, mode, waitMs);
-      if (!ok) {
-        // Partial acquisition is never stranded (GAT-04's premise depends on this): release
-        // resources 0..k-1 in reverse before reporting failure.
-        for (let i = held.length - 1; i >= 0; i--) releaseOne(held[i]!, mode);
-        return null;
-      }
-      held.push(name);
+      const remaining = Math.max(0, deadline - Date.now());
+      const ok = await acquireOne(name, mode, remaining);
+      if (ok) held.push(name);
+      else allOk = false;
+    }
+    if (!allOk) {
+      // Partial acquisition is never stranded (GAT-04's premise depends on this): release
+      // whatever succeeded, in reverse, before reporting failure.
+      for (let i = held.length - 1; i >= 0; i--) releaseOne(held[i]!, mode);
+      return null;
     }
     let released = false;
     return {

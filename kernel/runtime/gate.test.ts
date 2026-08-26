@@ -223,3 +223,167 @@ test("11. two gates over the same names exclude nothing from each other", async 
   h1!.release();
   h2!.release();
 });
+
+// -------------------------------------------------------------------------------------------
+// J2.5 (GAT-05) — the FIFO queue, writer priority, the timeout, and the whole-acquisition
+// wait budget. Still no real timer created by THIS file (AC6) — the only timers are the gate's
+// own, driven by `waitMs`, and the four 50 ms waits below are this phase's only real delays.
+// -------------------------------------------------------------------------------------------
+
+test("12. enqueue is synchronous: a queued waiter is visible before acquire() is awaited", async () => {
+  const gate = createGate([...NAMES]);
+  const h = await gate.acquire("excl", ["a"], 0);
+  assert.ok(h);
+  const queued = gate.acquire("excl", ["a"], 60_000); // NOT awaited
+  assert.equal(gate.state().resources.a!.queued, 1, "the waiter must already be queued before this line runs");
+  h!.release();
+  const q = await queued;
+  assert.ok(q, "the queued writer must resolve once the holder releases, with no timer having fired");
+  q!.release();
+});
+
+test("13. GAT-05: a queued writer blocks a reader that arrives after it", async () => {
+  const gate = createGate([...NAMES]);
+  const reader = await gate.acquire("shared", [], 0);
+  assert.ok(reader);
+  const writer = gate.acquire("excl", ["a"], 60_000); // NOT awaited
+  assert.equal(gate.state().resources.a!.queued, 1);
+  const laterReader = await gate.acquire("shared", [], 0);
+  assert.equal(laterReader, null, "a later reader must NOT overtake the queued writer");
+  reader!.release();
+  const w = await writer;
+  assert.ok(w, "the queued writer must eventually succeed");
+  w!.release();
+});
+
+test("14. a run of queued readers drains together; a writer behind them waits for both", async () => {
+  const gate = createGate([...NAMES]);
+  const writer = await gate.acquire("excl", ["a"], 0);
+  assert.ok(writer);
+  const r1 = gate.acquire("shared", [], 60_000);
+  const r2 = gate.acquire("shared", [], 60_000);
+  const w2 = gate.acquire("excl", ["a"], 60_000); // queued behind the two readers
+  assert.equal(gate.state().resources.a!.queued, 3, "all three waiters must be queued synchronously");
+
+  writer!.release();
+  // One synchronous drain() pass grants both readers together; the writer behind them stays
+  // queued because two readers now hold "a" — a writer would have taken it alone.
+  assert.deepEqual(gate.state().resources.a, { readers: 2, writer: false, queued: 1 });
+
+  const h1 = await r1;
+  const h2 = await r2;
+  assert.ok(h1, "first queued reader must resolve");
+  assert.ok(h2, "second queued reader must resolve together with the first");
+
+  h1!.release();
+  assert.equal(gate.state().resources.a!.writer, false, "one reader releasing must not admit the writer yet");
+  h2!.release();
+  const wHold = await w2;
+  assert.ok(wHold, "the writer must resolve only once BOTH readers have released");
+  wHold!.release();
+});
+
+test("15. the timeout path: a queued acquire that times out is removed from the queue", async () => {
+  const gate = createGate([...NAMES]);
+  const h = await gate.acquire("excl", ["a"], 0);
+  assert.ok(h);
+  const started = Date.now();
+  const failed = await gate.acquire("excl", ["a"], 50);
+  const elapsed = Date.now() - started;
+  assert.equal(failed, null);
+  assert.ok(elapsed >= 40, `expected >= 40ms elapsed for a 50ms wait, got ${elapsed}ms (exceptions table row 1)`);
+  assert.equal(gate.state().resources.a!.queued, 0, "the timed-out waiter must have been removed from the queue");
+  h!.release();
+});
+
+test("16. a timeout unblocks the queue behind it", async () => {
+  const gate = createGate([...NAMES]);
+  // DEVIATION from plan/N2-uac.md J2.5 group 5, recorded in the final report: the plan's fixture
+  // has the ORIGINAL holder release right after the timeout ("release the holder; the queued
+  // writer resolves truthy"). But release() always calls drain() on its own — so a mutation that
+  // deletes the drain() call INSIDE the timeout handler is invisible to that fixture: the
+  // SUBSEQUENT release's own drain() grants the queued party regardless, and AC5's mutation does
+  // not turn the suite red with that scenario. The distinguishing case needs a party BEHIND the
+  // timed-out waiter that is compatible with the RESOURCE'S CURRENT HOLDER and can therefore be
+  // granted the moment the timed-out waiter is removed — with NO release ever happening. A shared
+  // reader is compatible with another shared reader; a queued writer blocks it only via GAT-05
+  // writer priority, not via the resource's own state.
+  const reader1 = await gate.acquire("shared", ["a"], 0);
+  assert.ok(reader1);
+  const writerX = gate.acquire("excl", ["a"], 50); // will time out; blocks reader2 via writer priority alone
+  const reader2 = gate.acquire("shared", ["a"], 60_000); // compatible with reader1, queued only behind writerX
+  assert.equal(gate.state().resources.a!.queued, 2);
+
+  const writerXResult = await writerX;
+  assert.equal(writerXResult, null, "the writer must time out");
+
+  // reader1 never releases before this point: reader2 can only resolve if the TIMEOUT ITSELF
+  // drains the queue.
+  const r2 = await reader2;
+  assert.ok(r2, "reader2 must be granted once the timed-out writer is removed — nothing else ever released");
+  r2!.release();
+  reader1!.release();
+});
+
+test("17. the wait budget spans the whole acquisition, not each resource in turn", async () => {
+  const gate = createGate([...NAMES]);
+  // DEVIATION from plan/N2-uac.md J2.5 group 6, recorded in the final report: the plan's fixture
+  // holds only ["c"], leaving "a" free. Since a free resource costs ~0ms of the budget whether the
+  // implementation passes each resource the REMAINING budget or the FULL waitMs, that fixture
+  // cannot actually distinguish the AC4 mutation (elapsed stays ~50ms either way) — it is the same
+  // fixture as group 7 below, which itself proves "a" resolves at once. Holding BOTH "a" and "c"
+  // makes the second resource's wait genuinely depend on how much budget the first one already
+  // spent, which is what makes the 2x-vs-1x difference real.
+  const h = await gate.acquire("excl", ["a", "c"], 0);
+  assert.ok(h);
+  const started = Date.now();
+  const failed = await gate.acquire("excl", ["a", "c"], 50);
+  const elapsed = Date.now() - started;
+  assert.equal(failed, null);
+  assert.ok(
+    elapsed < 100,
+    `expected < 100ms — a per-resource budget would spend a full 50ms on EACH of a and c (exceptions table row 2), got ${elapsed}ms`,
+  );
+  h!.release();
+});
+
+test("18. the unwind on timeout: a partial multi-resource acquire that times out releases what it already took", async () => {
+  const gate = createGate([...NAMES]);
+  const h = await gate.acquire("excl", ["c"], 0);
+  assert.ok(h);
+  const failed = await gate.acquire("excl", ["a", "c"], 50);
+  assert.equal(failed, null, "c stays held for the whole wait, so the second resource must time out");
+  assert.deepEqual(
+    gate.state().resources.a,
+    { readers: 0, writer: false, queued: 0 },
+    "a must have been released by the unwind — without it, a is held by a caller that no longer exists",
+  );
+  const reacquired = await gate.acquire("excl", ["a"], 0);
+  assert.ok(reacquired, "a must be immediately acquirable after the unwind");
+  reacquired!.release();
+  h!.release();
+});
+
+test("19. mixed reader/writer liveness across multiple resources, three parties, two resources", async () => {
+  const gate = createGate([...NAMES]);
+  const reader1 = await gate.acquire("shared", [], 0);
+  assert.ok(reader1);
+
+  const writerPromise = gate.acquire("excl", ["a", "b"], 60_000);
+  const reader2Promise = gate.acquire("shared", [], 60_000);
+  // The writer's request spans a and b, but resources are acquired in the gate's fixed order one
+  // at a time (GAT-04) — it queues on "a" first and has not yet attempted "b". The second reader,
+  // arriving after the writer, is refused "a" too (GAT-05 writer priority) and queues behind it.
+  assert.equal(gate.state().resources.a!.queued, 2, "the writer and the second reader are both queued on a");
+  assert.equal(gate.state().resources.b!.queued, 0, "b was never contested — the writer has not reached it yet");
+
+  reader1!.release();
+  const writerHold = await writerPromise;
+  assert.ok(writerHold, "the writer must eventually take a and b together");
+  assert.deepEqual(writerHold!.resources, ["a", "b"]);
+
+  writerHold!.release();
+  const reader2 = await reader2Promise;
+  assert.ok(reader2, "the second reader must get in once the writer releases");
+  reader2!.release();
+});
