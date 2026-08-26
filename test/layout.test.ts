@@ -375,7 +375,8 @@ test("13. no stray *.db*/*.db-wal/*.db-shm file anywhere in the checkout", () =>
 // Scoped to SHIPPED phases only (shippedPhases() above): a phase still in progress has a Ships
 // line that is still being negotiated, and gating a draft is not this test's job. Every token in a
 // SHIPPED phase's Ships line must be one of:
-//   - a plain ID:            TST-21
+//   - a plain ID:            TST-21      -> also JOB-C15's shape (R4): a JOB- id carries one
+//                                            infix letter before its digits (JOB-B/C/G/J/O/P/R/S/T)
 //   - a zero-padded range:   SUP-01…18   -> SUP-01 .. SUP-18, same digit width as the start
 //   - a family wildcard:     DBS-*       -> not expanded; every WORK.md ID under that PREFIX is
 //                                            excluded from BOTH sides instead — the wildcard's
@@ -439,7 +440,11 @@ function expandShipsIds(phase: string): { ids: Set<string>; wildcardPrefixes: Se
       }
       continue;
     }
-    if (/^[A-Z]+-\d+$/.test(token)) {
+    // R4 (TST-06) — a plain ID's suffix is USUALLY pure digits (TST-21), but a JOB- id carries
+    // one infix letter first (JOB-C15: JOB-B/C/G/J/O/P/R/S/T in roadmap.md's own §2). N3's own
+    // Ships line names JOB-C15 — without this, ticking N3 in WORK.md throws HERE, not merely
+    // fails, the moment this phase's own close commit runs the suite.
+    if (/^[A-Z]+-[A-Z]?\d+$/.test(token)) {
       ids.add(token);
       continue;
     }
@@ -450,7 +455,10 @@ function expandShipsIds(phase: string): { ids: Set<string>; wildcardPrefixes: Se
   return { ids, wildcardPrefixes };
 }
 
-/** Every bold `**PREFIX-NN**` ID on a TICKED (`- [x]`) bullet inside WORK.md's `## <phase>` section. */
+/** Every bold `**PREFIX-NN**` ID on a TICKED (`- [x]`) bullet inside WORK.md's `## <phase>` section.
+ *  R4 (TST-06): the same optional-infix-letter shape as expandShipsIds's plain-ID arm, so a
+ *  JOB-C15 bullet is captured here too — this side of the comparison must never quietly return
+ *  fewer ids than the roadmap side finds. */
 function workPhaseIds(phase: string): Set<string> {
   const workMd = readFileSync(join(ROOT, "WORK.md"), "utf8");
   const lines = workMd.split("\n");
@@ -459,7 +467,7 @@ function workPhaseIds(phase: string): Set<string> {
   const ids = new Set<string>();
   for (let i = headingIdx + 1; i < lines.length; i++) {
     if (/^##\s/.test(lines[i]!)) break;
-    const m = /^- \[x\].*?\*\*([A-Z]+-\d+)\*\*/.exec(lines[i]!);
+    const m = /^- \[x\].*?\*\*([A-Z]+-[A-Z]?\d+)\*\*/.exec(lines[i]!);
     if (m) ids.add(m[1]!);
   }
   return ids;
