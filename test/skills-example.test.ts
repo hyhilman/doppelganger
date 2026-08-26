@@ -11,6 +11,13 @@ import assert from "node:assert/strict";
 import { readFileSync, readdirSync, lstatSync } from "node:fs";
 import { join } from "node:path";
 import { render } from "../cli/skills.ts";
+import { extractBlock } from "../kernel/runtime/payload.ts";
+
+// Kept as its own literal rather than imported from test/skills.test.ts: importing a sibling test
+// FILE pulls in every `test(...)` it registers too (node's test runner has no notion of "import
+// only the values"), which would double-count this file's own subtests. JOB-T03's `agent` token
+// (N5) — SKL-07's row names it explicitly, so this is a citation, not independent drift.
+const AUTH_TOKENS = ["agent"] as const;
 
 const ROOT = new URL("..", import.meta.url).pathname.replace(/\/$/, "");
 const JOB_NAME = "nightly-sandcastle";
@@ -126,38 +133,31 @@ test("8. the source names no path into its own directory and reads no env (SKL-0
   assert.ok(!source.includes("$ENV"), "a skill's only inputs are promptArgs (HRN-16)");
 });
 
-test("9. SKL-06 both ways, N0 stand-in: .claude/skills/ and plugins/*/skills/ name the same set", () => {
-  // No job registry exists yet (that is N1+). This is the N0 stand-in for TST-24 — a hand-held
-  // set comparison, replaced by the registry walk at N3/N5.
-  const rendered = new Set(readdirSync(join(ROOT, ".claude/skills")));
-  const pluginDirs = readdirSync(join(ROOT, "plugins"), { withFileTypes: true }).filter((d) => d.isDirectory());
-  const sourced = new Set<string>();
-  for (const plugin of pluginDirs) {
-    const skillsPath = join(ROOT, "plugins", plugin.name, "skills");
-    let entries: string[] = [];
-    try {
-      entries = readdirSync(skillsPath);
-    } catch {
-      continue;
-    }
-    for (const entry of entries) sourced.add(entry);
-  }
-  assert.deepEqual(rendered, new Set([JOB_NAME]), ".claude/skills/ must name exactly { nightly-sandcastle }");
-  assert.deepEqual(sourced, new Set([JOB_NAME]), "plugins/*/skills/ must name exactly { nightly-sandcastle }");
-  assert.deepEqual(rendered, sourced, "an orphan skill is a prompt nothing runs (SKL-06)");
-});
+// Test 9 (the N0 stand-in for SKL-06 both ways, ".claude/skills/ and plugins/*/skills/ name the
+// same set") is SUPERSEDED at J3.13 by test/skills.test.ts test 5, which has a real registry to
+// check against — a hand-held set comparison with no registry behind it is gone, not renumbered.
 
-test("10. the SKL-07 output vocabulary is pinned and no agent authorization token appears", () => {
+test("10. the SKL-07 output vocabulary is pinned and no agent authorization token appears in the report block, in either copy", () => {
   // This is an OUTPUT VOCABULARY, not an authorization token — see roadmap §2.30 SKL-07.
   // It changes what the caller LEARNS, never what the run is PERMITTED to do. Pinning it here
   // is what makes parseVerdict at N3 reproduce the markdown instead of drifting from it.
-  // TST-24's ban is on tokens like JOB-T03's `agent`, which this file must never name.
+  // TST-24's ban is on tokens like JOB-T03's `agent`, scoped to the REPORT BLOCK only (an
+  // ordinary English word in prose is not a grant) — narrowed and derived from AUTH_TOKENS at
+  // J3.13, and checked in BOTH the source and the rendered copy, since the rendered file is what
+  // the CLI actually loads.
   const source = readFileSync(join(ROOT, SOURCE_FILE), "utf8");
+  const rendered = readFileSync(join(ROOT, RENDERED_FILE), "utf8");
   assert.ok(source.includes("<<<SANDCASTLE"), "the SANDCASTLE report block must be present");
   assert.ok(source.includes("SANDCASTLE>>>"), "the SANDCASTLE report block must be closed");
   const outcomeMatch = /outcome=<([^>]+)>/.exec(source);
   assert.ok(outcomeMatch, "the source must state the outcome= vocabulary");
   const values = outcomeMatch![1].split("|");
   assert.deepEqual(values, ["changed", "none", "too-large", "suite-failed"], "the outcome= vocabulary must match exactly");
-  assert.ok(!source.includes("agent"), "the skill must never name the agent authorization token (SKL-07, TST-24)");
+  for (const text of [source, rendered]) {
+    const block = extractBlock(text, "SANDCASTLE");
+    assert.ok(block !== null);
+    for (const token of AUTH_TOKENS) {
+      assert.ok(!block!.includes(token), `the report block must never name the authorization token "${token}" (SKL-07, TST-24)`);
+    }
+  }
 });
