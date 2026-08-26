@@ -245,6 +245,12 @@ test("17. a contended tx() reports and names BEGIN IMMEDIATE — the body never 
   assert.equal(ran, false);
 });
 
+// F6 (DBS-04) — the plan (J1.6 assertion 8) claims the full-wait shape (18) and the
+// refused-outright shape (19) "land two orders of magnitude apart", but the two tests never
+// compared their numbers — each asserted its own bound in isolation. Test 18 records its `waited`
+// here so test 19 can assert the gap as well as its own bound.
+let waitedFull = -1;
+
 test("18. waited= is >= 180ms with busy_timeout = 200 — the full-wait shape", () => {
   const p = nextPath();
   const db = seedBusyDb(p, 200);
@@ -253,7 +259,9 @@ test("18. waited= is >= 180ms with busy_timeout = 200 — the full-wait shape", 
       () => db.handle().exec("INSERT INTO t_busy (v) VALUES ('slow')"),
       (e: unknown) => {
         const m = /waited=(\d+)ms/.exec(e instanceof Error ? e.message : String(e));
-        return m != null && Number(m[1]) >= 180;
+        if (m == null) return false;
+        waitedFull = Number(m[1]);
+        return waitedFull >= 180;
       },
     );
   });
@@ -281,6 +289,14 @@ test("19. waited= is < 50ms for a refused-outright upgrade, busy_timeout left at
   );
   h.exec("ROLLBACK");
   assert.ok(waited >= 0 && waited < 50, `expected a near-zero refusal, got waited=${waited}ms`);
+
+  // The plan's own claim: the two shapes land two orders of magnitude (100x) apart. Guard against
+  // division by a recorded 0ms with `|| 1` — a near-zero refusal is the expected, common case.
+  assert.ok(waitedFull >= 0, "expected test 18 to have recorded a waited value first");
+  assert.ok(
+    waitedFull >= (waited || 1) * 100,
+    `expected two orders of magnitude apart: full-wait=${waitedFull}ms refused-outright=${waited}ms`,
+  );
 });
 
 test("20. withBusyContext calls its function exactly once — no retry (DBS-04)", () => {

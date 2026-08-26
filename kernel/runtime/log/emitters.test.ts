@@ -67,11 +67,14 @@ function bashRaw(
 /** A locale that bash cannot set prints `setlocale: cannot change locale...` on stderr (measured),
  *  which lands on the merged stream ahead of the real line. Strip it — byte-preserving, since
  *  latin1 is a 1:1 byte<->codeunit mapping and \n (0x0A) never appears inside a UTF-8 continuation
- *  byte (always >= 0x80). */
-function stripLocaleWarning(buf: Buffer): Buffer {
+ *  byte (always >= 0x80). Reports how many lines it removed, so a caller can assert the filter did
+ *  the same thing on both sides of a comparison — the plan's own Risks section for TST-18 required
+ *  that assertion and the first draft never made it. */
+function stripLocaleWarning(buf: Buffer): { buf: Buffer; removed: number } {
   const text = buf.toString("latin1");
-  const lines = text.split("\n").filter((l) => !l.startsWith("bash: warning:"));
-  return Buffer.from(lines.join("\n"), "latin1");
+  const lines = text.split("\n");
+  const kept = lines.filter((l) => !l.startsWith("bash: warning:"));
+  return { buf: Buffer.from(kept.join("\n"), "latin1"), removed: lines.length - kept.length };
 }
 
 function bashLine(
@@ -81,7 +84,7 @@ function bashLine(
   pairs: string[],
   env: { LOG_LEVEL?: string; TZ?: string; LC_ALL?: string } = {},
 ): Buffer {
-  return stripLocaleWarning(bashRaw(job, level, event, pairs, env, true).stdout);
+  return stripLocaleWarning(bashRaw(job, level, event, pairs, env, true).stdout).buf;
 }
 
 function fieldsToPairs(fields: Record<string, unknown>): string[] {
@@ -168,7 +171,18 @@ test("2. tails are byte-identical over case group (a)", () => {
 function compareValueMatrix(locale: string): void {
   for (const v of VALUE_MATRIX) {
     const ts = tsLine("j", "info", "e", { v });
-    const bash = bashLine("j", "info", "e", [`v=${v}`], { LC_ALL: locale });
+    const rawBash = bashRaw("j", "info", "e", [`v=${v}`], { LC_ALL: locale }, true).stdout;
+    const { buf: bash, removed: bashRemoved } = stripLocaleWarning(rawBash);
+    // The plan's Risks section: filtering must do the same thing on both sides. ts never runs
+    // under LC_ALL and can never emit a `bash: warning:` line, so its count is always 0 — running
+    // the same filter over it anyway (rather than assuming) is what makes this a real assertion
+    // instead of a comment.
+    const { removed: tsRemoved } = stripLocaleWarning(ts);
+    assert.equal(
+      tsRemoved,
+      bashRemoved,
+      `stripLocaleWarning removed ${tsRemoved} line(s) from ts and ${bashRemoved} from bash under LC_ALL=${locale}`,
+    );
     const { tail: tsTail } = splitHead(ts);
     const { tail: bashTail } = splitHead(bash);
     assertTailsIdentical(tsTail, bashTail, `value ${JSON.stringify(v)} under LC_ALL=${locale}`);
