@@ -1292,7 +1292,7 @@ plugin seam, and the seam is designed better once a second consumer exists to ar
 ### N2 — Supervisor and gate, no entry yet · **1 week**
 `host/supervisor.ts` · schedule-as-data · `PROGRAMS` · `validate()` on every boot · one croner timer
 per entry · refresh window · heartbeat · `gate.ts` · `--list` · the crontab bootstrap block.
-**Ships:** SUP-01…21, GAT-01…10, INS-03, INS-05, TST-15, TST-16, TST-17 (gate half).
+**Ships:** SUP-01…18, GAT-01…10, INS-03, INS-05, TST-15, TST-16.
 **Gate:** croner-vs-POSIX parity · gate-wait derivation · ordering between jobs · minute-for-minute
 window walk · crontab managed-block mechanics.
 **Cut by D17:** TST-06 (docs↔code counts), the `docs-counts` / `docs-nightly` / `validate-docs` suites.

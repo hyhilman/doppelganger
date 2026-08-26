@@ -362,3 +362,117 @@ test("13. no stray *.db*/*.db-wal/*.db-shm file anywhere in the checkout", () =>
     `stray database file(s) in the checkout — a test (or a manual AC mutation) left residue behind: ${offenders.join(", ")}`,
   );
 });
+
+// F6 (N2 VERIFY) — roadmap.md §3's per-phase "Ships:" list must agree with WORK.md's checklist for
+// that phase. roadmap.md's N2 line said `SUP-01…21, ..., TST-17 (gate half)`; WORK.md — the source
+// of truth (this file's own §5/CLAUDE.md ranking) — ships `SUP-01…18` and no `TST-17` at all
+// (TST-17 is whole, and it is N4's). Nothing caught the drift. This is the gate that would have.
+//
+// Scoped to SHIPPED phases only (shippedPhases() above): a phase still in progress has a Ships
+// line that is still being negotiated, and gating a draft is not this test's job. Every token in a
+// SHIPPED phase's Ships line must be one of:
+//   - a plain ID:            TST-21
+//   - a zero-padded range:   SUP-01…18   -> SUP-01 .. SUP-18, same digit width as the start
+//   - a family wildcard:     DBS-*       -> not expanded; every WORK.md ID under that PREFIX is
+//                                            excluded from BOTH sides instead — the wildcard's
+//                                            whole point is "however many there turn out to be"
+//   - a decision reference:  D1–D19      -> skipped; a D-number is a design decision, never a
+//                                            WORK.md checklist item
+// A token this cannot classify (e.g. a qualified `ID (some half)`, which is exactly the shape the
+// old N2 line had) throws by name rather than silently comparing wrong — extend the parser before
+// trusting a phase whose Ships line grows one.
+
+const ROADMAP_PHASE_HEADING = (phase: string): RegExp => new RegExp(`^###\\s+${phase}\\s+—`);
+const WORK_PHASE_HEADING = (phase: string): RegExp => new RegExp(`^##\\s+${phase}\\s+—`);
+
+/** The raw, comma-separated token text of `phase`'s `**Ships:**` line in roadmap.md §3 — joined
+ *  across a continuation line (N3's own Ships line wraps onto a second physical line with no
+ *  `**` prefix), ending at the first accumulated chunk whose trimmed text ends in `.`. */
+function shipsTokens(phase: string): string[] {
+  const roadmap = readFileSync(join(ROOT, "roadmap.md"), "utf8");
+  const lines = roadmap.split("\n");
+  const headingIdx = lines.findIndex((l) => ROADMAP_PHASE_HEADING(phase).test(l));
+  if (headingIdx === -1) throw new Error(`roadmap.md §3 has no ### ${phase} heading`);
+  let shipsIdx = -1;
+  for (let i = headingIdx + 1; i < lines.length; i++) {
+    if (/^###\s/.test(lines[i]!)) break;
+    if (lines[i]!.startsWith("**Ships:**")) {
+      shipsIdx = i;
+      break;
+    }
+  }
+  if (shipsIdx === -1) throw new Error(`roadmap.md §3's ${phase} section has no **Ships:** line`);
+  let text = lines[shipsIdx]!.replace(/^\*\*Ships:\*\*\s*/, "");
+  let i = shipsIdx;
+  while (!text.trim().endsWith(".")) {
+    i++;
+    text += ` ${lines[i]!}`;
+  }
+  return text
+    .trim()
+    .replace(/\.$/, "")
+    .split(",")
+    .map((t) => t.trim());
+}
+
+/** `shipsTokens(phase)`, classified and expanded per the rule above. */
+function expandShipsIds(phase: string): { ids: Set<string>; wildcardPrefixes: Set<string> } {
+  const ids = new Set<string>();
+  const wildcardPrefixes = new Set<string>();
+  for (const token of shipsTokens(phase)) {
+    if (/^D\d+(–D?\d+)?$/.test(token)) continue; // a decision reference, never a WORK.md item
+    const wildcard = /^([A-Z]+)-\*$/.exec(token);
+    if (wildcard) {
+      wildcardPrefixes.add(wildcard[1]!);
+      continue;
+    }
+    const range = /^([A-Z]+)-(\d+)…(\d+)$/.exec(token);
+    if (range) {
+      const [, prefix, startStr, endStr] = range;
+      const width = startStr!.length;
+      for (let n = Number(startStr); n <= Number(endStr); n++) {
+        ids.add(`${prefix}-${String(n).padStart(width, "0")}`);
+      }
+      continue;
+    }
+    if (/^[A-Z]+-\d+$/.test(token)) {
+      ids.add(token);
+      continue;
+    }
+    throw new Error(
+      `roadmap.md ${phase}'s Ships line has a token this drift gate cannot classify: ${JSON.stringify(token)} — extend the gate before trusting this phase`,
+    );
+  }
+  return { ids, wildcardPrefixes };
+}
+
+/** Every bold `**PREFIX-NN**` ID on a TICKED (`- [x]`) bullet inside WORK.md's `## <phase>` section. */
+function workPhaseIds(phase: string): Set<string> {
+  const workMd = readFileSync(join(ROOT, "WORK.md"), "utf8");
+  const lines = workMd.split("\n");
+  const headingIdx = lines.findIndex((l) => WORK_PHASE_HEADING(phase).test(l));
+  if (headingIdx === -1) throw new Error(`WORK.md has no ## ${phase} heading`);
+  const ids = new Set<string>();
+  for (let i = headingIdx + 1; i < lines.length; i++) {
+    if (/^##\s/.test(lines[i]!)) break;
+    const m = /^- \[x\].*?\*\*([A-Z]+-\d+)\*\*/.exec(lines[i]!);
+    if (m) ids.add(m[1]!);
+  }
+  return ids;
+}
+
+test("14. roadmap.md §3's Ships list agrees with WORK.md, for every SHIPPED phase (F6)", () => {
+  const { shipped } = shippedPhases();
+  assert.ok(shipped.size > 0, "expected at least one SHIPPED phase to check — the gate has nothing to gate");
+  for (const phase of shipped) {
+    const { ids: roadmapIds, wildcardPrefixes } = expandShipsIds(phase);
+    const workIds = workPhaseIds(phase);
+    const comparableWorkIds = new Set([...workIds].filter((id) => !wildcardPrefixes.has(id.split("-")[0]!)));
+    assert.deepEqual(
+      [...roadmapIds].sort(),
+      [...comparableWorkIds].sort(),
+      `roadmap.md §3's ${phase} Ships list and WORK.md's ${phase} checklist disagree` +
+        (wildcardPrefixes.size > 0 ? ` (wildcard prefixes ${[...wildcardPrefixes].join(",")} excluded from both sides)` : ""),
+    );
+  }
+});
