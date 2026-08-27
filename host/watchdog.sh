@@ -29,6 +29,10 @@ HEARTBEAT="$ROOT/.doppelganger/supervisor.heartbeat"
 STAMP="$ROOT/.doppelganger/heartbeat.fail"
 mkdir -p "$ROOT/.doppelganger" 2>/dev/null || true
 
+# SAF-01: read BEFORE probe 0, not after — a dry run must be fully inert (no writes) from its
+# very first line, and probe 0 is the first place this script can write the breach file.
+DRY="${WATCHDOG_DRY_RUN:-0}"
+
 # PROBE 0 — the log channel itself. `set -uo pipefail` does NOT exit on a failed `.`, so a missing
 # log.sh leaves log_init/log_error undefined, every fault line becomes `command not found` on
 # stderr, and a healthy-looking `exit 0` follows: EVERY FAULT SILENTLY LOST from the one channel
@@ -36,8 +40,14 @@ mkdir -p "$ROOT/.doppelganger" 2>/dev/null || true
 # pretend to be healthy. `declare -F log_error`, not the `.`'s own exit status, is what decides —
 # a present-but-empty log.sh sources CLEANLY (status 0) and still defines nothing.
 if ! . "$ROOT/kernel/runtime/log/log.sh" 2>/dev/null || ! declare -F log_error >/dev/null 2>&1; then
-  printf '%s watchdog: log.sh missing or broken at %s — the log channel is DOWN\n' \
-    "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$ROOT/kernel/runtime/log/log.sh" | tee -a "$BREACH" >&2
+  msg="$(date -u +%Y-%m-%dT%H:%M:%SZ) watchdog: log.sh missing or broken at $ROOT/kernel/runtime/log/log.sh — the log channel is DOWN"
+  printf '%s\n' "$msg" >&2
+  # SAF-01: a dry run writes NOTHING, not even here — checked before the write, matching the same
+  # rule the faults loop below follows. `>` not `>>`: one tick's report replaces the last, so the
+  # file never grows unbounded while log.sh stays broken across many ticks.
+  if [ "$DRY" != "1" ]; then
+    printf '%s\n' "$msg" > "$BREACH"
+  fi
   exit 1
 fi
 log_init ops-watchdog
@@ -88,8 +98,6 @@ fi
 if [ -f "$STAMP" ]; then
   fault_first "the supervisor is ALIVE but cannot write its heartbeat since $(head -c 40 "$STAMP") — probe 3 above is a false alarm"
 fi
-
-DRY="${WATCHDOG_DRY_RUN:-0}"
 
 if [ ${#faults[@]} -eq 0 ]; then
   rm -f "$BREACH"                                    # PATH 1 cleared — the next good tick removes the alarm

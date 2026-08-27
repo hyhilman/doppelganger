@@ -289,6 +289,18 @@ test("11. probe 0 — a missing log.sh is reported, not swallowed, and neither i
     assert.match(r.stderr, /log\.sh missing or broken/);
     assert.ok(!/command not found/.test(r.stderr));
   }
+  // SAF-01 — WATCHDOG_DRY_RUN=1 must be inert even inside probe 0, which fires BEFORE the DRY
+  // read that guards every other write in this script: a dry run must never write the breach
+  // file, missing log.sh or not. The stderr report and exit 1 status stay — a dry run reports,
+  // it never writes.
+  {
+    const f = makeFixture();
+    rmSync(join(f.root, "kernel/runtime/log/log.sh"));
+    const r = run(f.root, { WATCHDOG_DRY_RUN: "1" });
+    assert.equal(r.status, 1);
+    assert.ok(!existsSync(f.breach), "a dry run must never write the breach file, even from probe 0");
+    assert.match(r.stderr, /log\.sh missing or broken/);
+  }
 });
 
 test("12. exit 1 is asserted as a status, never as a delivery", () => {
