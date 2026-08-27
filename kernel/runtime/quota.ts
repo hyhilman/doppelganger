@@ -46,20 +46,26 @@ function quotaDb(): Db {
 }
 
 // ---------------------------------------------------------------------------------------------
-// The classifier. ONE vocabulary, and both patterns are BUILT from it — not written twice and
-// compared. A period word added to one and not the other classifies as `unknown` a wall it has
-// just matched, which is a live risk with two hand-duplicated literals (the reference's own
-// shape); construction removes the drift instead of merely detecting it.
+// The classifier. ONE vocabulary per family, and every pattern that uses a family is BUILT from
+// it — not written twice and compared. A period word added to one and not the other classifies
+// as `unknown` a wall it has just matched, which is a live risk with hand-duplicated literals
+// (the reference's own shape); construction removes the drift instead of merely detecting it.
+// This holds for `spend` too: `SPEND_RE` is the one place that wording is spelled, and both
+// `LIMIT_RE` and `limitClass` build from IT, the same way `PERIOD_RE` builds from `PERIODS`.
 // ---------------------------------------------------------------------------------------------
 
 const PERIODS = ["weekly", "monthly", "daily", "usage", "session"] as const;
 const ALT = PERIODS.join("|");
 
-/** Deliberately narrow: pausing on an unrelated error would mute a real failure. `spend limit` is
- *  its own alternative because the period word is not adjacent to `limit` in that family — "your
- *  org's monthly spend limit" — so the first alternative misses it (measured: this machine's own
- *  quota store carries exactly that wording, ruling 1). */
-const LIMIT_RE = new RegExp(`\\b(?:${ALT})\\s+limit\\b|\\bspend\\s+limit\\b|\\blimit\\s+reached\\b`, "i");
+/** `spend limit` is its own alternative because the period word is not adjacent to `limit` in
+ *  that family — "your org's monthly spend limit" — so the period alternation alone misses it
+ *  (measured: this machine's own quota store carries exactly that wording, ruling 1). The ONE
+ *  place this wording is spelled — `limitClass` below reuses this constant rather than its own
+ *  copy of the same pattern. */
+const SPEND_RE = /\bspend\s+limit\b/i;
+
+/** Deliberately narrow: pausing on an unrelated error would mute a real failure. */
+const LIMIT_RE = new RegExp(`\\b(?:${ALT})\\s+limit\\b|${SPEND_RE.source}|\\blimit\\s+reached\\b`, "i");
 
 /** `LIMIT_RE`'s period alternation, captured. The same words in the same order, constructed from
  *  the SAME list — so a wording added to one and not the other is not a thing that can happen. */
@@ -74,7 +80,7 @@ export const isLimitError = (message: string): boolean => LIMIT_RE.test(message)
  * only ever LENGTHENS a window, so a wrong guess is a needlessly dark account.
  */
 export function limitClass(message: string): LimitClass {
-  if (/\bspend\s+limit\b/i.test(message)) return "spend";
+  if (SPEND_RE.test(message)) return "spend";
   const m = PERIOD_RE.exec(message);
   return m ? (m[1]!.toLowerCase() as LimitClass) : "unknown";
 }
@@ -118,6 +124,15 @@ const CLASS_MULTIPLES: Record<LimitClass, number> = {
   monthly: 4,
   spend: 4,
 };
+
+/** Every `LimitClass` member, DERIVED from `CLASS_MULTIPLES`'s own keys rather than hand-typed a
+ *  second time — `Record<LimitClass, number>` is exhaustive at compile time (TypeScript refuses
+ *  the object literal above if a member is missing, and excess-property-checks it if one is
+ *  spelled that is not in the union), so `Object.keys` of it can never silently drop a member. A
+ *  test that hand-lists the union (kernel/runtime/shed.test.ts's own grid, among others) imports
+ *  this instead, so an 8th `LimitClass` member is swept by construction, not by remembering to
+ *  update every list. */
+export const LIMIT_CLASSES: readonly LimitClass[] = Object.keys(CLASS_MULTIPLES) as LimitClass[];
 
 function pauseMsFor(cls: LimitClass): number {
   const familyKey = `QUOTA_PAUSE_MS_${cls.toUpperCase()}`;

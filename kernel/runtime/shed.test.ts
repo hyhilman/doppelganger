@@ -5,10 +5,9 @@ import assert from "node:assert/strict";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { decideShed, shedModel, NO_SHED, type JobClass, type ShedDecision } from "./shed.ts";
-import type { LimitClass } from "./quota.ts";
+import { LIMIT_CLASSES } from "./quota.ts";
 import { DEFAULTS } from "../ports/job.ts";
 
-const LIMIT_CLASSES: readonly LimitClass[] = ["session", "daily", "usage", "weekly", "monthly", "spend", "unknown"];
 const JOB_CLASSES: readonly JobClass[] = ["chore", "watch", "review"];
 
 const NOW = new Date("2026-08-26T12:00:00Z");
