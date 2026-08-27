@@ -2,10 +2,13 @@
 // it never DEGRADES, because a chore-class nightly and a PR review burn the exact same wall and the
 // breaker cannot tell them apart. `decideShed` is the missing half.
 //
-// QTA-09 — pure: a snapshot, a class, an instant, a window. No DB read, no `Date.now()`, no env
-// lookup INSIDE this function — the two call sites (`host/supervisor.ts`'s `realShouldShed`,
-// `host/run.ts`'s `runNamed`) do the impure half (reading `quota.db`, reading the clock) and hand
-// the result in. That is what lets every branch below be pinned without touching `quota.db`.
+// QTA-09 — pure: a snapshot, a class, an instant, a window. No DB read, no `Date.now()` — the two
+// call sites (`host/supervisor.ts`'s `realShouldShed`, `host/run.ts`'s `runNamed`) do that impure
+// half (reading `quota.db`, reading the clock) and hand the result in. The ONE env lookup left is
+// the 4th argument's own default, `windowMs = SHED_WINDOW_MS()` — and both real call sites take
+// it: neither passes a 4th argument, so every real call DOES read `QUOTA_SHED_WINDOW_MS` once,
+// via the default parameter, not via anything the function body does. That is what still lets
+// every branch below be pinned, with an explicit 4th argument, without touching `quota.db`.
 //
 // The split D1 forces: `chore`/`watch`/`review` is the HOST's own vocabulary (which jobs are which
 // value class) — a kernel module naming `nightly-sandcastle` would import the host's vocabulary,
