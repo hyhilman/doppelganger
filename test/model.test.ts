@@ -348,7 +348,14 @@ test("5. the predicate is exercised over a table — six accepted, six rejected"
 
 test("6. DEFAULTS.model is reachable from exactly one file", () => {
   const files = allNonTestTsFiles();
-  const modelLiteralRe = /(["'`])claude-[^"'`]*\1/g;
+  // NO `/g` flag: `.test()` does not need one, and a `/g`-flagged RegExp object reused across
+  // `.filter()`'s calls carries `lastIndex` from one file's search into the next. A match found
+  // near the end of an early, long file advances `lastIndex` past the length of a later, SHORTER
+  // file, and `.test()` on a string shorter than `lastIndex` returns false without ever looking —
+  // a real claude-… literal in that later file would then read as absent. Latent, since this
+  // repo's one real literal (kernel/ports/job.ts) happens to be found before any file short
+  // enough to trip it, but the fix costs nothing and removes the hazard outright.
+  const modelLiteralRe = /(["'`])claude-[^"'`]*\1/;
   const withLiteral = files
     .filter((f) => modelLiteralRe.test(readFileSync(f, "utf8")))
     .map((f) => f.slice(ROOT.length + 1))
