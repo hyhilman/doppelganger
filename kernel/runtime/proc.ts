@@ -28,10 +28,12 @@
 // `reapDead` would read a running process as dead. Two checkouts owned by different users whose
 // directory basenames match share `INSTANCE`, host and pid-namespace, so a naive reaper's other
 // guards would all pass and a LIVE claim would be force-deleted. `procIsRestricted()` reads
-// `/proc/self/mountinfo` once per sweep; when the `/proc` mount's own options carry `hidepid` or
-// `subset=`, EVERY `ENOENT` from `readProcStat` is downgraded from `"dead"` to `"unknown"` — the
-// reaper then reaps nothing at all, which is exactly what LSE-07 requires. A `readMountInfo` that
-// itself fails returns `true` (restricted): "I could not tell" must also stop the reap.
+// `/proc/self/mountinfo` LAZILY, once per `ENOENT` it is asked to judge (`ownerLiveness` calls it
+// only from that one catch branch) — not once per sweep: a sweep with N dead-candidate rows reads
+// it N times, not once. When the `/proc` mount's own options carry `hidepid` or `subset=`, EVERY
+// `ENOENT` from `readProcStat` is downgraded from `"dead"` to `"unknown"` — the reaper then reaps
+// nothing at all, which is exactly what LSE-07 requires. A `readMountInfo` that itself fails
+// returns `true` (restricted): "I could not tell" must also stop the reap.
 //
 // Measured on this host, 2026-08-26, Linux 6.8.0-136-generic: `/proc/self/ns/pid` ->
 // `pid:[4026531836]` · `/proc/stat` -> `btime 1785088352` · absent pid -> `ENOENT` ·
