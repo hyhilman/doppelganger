@@ -375,7 +375,12 @@ function cmdCheck(deps: SkillsDeps): VerbResult {
   assertSafeTree(deps.tree, deps.root);
   const findings = check(deps.jobs, deps.tree);
   if (findings.length === 0) {
-    return { out: `skills check: in sync — ${deps.jobs.length} skill(s)\n`, err: "", code: 0 };
+    // Count SKILLS, not jobs: `check()` itself only ever looks at jobs carrying a `skill`
+    // (line ~204), so counting every registered job over-reports the moment an exec-only job
+    // exists. `ops-cron-check` made that real at N4 — the message said "2 skill(s)" with one
+    // skill on disk.
+    const skillCount = deps.jobs.filter((j) => j.skill !== undefined).length;
+    return { out: `skills check: in sync — ${skillCount} skill(s)\n`, err: "", code: 0 };
   }
   return { out: "", err: ["skills check: drift detected", ...findings.map(describeFinding)].join("\n"), code: 1 };
 }

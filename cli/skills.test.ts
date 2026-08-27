@@ -430,3 +430,16 @@ test("F4. ownerOf — a symlinked skill directory is FOREIGN even when the targe
   symlinkSync(join(outside, "SKILL.md"), join(fileLink, "SKILL.md"), "file");
   assert.equal(ownerOf(fileLink), "foreign");
 });
+
+test("22. check counts SKILLS, not registered jobs — an exec-only job is not a skill (SKL-06)", () => {
+  const { tree, root } = makeTree();
+  writeSource(tree, "nightly", "nightly-probe");
+  run(["sync"], deps(tree, root));
+  // One skill-carrying job plus one exec-only job. `check()` itself only ever inspects jobs
+  // carrying a `skill`, so the summary must say ONE — counting `deps.jobs.length` said two the
+  // moment `ops-cron-check` (exec-only) joined the registry, reporting a skill that has no file.
+  const execOnly = { ...job({ name: "ops-probe" }), skill: undefined } as unknown as Job;
+  const result = run(["check"], deps(tree, root, [job(), execOnly]));
+  assert.equal(result.code, 0);
+  assert.match(result.out, /in sync — 1 skill\(s\)/);
+});
