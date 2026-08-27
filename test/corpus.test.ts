@@ -53,6 +53,12 @@ function corpusPresent(path: string): boolean {
   return existsSync(join(path, "engine")) && existsSync(join(path, "compose-data/docker-compose.yml"));
 }
 
+// roadmap.md itself is untracked scaffolding (see .gitignore) — present on this machine, absent
+// in a fresh clone. Every assertion below that reads it must skip, not throw, when it is missing.
+function roadmapPresent(): boolean {
+  return existsSync(join(ROOT, "roadmap.md"));
+}
+
 // The four dated observations J0.11 refreshed, now written as approximations ("about 250").
 // Matched by structure (the surrounding words and the number's unit), not by literal value, so a
 // future refresh does not need to touch this file. Every gap between tokens is `\s+`/`\s*`, not a
@@ -80,7 +86,11 @@ function extractObservations(roadmap: string, claude: string) {
   return { engineSrc, engineAll, loopSurface, claudeMirror };
 }
 
-test("1. roadmap.md names no old macOS corpus path", () => {
+test("1. roadmap.md names no old macOS corpus path", (t) => {
+  if (!roadmapPresent()) {
+    t.skip("roadmap.md not present (untracked scaffolding, see .gitignore)");
+    return;
+  }
   // Scoped to roadmap.md only. CLAUDE.md names /Users/hyhilman/Projects/xenith/ on purpose — it
   // is the sentence recording that the OLD path was wrong. roadmap.md is the spec of record and
   // has no reason to name it; do not widen this to a repo-wide grep.
@@ -88,7 +98,11 @@ test("1. roadmap.md names no old macOS corpus path", () => {
   assert.ok(!roadmap.includes("/Users/hyhilman/"), "roadmap.md must not name the old macOS corpus path");
 });
 
-test("2. the corpus path resolves out of roadmap.md's own text", () => {
+test("2. the corpus path resolves out of roadmap.md's own text", (t) => {
+  if (!roadmapPresent()) {
+    t.skip("roadmap.md not present (untracked scaffolding, see .gitignore)");
+    return;
+  }
   // Always parses roadmap.md directly — CORPUS_OVERRIDE (used by assertions 3 and 6 to point
   // the LOOKUP elsewhere) must never mask a break in this parsing logic.
   const path = parseCorpusPathFromRoadmap(readRoadmap());
@@ -97,6 +111,10 @@ test("2. the corpus path resolves out of roadmap.md's own text", () => {
 });
 
 test("3. corpus present -> engine/ and compose-data/docker-compose.yml exist; absent -> skip", (t) => {
+  if (!roadmapPresent()) {
+    t.skip("roadmap.md not present (untracked scaffolding, see .gitignore)");
+    return;
+  }
   const path = corpusPath(readRoadmap());
   if (!corpusPresent(path)) {
     t.skip("reference corpus absent");
@@ -109,7 +127,11 @@ test("3. corpus present -> engine/ and compose-data/docker-compose.yml exist; ab
   );
 });
 
-test("5. provenance: the four counts share one date stamp, and §3.0's percentage matches its denominator", () => {
+test("5. provenance: the four counts share one date stamp, and §3.0's percentage matches its denominator", (t) => {
+  if (!roadmapPresent()) {
+    t.skip("roadmap.md not present (untracked scaffolding, see .gitignore)");
+    return;
+  }
   const { engineSrc, engineAll, loopSurface, claudeMirror } = extractObservations(readRoadmap(), readClaude());
   assert.ok(engineSrc, "roadmap.md must carry a dated engine/src/** count");
   assert.ok(engineAll, "roadmap.md must carry a dated engine/** count");
@@ -182,6 +204,10 @@ function roundToNearest(value: number, bucket: number): number {
 // nightly-polish job at N5 is the natural long-term owner. On failure: re-measure, update all
 // four places, move the date (J0.11's shape) — do not just widen the tolerance to make it pass.
 test("6. CORPUS_RECHECK=1 -> the live corpus still rounds to the stated approximation (opt-in, not in CI)", (t) => {
+  if (!roadmapPresent()) {
+    t.skip("roadmap.md not present (untracked scaffolding, see .gitignore)");
+    return;
+  }
   const path = corpusPath(readRoadmap());
   if (process.env.CORPUS_RECHECK !== "1" || !corpusPresent(path)) {
     t.skip("opt-in: set CORPUS_RECHECK=1 with the corpus present to run this");

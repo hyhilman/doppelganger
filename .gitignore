@@ -6,3 +6,11 @@ dist/
 .env
 .doppelganger/
 .sandcastle/
+
+# Build scaffolding, deliberately untracked (2026-08-27). The behaviour these
+# specified now lives in tests; the drift gates that read them degrade to a
+# reported skip when absent, on the CORPUS_RECHECK precedent.
+plan/
+roadmap.md
+WORK.md
+LOOP.md

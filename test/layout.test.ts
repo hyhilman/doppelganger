@@ -55,6 +55,15 @@ function packageJsonDirs(dirs: { relPath: string; entries: string[] }[]): string
     .map((d) => d.relPath);
 }
 
+// roadmap.md and WORK.md are untracked scaffolding (see .gitignore) — present on this machine,
+// absent in a fresh clone. Every drift gate below that reads one of them must skip, not throw,
+// when it is missing; this is the one place that decides "skip" so no helper has to.
+function requireDoc(t: { skip: (message?: string) => void }, relPath: string): boolean {
+  if (existsSync(join(ROOT, relPath))) return true;
+  t.skip(`${relPath} not present (untracked scaffolding, see .gitignore)`);
+  return false;
+}
+
 test("1. kernel/, plugins/, plugins/nightly/, cli/, .claude/skills/, test/ are directories", () => {
   for (const dir of ["kernel", "plugins", "plugins/nightly", "cli", ".claude/skills", "test"]) {
     assert.ok(statSync(join(ROOT, dir)).isDirectory(), `${dir} must be a directory`);
@@ -311,7 +320,8 @@ function realFiles(dir: string): string[] {
   return out;
 }
 
-test("12. every real kernel/, host/, cli/ file is named in §1, and every §1 row matches WORK.md's phase state", () => {
+test("12. every real kernel/, host/, cli/ file is named in §1, and every §1 row matches WORK.md's phase state", (t) => {
+  if (!requireDoc(t, "roadmap.md") || !requireDoc(t, "WORK.md")) return;
   const { shipped, current } = shippedPhases();
 
   for (const dir of ["kernel", "host", "cli"]) {
@@ -473,7 +483,8 @@ function workPhaseIds(phase: string): Set<string> {
   return ids;
 }
 
-test("14. roadmap.md §3's Ships list agrees with WORK.md, for every SHIPPED phase (F6)", () => {
+test("14. roadmap.md §3's Ships list agrees with WORK.md, for every SHIPPED phase (F6)", (t) => {
+  if (!requireDoc(t, "roadmap.md") || !requireDoc(t, "WORK.md")) return;
   const { shipped } = shippedPhases();
   assert.ok(shipped.size > 0, "expected at least one SHIPPED phase to check — the gate has nothing to gate");
   for (const phase of shipped) {
@@ -560,7 +571,8 @@ test("15. .doppelganger/ holds only allowlisted entries, recursively", () => {
 // to drift from the checkbox bullets they summarize — the exact defect the builder had to fix by
 // hand when N4's header briefly said a wrong count. Per LOOP.md's own standing rule: if you write
 // a count in a doc, wire the test that pins it. Both numbers are PARSED, never re-typed here.
-test("16. WORK.md's header item counts match the checkbox bullets actually under them", () => {
+test("16. WORK.md's header item counts match the checkbox bullets actually under them", (t) => {
+  if (!requireDoc(t, "WORK.md")) return;
   const workMd = readFileSync(join(ROOT, "WORK.md"), "utf8");
   const lines = workMd.split("\n");
 

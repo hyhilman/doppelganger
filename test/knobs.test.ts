@@ -428,8 +428,13 @@ test("5. every defaulted row's default is the value you get, resolved in a scrub
   // basename, cwd), one is a family with no single value — so they are skipped here by name.
 });
 
-test("6. every row appears in roadmap.md Section 2.27", () => {
-  const roadmap = readFileSync(join(ROOT, "roadmap.md"), "utf8");
+test("6. every row appears in roadmap.md Section 2.27", (t) => {
+  const roadmapPath = join(ROOT, "roadmap.md");
+  if (!existsSync(roadmapPath)) {
+    t.skip("roadmap.md not present (untracked scaffolding, see .gitignore)");
+    return;
+  }
+  const roadmap = readFileSync(roadmapPath, "utf8");
   const start = roadmap.indexOf("### 2.27");
   const end = roadmap.indexOf("### 2.28", start);
   const slice = roadmap.slice(start, end);
