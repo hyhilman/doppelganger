@@ -13,7 +13,15 @@
 // permissions, so a `/proc` that answers the first and refuses the second is reachable
 // (`hidepid=2`, a restricted bind mount, a seccomp profile), and in that state the reference's
 // reaper would judge every owner dead and force-delete every live claim on the host. Every arm here
-// that is not `ENOENT` or a demonstrably-later start returns `"unknown"`, never `"dead"`.
+// that is not `ENOENT`, a demonstrably-later start, or a zombie (below) returns `"unknown"`, never
+// `"dead"`.
+//
+// A ZOMBIE (`/proc/<pid>/stat` state `Z`, field 3) IS DECIDED "dead", DELIBERATELY — the one other
+// positive arm. Left unhandled, `reapDead` would hold a zombie-owned key `held` until its TTL
+// (SUP-13's derived bound, ~3h) even though the process can never do another tick of work. Unlike
+// `ENOENT`, a zombie's state is read directly from THIS pid's own stat line inside THIS namespace —
+// no cross-namespace ambiguity, so no `hidepid` downgrade applies here. And the pid cannot be
+// recycled while it stays zombie, so there is no recycled-pid risk either.
 //
 // AND `ENOENT` IS POSITIVE EVIDENCE ONLY ON AN UNRESTRICTED `/proc`. Under `hidepid=1|2` or
 // `subset=pid`, another user's LIVE `/proc/<pid>` raises `ENOENT`, not `EACCES` — so guard 8 in
@@ -104,12 +112,14 @@ export function procIsRestricted(readers: ProcReaders = realReaders): boolean {
 
 /**
  * The verdict table (module header), as a property: every arm that is not `ENOENT` on an
- * unrestricted `/proc`, or a demonstrably-later start, returns `"unknown"` — never `"dead"`.
+ * unrestricted `/proc`, a zombie, or a demonstrably-later start, returns `"unknown"` — never
+ * `"dead"`.
  *
  * The parse anchors at the LAST `)`: field 2 of `/proc/<pid>/stat` is the executable name,
  * unquoted, parenthesised, and free to contain spaces and parens (`(n (o d) (e))` is a legal
  * `comm`) — splitting the whole line on whitespace mis-indexes every field after it. `tail[0]` is
- * field 3 (state), so `starttime` (field 22) is `tail[19]`.
+ * field 3 (state) — decided first, since a zombie (`Z`) is "dead" regardless of what the rest of
+ * the line says — so `starttime` (field 22) is `tail[19]`.
  */
 export function ownerLiveness(
   pid: number,
@@ -129,6 +139,16 @@ export function ownerLiveness(
   const closeParen = statText.lastIndexOf(")");
   if (closeParen === -1) return "unknown";
   const tail = statText.slice(closeParen + 2).split(" ");
+
+  // A zombie (state Z, field 3 -> tail[0]) has already exited; its parent just has not collected
+  // the exit status yet. It will do no more work, EVER, and — unlike an ENOENT pid — this is
+  // POSITIVE, LOCAL evidence read from THIS pid's own stat line inside THIS namespace, with none
+  // of ENOENT's cross-namespace ambiguity (an absent pid can mean "never existed here" under
+  // hidepid; a zombie's stat line is readable and says so directly). The pid cannot be recycled
+  // while it stays zombie, so this is decided BEFORE the recycled-pid check below, not after.
+  // Deliberately positive, the one addition to the "everything else reads unknown" rule.
+  if (tail[0] === "Z") return "dead";
+
   const ticks = Number(tail[19]);
   if (!Number.isFinite(ticks)) return "unknown";
 

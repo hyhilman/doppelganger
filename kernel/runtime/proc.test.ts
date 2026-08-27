@@ -27,9 +27,10 @@ const eacces = (): NodeJS.ErrnoException => errWithCode("EACCES");
 const eperm = (): NodeJS.ErrnoException => errWithCode("EPERM");
 
 /** A well-formed `/proc/<pid>/stat` line, `comm` unquoted so the last-`)` anchor has something
- *  ordinary to find. `startTicks` lands at field 22 (tail[19]). */
-function fakeStat(pid: number, comm: string, startTicks: string): string {
-  return `${pid} (${comm}) S 1 1 1 0 -1 0 0 0 0 0 0 0 0 20 0 1 0 0 ${startTicks}`;
+ *  ordinary to find. `state` lands at field 3 (tail[0]); `startTicks` lands at field 22
+ *  (tail[19]). */
+function fakeStat(pid: number, comm: string, startTicks: string, state: string = "S"): string {
+  return `${pid} (${comm}) ${state} 1 1 1 0 -1 0 0 0 0 0 0 0 0 20 0 1 0 0 ${startTicks}`;
 }
 
 const OK_BOOT = "btime 1000\n";
@@ -97,6 +98,7 @@ test("1. the grid — every branch of the verdict table, as one deepEqual", () =
     bootstat_no_btime_line_unknown: readers({ readBootStat: () => "some other line\n" }),
     bootstat_btime_not_a_number_unknown: readers({ readBootStat: () => "btime notanumber\n" }),
     recycled_pid_dead: readers({ readProcStat: () => fakeStat(1, "x", String(claimedAt * 100)) }),
+    zombie_dead: readers({ readProcStat: () => fakeStat(1, "x", STARTS_BEFORE_NOW, "Z") }),
   };
   const expected: Record<string, string> = {
     ok_alive: "alive",
@@ -112,6 +114,7 @@ test("1. the grid — every branch of the verdict table, as one deepEqual", () =
     bootstat_no_btime_line_unknown: "unknown",
     bootstat_btime_not_a_number_unknown: "unknown",
     recycled_pid_dead: "dead",
+    zombie_dead: "dead",
   };
   const actual: Record<string, string> = {};
   for (const [name, r] of Object.entries(cases)) {
