@@ -1,6 +1,6 @@
 // J1.8/J1.9 — the value matrix both the round-trip test (parse.test.ts) and the cross-emitter byte
 // comparison (emitters.test.ts) share. A FIXTURE, not shipped behaviour: lifted from the reference's
-// own emitter test plus the locale case this plan found (TST-19).
+// own emitter test plus the locale case this plan found.
 //
 // The non-ASCII half needs three values, not one: İ (U+0130) and ā (U+0101) both render BARE under
 // bash's en_US.UTF-8 collation and QUOTED on the TypeScript side — the divergence J1.9 exists to

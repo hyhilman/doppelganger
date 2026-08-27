@@ -1,7 +1,7 @@
-// J4.14 (JOB-O10, SUP-09, KRN-06) — host/watchdog.sh: two drift gates (the knobs, the paths) over
+// host/watchdog.sh: two drift gates (the knobs, the paths) over
 // the script's own source text, then real bash execution against fixture roots.
 //
-// The log.sh <-> emit.ts precedent (TST-18), one directory over: nothing here re-implements the
+// The log.sh <-> emit.ts precedent, one directory over: nothing here re-implements the
 // script, it PARSES it — a knob or a path the script grows must show up here or the build fails.
 
 import { test } from "node:test";

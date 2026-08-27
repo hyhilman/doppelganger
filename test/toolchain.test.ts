@@ -1,6 +1,6 @@
-// J0.8 (TST-22) — no linter, no bundler, no build step on the RUN path.
+// no linter, no bundler, no build step on the RUN path.
 //
-// TST-22 and ADO-15 talk about two different scripts, and this file tells them apart
+// and ADO-15 talk about two different scripts, and this file tells them apart
 // by name rather than by intent:
 //   - forbidden everywhere: a linter or a bundler, as a dependency or as a config file.
 //   - forbidden on the RUN path: the scripts that run the loop, the suite or the type
@@ -76,7 +76,7 @@ function walkDirs(): { relPath: string; entries: string[] }[] {
     for (const entry of entries) {
       if (!entry.isDirectory()) continue;
       if (relDir === "" && (entry.name === ".git" || entry.name === "node_modules")) continue;
-      // R2 (INS-02) — a pass worktree under .doppelganger/worktrees/ is a second full
+      // R2 — a pass worktree under .doppelganger/worktrees/ is a second full
       // checkout (its own node_modules, package.json, *.test.ts) and is not this repo's source.
       if (relDir === ".doppelganger" && entry.name === "worktrees") continue;
       const nextRel = relDir === "" ? entry.name : `${relDir}/${entry.name}`;
@@ -137,7 +137,7 @@ test("3. the RUN path (test, pretest, typecheck, posttest, prepare) never compil
   }
 });
 
-// ADO-15 lands at N5. On that day this assertion flips to:
+// lands at N5. On that day this assertion flips to:
 //   scripts.build === "tsc -p tsconfig.build.json --workspaces"
 //   AND scripts.pretest still does NOT reference build (TST-22, §5 Q5 measured at N0).
 test("4. the publish path (scripts.build, tsconfig.build.json) does not exist yet at N0", () => {
@@ -152,5 +152,5 @@ test("4. the publish path (scripts.build, tsconfig.build.json) does not exist ye
   }
 });
 
-// "host/ is not a workspace" (ADO-14) is asserted once, in test/layout.test.ts assertion 6.
+// "host/ is not a workspace" is asserted once, in test/layout.test.ts assertion 6.
 // A second copy here would be a second place to update. Do not add one.

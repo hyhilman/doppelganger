@@ -1,4 +1,4 @@
-// J2.9 (SUP-05, SUP-18, SUP-09, GAT-07) — validate(), the boot gate: every fault in one throw.
+// validate(), the boot gate: every fault in one throw.
 //
 // Every rule is exercised against a BASELINE fixture entry with exactly one field broken, the
 // reference's own cron/validate.test.ts shape — so the rule set is fully covered on a day when
@@ -22,7 +22,7 @@ writeFileSync(join(jobsDir, "orphan.ts"), "export {};\n");
 mkdirSync(join(root, "scripts"), { recursive: true });
 writeFileSync(join(root, "scripts", "probe.sh"), "#!/bin/sh\n");
 
-// J4.11 (SUP-03, SUP-05, SUP-08 fix) — rules 12a/12b's own fixtures, five shapes covering the
+// J4.11 (SUP-03, SUP-08 fix) — rules 12a/12b's own fixtures, five shapes covering the
 // grid: extension x (executable, shebang).
 writeFileSync(join(root, "scripts", "probe.py"), "print('hi')\n");
 writeFileSync(join(root, "scripts", "noexec.sh"), "#!/bin/sh\necho hi\n");

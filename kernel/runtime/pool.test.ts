@@ -1,4 +1,4 @@
-// J1.14 (HRN-18) — pool.ts: bounded concurrency and the spawn stagger.
+// pool.ts: bounded concurrency and the spawn stagger.
 //
 // Timing assertions are LOWER bounds only — a loaded host makes a wait longer, never shorter — with
 // two deliberate exceptions (assertion 6's first-spawn check), named as such rather than hidden.
@@ -82,7 +82,7 @@ test("6. spawnSlot lets the first spawn start at once, and holds each one after 
 });
 
 test("7. a spawn arriving after the chain has drained starts immediately", async () => {
-  // A third, unadmitted upper bound (HRN-18): the plan's exceptions table names only two (db 19,
+  // A third, unadmitted upper bound: the plan's exceptions table names only two (db 19,
   // pool assertion 6). This one had 20ms of headroom on a 60ms drain, the tightest in the suite,
   // and would flake on a loaded CI box running 26 test files in parallel. Raised in the same ratio
   // as assertion 6's STAGGER/headroom (50ms), with the drain scaled up to match.

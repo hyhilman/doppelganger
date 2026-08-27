@@ -1,4 +1,4 @@
-// J3.4 (HRN-10) — extractBlock / extractFields.
+// extractBlock / extractFields.
 
 import { test } from "node:test";
 import assert from "node:assert/strict";

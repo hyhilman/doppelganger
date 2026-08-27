@@ -1,4 +1,4 @@
-// J1.12 (LOG-08) — incremental reader over both log roots, plus the rotation that keeps them bounded.
+// incremental reader over both log roots, plus the rotation that keeps them bounded.
 //
 // WHY THE CURSOR IS (inode, offset) AND NOT offset ALONE. A byte offset is correct exactly until the
 // first rotation, after which it either resumes mid-line in a truncated file or skips a whole new
@@ -33,7 +33,7 @@ import { nowIso } from "../../time.ts";
 
 export const NS = "logtail";
 
-/** Both roots, project-relative (INS-02). A reader that knows one silently covers half the jobs —
+/** Both roots, project-relative. A reader that knows one silently covers half the jobs —
  *  and the half it drops is whichever set someone added most recently. */
 export const LOG_ROOTS: readonly string[] = [
   projectPath(".doppelganger/logs"),
@@ -178,7 +178,7 @@ function step(path: string, st: Stats, prev: Cursor): FileStep {
  *
  * `roots` defaults to `LOG_ROOTS`; a test passes a `mkdtempSync` root instead so the suite never
  * touches the real checkout's `.doppelganger/logs/` (TST-20's discipline). The database itself is
- * redirected the ordinary way, through `LOG_DB` (DBS-07). */
+ * redirected the ordinary way, through `LOG_DB`. */
 export function tail(roots: readonly string[] = LOG_ROOTS): TailResult {
   const db = logDb();
   const h = db.handle();

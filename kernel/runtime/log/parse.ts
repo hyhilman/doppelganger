@@ -1,4 +1,4 @@
-// J1.8 (LOG-07) — the reader half, the exact inverse of renderLine.
+// the reader half, the exact inverse of renderLine.
 //
 // It parses a LINE, not a file. Everything about where lines come from (which roots, which cursor,
 // when to rotate) lives in tail.ts, so the format and the transport can be tested apart.

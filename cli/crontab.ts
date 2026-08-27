@@ -19,7 +19,7 @@
 //
 // `cli/` is `private: true` (cli/package.json) — this is an app-internal path, not a published
 // import, so reaching into `host/schedule.ts` for `validate`/`bootstrapEntries`/`commandOf`/
-// `SCHEDULE` is fine. Whether `cli` publishes at all is still open (ADO-01) — that decision
+// `SCHEDULE` is fine. Whether `cli` publishes at all is still open — that decision
 // belongs there, not here.
 //
 // INS-03: the crontab is the one resource two checkouts on the same host cannot avoid sharing, so
@@ -411,7 +411,7 @@ export interface CrontabDeps {
   readonly dryRun: boolean;
 }
 
-/** The line every success message ends with — "counts what is installed" (SUP-01): `bootstrap` is
+/** The line every success message ends with — "counts what is installed": `bootstrap` is
  *  read off the block ITSELF (the lines that are actual crontab entries, not the schedule array),
  *  `supervised` off `deps.schedule` via `supervisedEntries` — never `deps.schedule.length`, which
  *  would count entries this tool never renders at all. */

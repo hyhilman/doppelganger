@@ -1,4 +1,4 @@
-// J3.13 (SKL-02, SKL-06, SKL-07, SKL-09, TST-23, TST-24) — the gate that runs both directions over
+// the gate that runs both directions over
 // the REAL registry and the REAL filesystem: the build gate SKL-04 promises (drift FAILS the
 // build; it is never silently re-rendered), SKL-06 both ways, the output-vocabulary and
 // DB-namespace drift gates, and the SKL-07 authorization-token ban read in both copies.
@@ -28,7 +28,7 @@ test("1. TST-23 live — check(JOBS, the real tree) returns []", () => {
 });
 
 test("2. SKL-06 direction one — every job's skill resolves to a real source directory holding a SKILL.md", () => {
-  // An exec: job (job.skill === undefined) names no skill by construction (D10, SKL-06) — it is
+  // An exec: job (job.skill === undefined) names no skill by construction (D10) — it is
   // exempt from every check in this file, the same exemption cli/skills.ts's own check() applies
   // (J4.12, ops-cron-check is the first such job).
   for (const job of JOBS) {

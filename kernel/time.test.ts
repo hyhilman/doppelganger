@@ -1,4 +1,4 @@
-// J1.2 (LOG-01) — the clock every log line's ts= field reads.
+// the clock every log line's ts= field reads.
 
 import { test } from "node:test";
 import assert from "node:assert/strict";

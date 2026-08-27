@@ -1,4 +1,4 @@
-// J4.5 (LSE-07, LSE-08) — reapDead's guard table. Every assertion here is about a SKIP, except
+// reapDead's guard table. Every assertion here is about a SKIP, except
 // test 1 — which is the one row every other test proves does NOT apply.
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";

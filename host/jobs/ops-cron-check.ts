@@ -1,4 +1,4 @@
-// J4.12 (JOB-O09, SUP-01, SUP-02, GAT-07) — crontab drift, on a cadence, logged every run.
+// crontab drift, on a cadence, logged every run.
 //
 // `crontab check` (cli/crontab.ts, since N2) already computes the diff; this job adds the four
 // things it does not, none of them the diff itself:
@@ -17,7 +17,7 @@
 //      checker appears in the block it checks.
 //
 // `host/` importing `cli/` is the MIRROR of the one coupling N2 already settled (`cli/crontab.ts`
-// importing `host/schedule.ts`, ADO-01) — not a new direction in spirit, but it does make `cli/` a
+// importing `host/schedule.ts`) — not a new direction in spirit, but it does make `cli/` a
 // runtime dependency of a job rather than only an operator surface (flagged, Gaps item 7).
 //
 // `check()` calls cli/crontab.ts's OWN `render`/`installedBlock`/`legacyRange`/`diff` — never a
@@ -50,7 +50,7 @@ const isRenderedCommand = (line: string): boolean => line.trim() !== "" && !line
 /**
  * The check itself, pure over its own deps. Three shapes of drift, copied verbatim from
  * `cli/crontab.ts`'s `cmdCheck` so the two surfaces never disagree in wording: no block at all, an
- * unnamed (legacy) block (INS-03), or a real line-level diff. `bootstrap` is read off the freshly
+ * unnamed (legacy) block, or a real line-level diff. `bootstrap` is read off the freshly
  * RENDERED block, never `deps.schedule.length` — the same rule `tally()` (cli/crontab.ts) follows,
  * for the same reason: this job's own entry sits in `deps.schedule` too, and `deps.schedule.length`
  * would count entries `render` never turns into a crontab line at all.

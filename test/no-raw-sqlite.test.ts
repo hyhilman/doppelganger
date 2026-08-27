@@ -1,4 +1,4 @@
-// J1.6 (DBS-06) — nobody can reach the driver.
+// nobody can reach the driver.
 //
 // The set of files under the repo (outside node_modules/, .git/) that import "node:sqlite" must
 // equal this four-entry allowlist, each with its own reason. A new module importing the driver
@@ -23,7 +23,7 @@ const ALLOWED: Record<string, string> = {
 function walk(dir: string, out: string[]): void {
   for (const entry of readdirSync(dir)) {
     if (dir === ROOT && (entry === "node_modules" || entry === ".git")) continue;
-    // R2 (INS-02) — a pass worktree under .doppelganger/worktrees/ is a second full
+    // R2 — a pass worktree under .doppelganger/worktrees/ is a second full
     // checkout (its own node_modules, package.json, *.ts files) and is not this repo's source.
     if (dir === join(ROOT, ".doppelganger") && entry === "worktrees") continue;
     const full = join(dir, entry);

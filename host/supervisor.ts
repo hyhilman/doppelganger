@@ -6,20 +6,20 @@
 // THE PRE-FLIGHT ORDER (the row content, stated as a sequence — GAT-09's whole content is why step
 // 4 comes before step 5):
 //   1. draining?                       -> return, nothing held
-//   2. clearsRefreshWindow && inWindow -> log debug refresh-window, return   (SUP-10, SUP-11)
-//   3. shouldShed(program)             -> log info quota-shed,     return    (SUP-16)
-//   4. acquireSelf(program)            -> null? log warn lock-held mode=self, return  (GAT-06)
-//   5. gate !== "none" -> acquire(mode, resources, gateWait)                 (GAT-08)
+//   2. clearsRefreshWindow && inWindow -> log debug refresh-window, return
+//   3. shouldShed(program)             -> log info quota-shed,     return
+//   4. acquireSelf(program)            -> null? log warn lock-held mode=self, return
+//   5. gate !== "none" -> acquire(mode, resources, gateWait)
 //                         null? log warn lock-held, releaseSelf, return
 //   6. draining? -> log info drain-skipped, return                          (main()'s stop())
-//   7. await spawnSlot(spawnStaggerMs)   <- HOLDS THE GATE. See below.       (HRN-18)
+//   7. await spawnSlot(spawnStaggerMs)   <- HOLDS THE GATE. See below.
 //   8. draining? -> log info drain-skipped, return
 //   9. spawn(...)       finally { hold?.release(); releaseSelf(); }
 //
 // Steps 2 and 3 are BEFORE the self-lock and the gate because a skipped tick should cost nothing
 // and hold nothing. Step 4 is BEFORE step 5 because a pass that blocks at the gate holds its
 // self-lock while it waits, so the ticks it waits through are the ticks it forces to skip — which
-// is why the wait is DERIVED (gateWait(e.cron), GAT-08) and capped, never hand-picked (GAT-09).
+// is why the wait is DERIVED (gateWait(e.cron)) and capped, never hand-picked.
 //
 // STEP 7's PLACEMENT — after the gate, immediately before spawn — is not a regression against the
 // reference. Staggering BEFORE the gate does not work: the stagger exists to space the moment two
@@ -109,7 +109,7 @@ export type SpawnFn = (cmd: string, args: readonly string[], opts: SpawnOptions)
  * spawned command is driven end to end rather than merely assumed. The real one is assembled in
  * `main()`'s argv block.
  *
- * `shouldShed` (SUP-16, QTA-08/09) and boot-time lease reap (SUP-15) were the two N4 seams N2
+ * `shouldShed` (SUP-16, QTA-08/09) and boot-time lease reap were the two N4 seams N2
  * shipped honest but unfinished: SUP-16 is a PLACEMENT row — before the gate — checked from N2 on;
  * the real predicate (`realShouldShed`) replaced the `() => ({ skip: false })` spy the argv block
  * carried until then.
@@ -285,27 +285,27 @@ export async function runEntry(
     return;
   }
 
-  // 2. clearsRefreshWindow && inWindow (SUP-10, SUP-11)
+  // 2. clearsRefreshWindow && inWindow
   if (e.clearsRefreshWindow && inRefreshWindow(deps.now(), deps.refreshWindow)) {
     log.debug("refresh-window", {});
     return;
   }
 
-  // 3. shouldShed(program) (SUP-16)
+  // 3. shouldShed(program)
   const shed = deps.shouldShed(program, deps.now());
   if (shed.skip) {
     log.info("quota-shed", { class: shed.class });
     return;
   }
 
-  // 4. acquireSelf(program) (GAT-06)
+  // 4. acquireSelf(program)
   const releaseSelf = deps.gate.acquireSelf(program);
   if (!releaseSelf) {
     log.warn("lock-held", { lock: program, mode: "self" });
     return;
   }
 
-  // 5. gate !== "none" -> acquire(mode, resources, gateWait) (GAT-08)
+  // 5. gate !== "none" -> acquire(mode, resources, gateWait)
   let hold: Awaited<ReturnType<Gate["acquire"]>> = null;
   if (row.gate !== "none") {
     const mode: Mode = row.gate;
@@ -327,7 +327,7 @@ export async function runEntry(
       return;
     }
 
-    // 7. await spawnSlot(spawnStaggerMs) — HOLDS THE GATE (HRN-18)
+    // 7. await spawnSlot(spawnStaggerMs) — HOLDS THE GATE
     await spawnSlot(deps.spawnStaggerMs);
 
     // 8. draining?
@@ -348,8 +348,8 @@ export async function runEntry(
 // main(): boot, timers, heartbeat, drain, the loud refusal. The boot sequence, in order: validate
 // (throws → bootOrDie prints every line and sets
 // process.exitCode) → reapOnBoot (non-fatal; SUP-15's whole content is "before the timers", so a
-// sweep never races the ticks it exists to unblock) → one newTimer per SUPERVISED entry (SUP-03)
-// → beat() once, then every 60s, unref'd (SUP-14) → the `supervisor-up` line → SIGTERM/SIGINT ->
+// sweep never races the ticks it exists to unblock) → one newTimer per SUPERVISED entry
+// → beat() once, then every 60s, unref'd → the `supervisor-up` line → SIGTERM/SIGINT ->
 // stop(), and an unhandledRejection handler that logs and does not exit.
 // ---------------------------------------------------------------------------------------------
 
@@ -370,7 +370,7 @@ export interface BootDeps extends SupervisorDeps {
   readonly heartbeatFailPath: string;
   readonly bootLog: string;
   readonly drainMs: number;
-  /** LSE-09, SUP-15. Optional at N2 (there was no implementation yet, so the ordering — before the
+  /** LSE-09. Optional at N2 (there was no implementation yet, so the ordering — before the
    *  timers — was asserted with a fake); REQUIRED from N4, when `realReapOnBoot` below gives it
    *  one. An optional field is a field a future argv-block edit can drop in silence. */
   readonly reapOnBoot: () => Iterable<Record<string, string | number>>;
@@ -437,7 +437,7 @@ export function beat(deps: BootDeps): void {
 export async function main(schedule: readonly ScheduleEntry[], deps: BootDeps): Promise<Supervisor> {
   const log = logger("supervisor");
 
-  // 1. validate (SUP-05, SUP-06) — throws before a single timer registers.
+  // 1. validate — throws before a single timer registers.
   validate(schedule, {
     programs: deps.programs,
     resourceNames: deps.gate.resources,
@@ -447,7 +447,7 @@ export async function main(schedule: readonly ScheduleEntry[], deps: BootDeps): 
     root: deps.root,
   });
 
-  // 2. reapOnBoot (SUP-15) — before the timers; non-fatal.
+  // 2. reapOnBoot — before the timers; non-fatal.
   try {
     for (const row of deps.reapOnBoot()) {
       log.info("lease-reaped", row as Fields);
@@ -459,7 +459,7 @@ export async function main(schedule: readonly ScheduleEntry[], deps: BootDeps): 
   let draining = false;
   const isDraining = (): boolean => draining;
 
-  // 3. one newTimer per supervised entry (SUP-03).
+  // 3. one newTimer per supervised entry.
   const supervised = supervisedEntries(schedule);
   const timers = supervised.map((e) =>
     deps.newTimer(e, () => {
@@ -470,7 +470,7 @@ export async function main(schedule: readonly ScheduleEntry[], deps: BootDeps): 
     }),
   );
 
-  // 4. beat() once, then every 60s, unref'd (SUP-14).
+  // 4. beat() once, then every 60s, unref'd.
   beat(deps);
   const beatTimer = setInterval(() => beat(deps), 60_000);
   beatTimer.unref?.();
@@ -544,7 +544,7 @@ export async function main(schedule: readonly ScheduleEntry[], deps: BootDeps): 
  *  SUP-06 — a restart loop and a watchdog report within 15 minutes — are DECLINED: the restart
  *  policy is SUP-19 (moved to M9 with the fleet) and the watchdog is JOB-O10 (N4). N2 ships the
  *  exit code and the message; this comment names which phase owns the rest. */
-/** The REAL argv pair a scheduled `job:` entry spawns (SUP-03). Exported and top-level so a test
+/** The REAL argv pair a scheduled `job:` entry spawns. Exported and top-level so a test
  *  can pin it — the argv block in main() below is untestable by construction, and an inline
  *  literal there could regress to `host/jobs/<job>.ts` (a silent no-op) with the whole suite
  *  green. `JOB_ENTRYPOINT` is the same constant `commandOf` renders, so the crontab line and the
@@ -597,7 +597,7 @@ export async function bootOrDie(schedule: readonly ScheduleEntry[], deps: BootDe
 }
 
 // ---------------------------------------------------------------------------------------------
-// (SUP-17) — list(): the resolved schedule, printed. Pure — returns a string, prints
+// list(): the resolved schedule, printed. Pure — returns a string, prints
 // nothing — so a test can pin the exact text without capturing console.log; only the argv block
 // below ever calls console.log with the result.
 // ---------------------------------------------------------------------------------------------

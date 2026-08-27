@@ -1,11 +1,11 @@
-// J1.18 (KRN-06, TST-07) — one place a knob is defined, and one file that reads the env.
+// one place a knob is defined, and one file that reads the env.
 //
 // This test imports every module that owns an EnvSpec row and builds the full row list itself —
 // config.ts cannot: importing db.ts (or tail.ts, which imports db.ts) from config.ts would be a
 // cycle, since db.ts already imports config.ts for envNum. Keeping config.ts a leaf means the test
 // is the thing that has to know every module, which is exactly what it is for.
 //
-// At N5 kernelEnv() is replaced by each Plugin's own `env` member (KRN-04) and these rows move onto
+// At N5 kernelEnv() is replaced by each Plugin's own `env` member and these rows move onto
 // plugins UNCHANGED — the row shape here is already what KRN-04 will carry.
 
 import { test } from "node:test";
@@ -52,7 +52,7 @@ import {
 
 const ROOT = new URL("..", import.meta.url).pathname.replace(/\/$/, "");
 
-// J2.3 (INS-02, KRN-06) — every N2 file lands outside kernel/, so this file's three scans must
+// every N2 file lands outside kernel/, so this file's three scans must
 // learn about host/ and cli/ before the first such file exists. plugins/ stays out: it holds no
 // .ts file until N5.
 const SCANNED_DIRS = ["kernel", "host", "cli"];
@@ -260,7 +260,7 @@ const ROWS: readonly RowMeta[] = [
     constName: "NIGHTLY_SANDCASTLE_MODEL_ENV",
     readers: ["envOptional"],
   },
-  // J4.14 — read by host/watchdog.sh, never by TypeScript: the <NAME>_DB precedent for a row no
+  // read by host/watchdog.sh, never by TypeScript: the <NAME>_DB precedent for a row no
   // TS reader resolves. host/watchdog.test.ts's own drift gate binds these to the script.
   {
     spec: WATCHDOG_SUPERVISOR_STALE_M_ENV,

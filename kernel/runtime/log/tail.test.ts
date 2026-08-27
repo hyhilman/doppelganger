@@ -1,4 +1,4 @@
-// J1.12 (LOG-08) — tail.ts: the incremental reader.
+// tail.ts: the incremental reader.
 //
 // One mkdtempSync directory for this file. Each test gets its own log root (a fresh subdirectory)
 // AND its own database (LOG_DB, DBS-07's override) — never a path another test in this file used,

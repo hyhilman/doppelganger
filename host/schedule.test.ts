@@ -1,4 +1,4 @@
-// J2.7 (SUP-01, SUP-02, SUP-04, SUP-09, GAT-07) — the schedule shapes and the empty registries.
+// the schedule shapes and the empty registries.
 //
 // `entry()` and `program()` are the fixture builders every later N2 test (J2.9, J2.11, J2.13,
 // J2.14, J2.17) imports from THIS file rather than from host/schedule.ts — a fixture builder in a

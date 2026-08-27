@@ -1,4 +1,4 @@
-// J3.14 (HRN-02, SKL-05, D10, SUP-03, §1) — ruling 3's fix: host/run.ts is the ONE argv block a
+// J3.14 (HRN-02, D10, §1) — ruling 3's fix: host/run.ts is the ONE argv block a
 // scheduled job reaches.
 
 import { test, before, after } from "node:test";
@@ -22,7 +22,7 @@ import type { PassDeps } from "./jobs/nightly-sandcastle.ts";
 
 const ROOT = new URL("..", import.meta.url).pathname.replace(/\/$/, "");
 
-// LSE-04 lands runNamed on the lease store, and QTA-01/05 land it on the quota store — every test
+// lands runNamed on the lease store, and QTA-01/05 land it on the quota store — every test
 // in this file that calls runNamed now claims an hourly key and can trip the breaker, so both are
 // redirected the same way their own test files do.
 let leaseDir: string;
@@ -149,7 +149,7 @@ test("7. the argv smoke check — no argument exits non-zero naming usage; an un
 });
 
 // ---------------------------------------------------------------------------------------------
-// J4.4 (LSE-04) — every job claims its hour before it runs.
+// every job claims its hour before it runs.
 // ---------------------------------------------------------------------------------------------
 
 interface LoggedCall {
@@ -227,7 +227,7 @@ test("11. the TTL is the derived one — SUPERVISOR_MAX_RUN_MIN's bound plus the
 });
 
 // ---------------------------------------------------------------------------------------------
-// J4.8 (QTA-01, QTA-05) — the account breaker's producer and consumer, both gated on job.skill.
+// the account breaker's producer and consumer, both gated on job.skill.
 // ---------------------------------------------------------------------------------------------
 
 function fakeExecJob(overrides: Partial<Job> = {}): Job {
@@ -309,7 +309,7 @@ test("14b. the real nightly-sandcastle registry object — which carries BOTH ex
 });
 
 // ---------------------------------------------------------------------------------------------
-// J4.8 — the whole park loop, end to end, no model call. A fake `claude` on PATH stands in for
+// the whole park loop, end to end, no model call. A fake `claude` on PATH stands in for
 // the real CLI (N3's own layer B, measured ~100ms) — the REAL sandcastleRunner, the REAL run(),
 // the REAL rejection, the REAL errText, in a real child process. HOME is always a fresh
 // mkdtempSync directory, so nothing here can ever reach the developer's real ~/.gitconfig.

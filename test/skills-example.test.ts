@@ -1,8 +1,8 @@
-// J0.10 (SKL-01, SKL-03, SKL-04, SKL-06, SKL-07, SKL-08, SUP-20) — gate the worked example.
+// gate the worked example.
 //
 // The nightly-sandcastle skill already landed (plugins/nightly/skills/nightly-sandcastle/
 // and its rendered .claude/skills/ copy). N0 did not build the `skills render|sync|check`
-// CLI — that is N3 (SKL-04, TST-23, cli/skills.ts, J3.7), which is why `render` is imported
+// CLI — that is N3 (SKL-04, cli/skills.ts, J3.7), which is why `render` is imported
 // from there now rather than defined here a second time: a second copy of a render function
 // is drift with two authors (J3.7's own module header).
 

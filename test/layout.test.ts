@@ -15,7 +15,7 @@ function readJson(relPath: string): any {
 }
 
 // tsconfig.json carries whole-line `//` comments (JSONC), which JSON.parse rejects.
-// Strip only whole-line comments — no JSON5 dependency (TST-22); this repo never
+// Strip only whole-line comments — no JSON5 dependency; this repo never
 // puts a trailing comment after real content on the same line.
 function readJsonc(relPath: string): any {
   const raw = readFileSync(join(ROOT, relPath), "utf8");
@@ -36,7 +36,7 @@ function walkDirs(): { relPath: string; entries: string[] }[] {
     for (const entry of entries) {
       if (!entry.isDirectory()) continue;
       if (relDir === "" && (entry.name === ".git" || entry.name === "node_modules")) continue;
-      // R2 (INS-02) — a pass worktree under .doppelganger/worktrees/ is a second full
+      // R2 — a pass worktree under .doppelganger/worktrees/ is a second full
       // checkout (its own node_modules, package.json, *.test.ts) and is not this repo's source.
       if (relDir === ".doppelganger" && entry.name === "worktrees") continue;
       const nextRel = relDir === "" ? entry.name : `${relDir}/${entry.name}`;
@@ -53,7 +53,7 @@ function packageJsonDirs(dirs: { relPath: string; entries: string[] }[]): string
     .map((d) => d.relPath);
 }
 
-// roadmap.md and WORK.md are untracked scaffolding (see .gitignore) — present on this machine,
+// the spec and WORK.md are untracked scaffolding (see .gitignore) — present on this machine,
 // absent in a fresh clone. Every drift gate below that reads one of them must skip, not throw,
 // when it is missing; this is the one place that decides "skip" so no helper has to.
 function requireDoc(t: { skip: (message?: string) => void }, relPath: string): boolean {
@@ -444,7 +444,7 @@ function expandShipsIds(phase: string): { ids: Set<string>; wildcardPrefixes: Se
       }
       continue;
     }
-    // R4 (TST-06) — a plain ID's suffix is USUALLY pure digits (TST-21), but a JOB- id carries
+    // R4 — a plain ID's suffix is USUALLY pure digits, but a JOB- id carries
     // one infix letter first (JOB-C15: JOB-B/C/G/J/O/P/R/S/T in roadmap.md's own §2). N3's own
     // Ships line names JOB-C15 — without this, ticking N3 in WORK.md throws HERE, not merely
     // fails, the moment this phase's own close commit runs the suite.
@@ -460,8 +460,8 @@ function expandShipsIds(phase: string): { ids: Set<string>; wildcardPrefixes: Se
 }
 
 /** Every bold `**PREFIX-NN**` ID on a TICKED (`- [x]`) bullet inside WORK.md's `## <phase>` section.
- *  R4 (TST-06): the same optional-infix-letter shape as expandShipsIds's plain-ID arm, so a
- *  JOB-C15 bullet is captured here too — this side of the comparison must never quietly return
+ *  R4: the same optional-infix-letter shape as expandShipsIds's plain-ID arm, so a
+ *  bullet is captured here too — this side of the comparison must never quietly return
  *  fewer ids than the roadmap side finds. */
 function workPhaseIds(phase: string): Set<string> {
   const workMd = readFileSync(join(ROOT, "WORK.md"), "utf8");

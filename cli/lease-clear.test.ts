@@ -1,4 +1,4 @@
-// J4.7 (LSE-10) — list a scope, delete a key, force a held claim.
+// list a scope, delete a key, force a held claim.
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";

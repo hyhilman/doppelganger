@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# JOB-O10 (SUP-09, SUP-08, INS-03, KRN-06) — the liveness path that does NOT run through the
+# JOB-O10 — the liveness path that does NOT run through the
 # toolchain it watches. bash plus system binaries only: no npm, nothing under node_modules/, no
 # model call, no network — the one program on the real crontab, so it must still speak when
 # everything else is wedged.
@@ -52,7 +52,7 @@ if ! . "$ROOT/kernel/runtime/log/log.sh" 2>/dev/null || ! declare -F log_error >
 fi
 log_init ops-watchdog
 
-# Its own lock, deliberately NOT the gate (GAT-07) — this is the one job that must run precisely
+# Its own lock, deliberately NOT the gate — this is the one job that must run precisely
 # when everything else is wedged, including behind a writer holding the gate exclusively; gating
 # it would let the failure it exists to catch silence it. The gate is in-memory inside the
 # supervisor and this process is deliberately outside it, so a real `flock` is the only lock
@@ -81,7 +81,7 @@ fault_first() { faults=("$1" "${faults[@]}"); }
 node --version >/dev/null 2>&1 || fault "node does not execute — every job is failing"
 node "$ROOT/host/watchdog.probe.ts" >/dev/null 2>&1 || fault "node cannot strip types — every job is failing"
 
-# PROBE 3 — the supervisor's 60s heartbeat (SUP-14). THE probe that matters: a dead supervisor
+# PROBE 3 — the supervisor's 60s heartbeat. THE probe that matters: a dead supervisor
 # means NOTHING is scheduled. Checked by mtime, never by `systemctl is-active` — cron hands this
 # script a bare environment with no XDG_RUNTIME_DIR and no session bus.
 STALE_M="${WATCHDOG_SUPERVISOR_STALE_M:-5}"
@@ -91,7 +91,7 @@ elif [ -n "$(find "$HEARTBEAT" -mmin "+$STALE_M" -print -quit)" ]; then
   fault "heartbeat stale — older than ${STALE_M} minute(s)"
 fi
 
-# PROBE 4 — the delivery stamp (JOB-O11). PRESENCE is the fault. Ordered LAST here and read FIRST
+# PROBE 4 — the delivery stamp. PRESENCE is the fault. Ordered LAST here and read FIRST
 # in the report — when the stamp is present, its line is printed above probe 3's, because it is
 # the CORRECTION to it: the supervisor is alive and ticking (probe 3 would otherwise fault) but
 # cannot write its own liveness stamp.

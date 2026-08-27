@@ -40,7 +40,7 @@ export function resolveJob(name: string | undefined, jobs: readonly Job[]): Job 
 }
 
 /** The resolved schedule, printed — SUP-20's `byStage` payoff, the same shape `supervisor --list`
- *  (SUP-17) already uses. */
+ * already uses. */
 export function jobListing(jobs: readonly Job[]): string {
   const lines: string[] = [];
   for (const [stage, group] of byStage(jobs, (j) => j.name)) {
@@ -63,7 +63,7 @@ export function jobListing(jobs: readonly Job[]): string {
  * key is `${job.name}@<UTC hour>`, the clock versioning it for a reason wholly unrelated to
  * whether the pass worked. `done` terminal is then exactly right — that hour's run happened once —
  * and it excludes what the gate (per-process) cannot: a hand-run beside a scheduled tick, or a
- * second checkout (INS-05). The TTL is DERIVED from SUP-13's own bound (`SUPERVISOR_MAX_RUN_MIN` —
+ * second checkout. The TTL is DERIVED from SUP-13's own bound (`SUPERVISOR_MAX_RUN_MIN` —
  * past which the supervisor has already SIGKILLed the child) plus the kill grace, never chosen. A
  * refusal is a skipped tick, exit 0, logged at `info` with the exact `lease-clear` command an
  * operator needs (INV-10's spirit: a refusal costs the work nothing). The lease wrapper is NOT

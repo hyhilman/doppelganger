@@ -1,4 +1,4 @@
-// Pid liveness in the CALLER's namespace, every branch failing toward "alive" (LSE-11): a boolean
+// Pid liveness in the CALLER's namespace, every branch failing toward "alive": a boolean
 // cannot express the difference between "I read a live process", "I read positive evidence of
 // absence" and "I could not read at all" — and the middle one is the only one that may ever delete
 // somebody's lock. `Liveness` is a three-member union so `reapDead` (kernel/runtime/lease.ts) can

@@ -375,7 +375,7 @@ test("19. mixed reader/writer liveness across multiple resources, three parties,
   const writerPromise = gate.acquire("excl", ["a", "b"], 60_000);
   const reader2Promise = gate.acquire("shared", [], 60_000);
   // The writer's request spans a and b, but resources are acquired in the gate's fixed order one
-  // at a time (GAT-04) — it queues on "a" first and has not yet attempted "b". The second reader,
+  // at a time — it queues on "a" first and has not yet attempted "b". The second reader,
   // arriving after the writer, is refused "a" too (GAT-05 writer priority) and queues behind it.
   assert.equal(gate.state().resources.a!.queued, 2, "the writer and the second reader are both queued on a");
   assert.equal(gate.state().resources.b!.queued, 0, "b was never contested — the writer has not reached it yet");

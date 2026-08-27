@@ -1,5 +1,5 @@
 // PRT-05 lists `permissionMode` as an optional Job field; this file makes it REQUIRED — a
-// deliberate deviation from roadmap.md's PRT-05 row. HRN-07 says an unattended job hangs on the
+// deliberate deviation from the spec. An unattended job hangs on the
 // first tool prompt without a permission mode, which is the one omission that is a 3am hang rather
 // than a wrong default, so a compile error is the right enforcement (job.test.ts test 8 is the
 // suppressed-directive check that makes it one).
@@ -24,10 +24,10 @@ export type Effort = "low" | "medium" | "high" | "xhigh" | "max";
 export const PERMISSION_MODES = ["auto", "bypassPermissions"] as const;
 export type PermissionMode = (typeof PERMISSION_MODES)[number];
 
-/** HRN-01: ONE place. `model` is a pinned version, never a floating alias (HRN-11) — test/model.ts
+/** HRN-01: ONE place. `model` is a pinned version, never a floating alias — test/model.ts
  *  scans the whole repo for every OTHER model literal, so this is the one that is allowed to exist.
  *
- *  `shedModel` (QTA-08) is the downshift target `kernel/runtime/shed.ts`'s
+ *  `shedModel` is the downshift target `kernel/runtime/shed.ts`'s
  *  `shedModel()` moves an opus request to under a recent spend wall — it lives HERE, not in
  *  shed.ts, for the same reason `model` does: one place, held to the same PINNED/ALIAS rules
  *  (test/model.test.ts tests 3/4), so a downshift can never land on a floating alias either. */
@@ -53,7 +53,7 @@ export interface Job {
   /** SUP-20 prefix; SKL-01 — it IS the skill name. */
   readonly name: string;
   readonly description: string;
-  /** Owns the skill file: plugins/<plugin>/skills/<name>/SKILL.md (SKL-03). */
+  /** Owns the skill file: plugins/<plugin>/skills/<name>/SKILL.md. */
   readonly plugin: string;
   /** Defaults to `name` (skillOf). Absent means `exec` must be set (D10). */
   readonly skill?: string;
@@ -61,7 +61,7 @@ export interface Job {
    *  anyone who does not know the job's own deps shape — the job file re-declares `exec` with its
    *  real type, and `host/run.ts` casts exactly once. */
   readonly exec?: (deps: never) => Promise<void>;
-  /** Absent means DEFAULTS.model (HRN-01). */
+  /** Absent means DEFAULTS.model. */
   readonly model?: string;
   readonly effort?: Effort;
   /** REQUIRED — see the module header. */
@@ -79,7 +79,7 @@ export interface Job {
 }
 
 /**
- * "Pinned" (HRN-11): names a generation and cannot silently become a different one. Current
+ * "Pinned": names a generation and cannot silently become a different one. Current
  * Anthropic model IDs carry no date suffix and are complete as written (DEFAULTS.model above is
  * one); a dated snapshot is ALSO pinned — this regex accepts both shapes and pins no exact value,
  * because pinning something outside this repo is exactly the thing that rots.

@@ -1,4 +1,4 @@
-// J1.14 (HRN-18) — bounded concurrency for jobs that spawn headless agents, plus the start-up
+// bounded concurrency for jobs that spawn headless agents, plus the start-up
 // stagger that makes a pool of them survivable.
 //
 // The stagger encodes a measured failure: twelve agents starting on one tick raced the

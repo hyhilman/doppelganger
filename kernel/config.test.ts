@@ -1,4 +1,4 @@
-// J1.2 (KRN-06) — EnvSpec, the spec-taking env readers, and assertSpecShape.
+// EnvSpec, the spec-taking env readers, and assertSpecShape.
 
 import { test } from "node:test";
 import assert from "node:assert/strict";

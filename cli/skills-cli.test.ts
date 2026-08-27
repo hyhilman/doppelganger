@@ -1,4 +1,4 @@
-// J3.9 (SKL-04, TST-23) — the argv block, driven as a real child process (ruling 1: the argv block
+// the argv block, driven as a real child process (ruling 1: the argv block
 // itself is UNTESTED BY CONSTRUCTION; these two are smoke checks, not tests).
 
 import { test } from "node:test";

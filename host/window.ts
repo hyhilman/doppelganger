@@ -24,7 +24,7 @@ const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
 
 /**
  * One entry's row in the allowlist report: its name, and its PROGRAM's gate mode. A name with no
- * reason is how an allowlist becomes a list of things somebody once approved (roadmap.md's own
+ * reason is how an allowlist becomes a list of things somebody once approved (the spec's own
  * words) — reporting the gate mode alongside the name is what lets a human reviewing the list see
  * that a `gate: "none"` program holds no slot to cost, rather than only that it appears.
  */

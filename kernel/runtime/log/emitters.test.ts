@@ -1,4 +1,4 @@
-// J1.9 (TST-18, LOG-01) — the two emitters produce the same bytes.
+// the two emitters produce the same bytes.
 //
 // "Byte-identical" excludes exactly two fields, each for a stated reason: `ts=` (two processes read
 // two clocks) and `src=` (the one field the two are SUPPOSED to disagree on). Everything else —
@@ -287,7 +287,7 @@ test("10. the bash child writes nothing to stdout when stderr is not redirected"
 });
 
 // ---------------------------------------------------------------------------------------------
-// log_run — cause.ts's only consumer (LOG-09), untested in the reference
+// log_run — cause.ts's only consumer, untested in the reference
 // ---------------------------------------------------------------------------------------------
 
 function runLogRun(cmd: string): { stderr: Buffer; status: number | null } {

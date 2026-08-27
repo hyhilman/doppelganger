@@ -1,7 +1,7 @@
 // The mutex: `scope` + `key`, one SQLite statement per acquire, `done` terminal at any horizon,
 // an owner string a reaper can check later without guessing.
 //
-// NO `LSE-` ROW SAYS WHAT A LEASE IS FOR AT v0 (roadmap.md Gaps item 3) — every named consumer is
+// NOTHING IN THE SPEC SAYS WHAT A LEASE IS FOR AT v0 — every named consumer is
 // v1 (pipeline watchers), M9 (LSE-12's serial group) or N5 (`ops-lease-reap`). `withLease` is what
 // gives this store a real writer: `<job>@<UTC hour>` in `runNamed`. The v0 unit of exclusion is
 // ONE JOB'S ONE FIRING — the gate (per-process, kernel/runtime/gate.ts) and the lease (per-host,
@@ -51,7 +51,7 @@ const DEFAULT_MAX_ATTEMPTS = 3;
 const isoAt = (ms: number): string => new Date(ms).toISOString().replace(/\.\d{3}Z$/, "Z");
 
 /** Opens `lease.db` and applies the one migration step. `steps` stays append-only from here
- *  (DBS-02) — the reference's second step (`ALTER TABLE ... ADD COLUMN max_attempts`) is a
+ * the reference's second step (`ALTER TABLE ... ADD COLUMN max_attempts`) is a
  *  historical fact of ITS database, not of ours; ours declares the column in step 1. */
 export function leaseDb(): Db {
   const db = openDb(dbPath("lease"));
@@ -119,7 +119,7 @@ export function list(scope?: string): LeaseRow[] {
 }
 
 /**
- * `done` is terminal at any horizon (LSE-02) — `status <> 'done'` in the WHERE is the whole rule.
+ * `done` is terminal at any horizon — `status <> 'done'` in the WHERE is the whole rule.
  * Deletion (`clear`) is the only way back; the reason is deliberate: XEN-8365 was a plan drafted
  * once, whose lease going `done` a second time (on a re-run the operator genuinely wanted) would
  * have silently discarded a real retry.
@@ -274,18 +274,18 @@ export interface OwnerId {
 }
 
 /**
- * The instance leads (INS-04): without it, `lease-clear` shows a `held` claim with no way to tell
+ * The instance leads: without it, `lease-clear` shows a `held` claim with no way to tell
  * which checkout owns it, while LSE-07's guards correctly refuse to touch it — a stuck key no
  * operator can safely attribute. `pidNamespace() ?? "?"` is deliberate: on a `/proc` that will not
  * say, the owner string legitimately carries a value `parseOwner` cannot place, which is what
- * keeps such a claim unreapable (LSE-08) rather than guessed at.
+ * keeps such a claim unreapable rather than guessed at.
  */
 export const newOwner = (): string =>
   `${INSTANCE}:${hostname()}:${pidNamespace() ?? "?"}:${process.pid}:${randomUUID().slice(0, 8)}`;
 
 /**
  * Returns `null` for anything not in the exact five-field shape — including the reference's own
- * four-field owner (LSE-08). A hostname that somehow contained a `:` yields six parts -> `null` ->
+ * four-field owner. A hostname that somehow contained a `:` yields six parts -> `null` ->
  * not reapable, which fails toward not reaping.
  */
 export function parseOwner(owner: string): OwnerId | null {
@@ -333,8 +333,8 @@ export const REAP_GRACE_MS = 30_000;
  *      person to look at.
  *   3. parseOwner(row.owner) === null    -> LSE-08: we were never told enough to judge it. Not
  *      reapable, never guessed — it ages out on the TTL exactly as it always did.
- *   4. id.instance !== INSTANCE          -> another checkout on this host owns it (INS-04). Two
- *      instances never coordinate (INS-05).
+ *   4. id.instance !== INSTANCE          -> another checkout on this host owns it. Two
+ *      instances never coordinate.
  *   5. id.pidns !== ns                   -> the load-bearing one: a pid only means something inside
  *      the /proc that issued it.
  *   6. id.host !== hostname()            -> not ours to judge.

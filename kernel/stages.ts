@@ -1,4 +1,4 @@
-// J1.16 (SUP-20) — the stage-prefix vocabulary, and the one function that reads it.
+// the stage-prefix vocabulary, and the one function that reads it.
 //
 // WHY A PREFIX AND NOT A `stage:` FIELD. A field is a second place to say the same thing, and the
 // two drift the moment somebody adds a job and fills in the wrong one — silently, because nothing

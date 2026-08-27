@@ -1,4 +1,4 @@
-// J0.6 (TST-21) — pins the command shape CLAUDE.md fixes: typecheck always runs as
+// pins the command shape CLAUDE.md fixes: typecheck always runs as
 // pretest, and every test file is actually in the suite (not just present on disk).
 
 import { test } from "node:test";
@@ -20,7 +20,7 @@ function findTestFiles(): string[] {
     for (const entry of readdirSync(absDir, { withFileTypes: true })) {
       if (entry.isDirectory()) {
         if (relDir === "" && (entry.name === ".git" || entry.name === "node_modules")) continue;
-        // R2 (INS-02) — a pass worktree under .doppelganger/worktrees/ is a second full
+        // R2 — a pass worktree under .doppelganger/worktrees/ is a second full
         // checkout (its own node_modules, package.json, *.test.ts) and is not this repo's source.
         if (relDir === ".doppelganger" && entry.name === "worktrees") continue;
         walk(join(absDir, entry.name), relDir === "" ? entry.name : `${relDir}/${entry.name}`);

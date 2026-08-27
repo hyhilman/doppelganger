@@ -1,4 +1,4 @@
-// J3.8 (JOB-C15, SKL-02, SKL-05, SKL-07, TST-19, HRN-10) — the verdict, the blocked paths, the
+// the verdict, the blocked paths, the
 // goals, the import smoke.
 
 import { test } from "node:test";
@@ -211,7 +211,7 @@ test("14. head leads with the error class, drops at-frames and the Node.js banne
 });
 
 // ---------------------------------------------------------------------------------------------
-// J3.11 (JOB-C15, SAF-05, TST-19) — the three-tier ship gate. `runIn` is a recording fake — no
+// the three-tier ship gate. `runIn` is a recording fake — no
 // test in this group spawns a process.
 // ---------------------------------------------------------------------------------------------
 
@@ -302,7 +302,7 @@ test("23. gate([]) returns ok: true with a detail saying so, and runs nothing", 
 });
 
 // ---------------------------------------------------------------------------------------------
-// J3.12 (JOB-C15, SAF-01…07, INS-06, KRN-07, INV-1) — the pass, the landing, the safe-run
+// J3.12 (JOB-C15, SAF-01…07) — the pass, the landing, the safe-run
 // surface. Every test builds a real mkdtempSync git repo and a real SQLite file under it.
 // ---------------------------------------------------------------------------------------------
 

@@ -1,4 +1,4 @@
-// J0.2 (ADO-14, TST-21, DBS-01) — the Node capability gate.
+// the Node capability gate.
 //
 // This file is also the proof that type stripping works: it is a .ts file with type
 // annotations, run directly by `node --test`. If stripping were off, the suite would
@@ -10,7 +10,7 @@ import { DatabaseSync } from "node:sqlite";
 import { readFileSync } from "node:fs";
 
 // Minimal semver check. This repo names Node floors only as ">=x.y.z" — nothing else.
-// Do not reach for the `semver` package (TST-22): this is ~15 lines, not a dependency.
+// Do not reach for the `semver` package: this is ~15 lines, not a dependency.
 function satisfiesFloor(version: string, range: string): boolean {
   const match = /^>=(\d+)\.(\d+)\.(\d+)$/.exec(range);
   if (!match) {

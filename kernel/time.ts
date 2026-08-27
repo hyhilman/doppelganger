@@ -1,4 +1,4 @@
-// J1.2 (LOG-01) — the ONE clock the log line's timestamp field reads, so both emitters agree on
+// the ONE clock the log line's timestamp field reads, so both emitters agree on
 // precision and suffix, not only on layout.
 //
 // Only what N1 consumes: `hoursSince`, `age`, `minutesSince` and `wibDate` are NOT ported from the

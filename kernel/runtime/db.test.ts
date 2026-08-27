@@ -1,4 +1,4 @@
-// J1.5/J1.6 (DBS-01, DBS-02, DBS-03, DBS-04, DBS-05, DBS-06, DBS-08) — openDb: the store, plus the
+// J1.5/J1.6 — openDb: the store, plus the
 // busy-context proxy that reports SQLITE_BUSY with the file, the statement and the wait.
 //
 // One mkdtempSync directory for this file, one fresh path per test (db-${n++}.db) — the discipline
@@ -128,7 +128,7 @@ test("11. DBS-02's enforcer refuses an unprefixed object, and does not record th
 });
 
 // ---------------------------------------------------------------------------------------------
-// J1.6 (DBS-04, DBS-06) — the busy-context proxy.
+// the busy-context proxy.
 // ---------------------------------------------------------------------------------------------
 //
 // A real second `DatabaseSync` holding BEGIN IMMEDIATE is the hog: it takes the WAL write lock and
@@ -245,7 +245,7 @@ test("17. a contended tx() reports and names BEGIN IMMEDIATE — the body never 
   assert.equal(ran, false);
 });
 
-// F6 (DBS-04) — the plan (J1.6 assertion 8) claims the full-wait shape (18) and the
+// F6 — the plan (J1.6 assertion 8) claims the full-wait shape (18) and the
 // refused-outright shape (19) "land two orders of magnitude apart", but the two tests never
 // compared their numbers — each asserted its own bound in isolation. Test 18 records its `waited`
 // here so test 19 can assert the gap as well as its own bound.

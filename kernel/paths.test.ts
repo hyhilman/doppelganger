@@ -1,4 +1,4 @@
-// J1.4 (DBS-07, INS-02) — ROOT, projectPath, dbPath.
+// ROOT, projectPath, dbPath.
 
 import { test } from "node:test";
 import assert from "node:assert/strict";

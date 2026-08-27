@@ -1,4 +1,4 @@
-// The quota classifier's corpus, lifted from REAL data, never invented (TST-19). Two tiers only.
+// The quota classifier's corpus, lifted from REAL data, never invented. Two tiers only.
 //
 // Tier 1 — recorded first-hand on THIS machine, 2026-08-26:
 // xenith/engine/.sandcastle/state/quota.db, every `note:`/`since:` pair the store held, read via

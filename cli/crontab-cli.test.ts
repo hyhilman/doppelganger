@@ -1,4 +1,4 @@
-// J2.16 (SUP-08 impure half, SAF-01, SAF-05) — render/sync/check driven end to end, but NEVER
+// J2.16 (SUP-08 impure half) — render/sync/check driven end to end, but NEVER
 // against a real crontab. See the module header in cli/crontab.ts for layer 0's full reasoning.
 //
 // FOUR LAYERS make this safe: (0) readCrontab/install refuse a non-absolute command — closed here

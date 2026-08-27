@@ -1,9 +1,9 @@
-// J3.16 (TST-09, SUP-20, SKL-01, SKL-05) — one name, four consumers: the registry, the
+// one name, four consumers: the registry, the
 // host/jobs/ directory, the schedule, and (via test/skills.test.ts, checked separately) the
 // skill tree. This file is the registry/directory/schedule three; test/skills.test.ts already
 // owns the fourth.
 //
-// SKL-05 says the LIST is what exists and the directory is only ever CHECKED against it — so
+// says the LIST is what exists and the directory is only ever CHECKED against it — so
 // assertion 2 below always reads `JOBS` as truth and the directory as the thing being verified,
 // and the failure message says which side is which ("add the file" and "register the job" are
 // different fixes).

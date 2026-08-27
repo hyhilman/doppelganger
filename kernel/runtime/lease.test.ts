@@ -1,4 +1,4 @@
-// J4.3 (LSE-01, LSE-02, LSE-04, LSE-05, LSE-06, INS-04) — the mutex, the owner, the attempts brake.
+// the mutex, the owner, the attempts brake.
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, rmSync, readFileSync } from "node:fs";
@@ -239,7 +239,7 @@ test("15. the single-statement claim is real — exactly one statement execution
 });
 
 // ---------------------------------------------------------------------------------------------
-// J4.4 (LSE-03, LSE-04) — withLease: acquire -> run -> release.
+// withLease: acquire -> run -> release.
 // ---------------------------------------------------------------------------------------------
 
 test("16. a handler that returns a value settles done", async () => {

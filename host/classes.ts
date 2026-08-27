@@ -1,4 +1,4 @@
-// J4.9 (QTA-08) — the host's own value-class vocabulary. `kernel/runtime/shed.ts`'s `decideShed`
+// the host's own value-class vocabulary. `kernel/runtime/shed.ts`'s `decideShed`
 // is pure and knows only the three class NAMES; this file is the one place that says which real
 // job is which class, because a kernel module naming "nightly-sandcastle" would import the host's
 // vocabulary, which D1 forbids — the same call §5 Q1 already made for gate resources: the host
@@ -6,7 +6,7 @@
 import type { JobClass } from "../kernel/runtime/shed.ts";
 
 /** A job whose failure to run tonight costs nothing but a delay — SKIPPED outright under a recent
- *  spend wall (QTA-08). A value-class decision, not a refactor: host/classes.test.ts pins this
+ *  spend wall. A value-class decision, not a refactor: host/classes.test.ts pins this
  *  exact list, so widening it is a deliberate edit, never a drive-by. */
 export const CHORE: readonly string[] = ["nightly-sandcastle"];
 

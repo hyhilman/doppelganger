@@ -1,8 +1,8 @@
-// J1.11 (LOG-09, TST-19) — fixtures/throw.txt was captured with: node -e 'throw new TypeError(...)'
+// fixtures/throw.txt was captured with: node -e 'throw new TypeError(...)'
 // fixtures/missing-module.txt: node kernel/does-not-exist.ts > … 2>&1 — Cannot find module.
 // fixtures/killed.txt: a background child prints a partial line, then is `kill -9`'d ~0.3s later.
 //
-// cause.ts, over fixtures captured from THIS machine's real Node, never invented (TST-19).
+// cause.ts, over fixtures captured from THIS machine's real Node, never invented.
 // Committing the bytes rather than regenerating at test time is deliberate: regenerating would
 // silently pin the running Node's own banner text, which changes with .nvmrc. Re-capture belongs
 // in the same commit as a .nvmrc bump.

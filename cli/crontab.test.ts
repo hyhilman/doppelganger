@@ -350,7 +350,7 @@ test("21. render's exact output over a one-entry bootstrap fixture, pinned liter
       "# Generated from host/schedule.ts — do not hand-edit. `npm run crontab check` diffs it.",
       "# BOOTSTRAP ONLY: everything else is scheduled by host/supervisor.ts.",
       "# a short fixture reason",
-      // R3 (SUP-03) fixed the disagreement between commandOf's script: branch and spawnChild for
+      // R3 fixed the disagreement between commandOf's script: branch and spawnChild for
       // a `.sh` script — executed directly via its own shebang, never through a `node` prefix
       // (`node` cannot run a bash script). J4.11 adds the OTHER arm: a `.ts` script (this
       // fixture, since J4.11 — validate()'s rule 12a) has no shebang and IS handed to `node`

@@ -1,4 +1,4 @@
-// J1.16 (SUP-20) — the stage-prefix vocabulary, held to both documents that name it.
+// the stage-prefix vocabulary, held to both documents that name it.
 
 import { test } from "node:test";
 import assert from "node:assert/strict";

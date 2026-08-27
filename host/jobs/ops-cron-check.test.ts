@@ -1,4 +1,4 @@
-// J4.12 (JOB-O09, SUP-01, SUP-02, GAT-07) — check()/runCheck(), deps-injected end to end. The real
+// check()/runCheck(), deps-injected end to end. The real
 // binary is never called here — belt-and-braces with layer 0 (cli/crontab.ts) and CRONTAB_CMD being
 // unset in the suite, which would make the real exec wrapper throw before ever reaching it.
 import { test, before, after } from "node:test";

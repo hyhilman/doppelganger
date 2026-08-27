@@ -1,4 +1,4 @@
-// J1.15 (HRN-19) — gh/git wrappers with a wall-clock timeout, so no call can stall forever.
+// gh/git wrappers with a wall-clock timeout, so no call can stall forever.
 //
 // The failure this exists for: an unbounded stalled `gh` blocks the calling job's entire event
 // loop, so its lease heartbeats stop, the pass never exits, and the supervisor never releases the

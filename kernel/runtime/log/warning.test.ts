@@ -1,4 +1,4 @@
-// J1.13 (LOG-01, LOG-06, LOG-07) — the log barrel, and what the node:sqlite experimental warning
+// the log barrel, and what the node:sqlite experimental warning
 // does to the STDERR contract.
 //
 // On the pinned Node, importing node:sqlite — even without using it — prints two lines on stderr.

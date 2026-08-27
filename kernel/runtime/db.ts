@@ -1,4 +1,4 @@
-// J1.5 (DBS-01, DBS-02, DBS-03, DBS-05, DBS-08) — one SQLite file per integration. `openDb(path)`
+// one SQLite file per integration. `openDb(path)`
 // binds one file and hands back the handle plus transaction/migration helpers, so each integration
 // keeps its own database with no shared-file contention.
 //
@@ -8,7 +8,7 @@
 // Each namespace owns its `<ns>_meta.schema_version` and an ordered migration list, so adding a
 // column later is an appended step rather than a hand-run ALTER.
 //
-// J1.6 (DBS-04, DBS-06) wraps `handle()`'s statements and the handle's `exec`/`prepare` in a proxy
+// J1.6 wraps `handle()`'s statements and the handle's `exec`/`prepare` in a proxy
 // that reports SQLITE_BUSY with the file, the one-line SQL and the wait — see "SQLITE_BUSY context"
 // below.
 import { DatabaseSync } from "node:sqlite";
@@ -18,7 +18,7 @@ import { envNum, type EnvSpec } from "../config.ts";
 
 const IDENT = /^[a-z][a-z0-9_]*$/;
 
-/** `ns` is interpolated into DDL, so it must be an identifier and nothing else (DBS-03). */
+/** `ns` is interpolated into DDL, so it must be an identifier and nothing else. */
 function assertNs(ns: string): void {
   if (!IDENT.test(ns)) throw new Error(`bad namespace: ${ns}`);
 }
@@ -34,7 +34,7 @@ export const BUSY_TIMEOUT_ENV: EnvSpec = {
 export const BUSY_TIMEOUT_MS: number = envNum(BUSY_TIMEOUT_ENV);
 
 // ---------------------------------------------------------------------------------------------
-// SQLITE_BUSY context (DBS-04, DBS-06)
+// SQLITE_BUSY context
 // ---------------------------------------------------------------------------------------------
 //
 // `Error: database is locked` and nothing else is what a held write lock used to reach the log as —
@@ -271,7 +271,7 @@ export function openDb(path: string): Db {
   return db;
 }
 
-/** Close every open database — call once at the end of a job (DBS-08). */
+/** Close every open database — call once at the end of a job. */
 export function closeAll(): void {
   for (const db of [...cache.values()]) db.close();
 }

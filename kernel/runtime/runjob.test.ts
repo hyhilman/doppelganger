@@ -1,4 +1,4 @@
-// J3.6 (HRN-02, HRN-12, HRN-13, HRN-16, SKL-08) — runJob, buildPrompt, substitute.
+// runJob, buildPrompt, substitute.
 
 import { test } from "node:test";
 import assert from "node:assert/strict";

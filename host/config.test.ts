@@ -1,4 +1,4 @@
-// J2.6 (SUP-10, INS-05, §5 Q1) — the gate's named resources and the refresh window.
+// J2.6 (SUP-10, §5 Q1) — the gate's named resources and the refresh window.
 
 import { test } from "node:test";
 import assert from "node:assert/strict";

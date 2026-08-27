@@ -1,4 +1,4 @@
-// J1.2 (KRN-06) — EnvSpec: the row shape that IS a knob's definition, plus the readers that take a
+// EnvSpec: the row shape that IS a knob's definition, plus the readers that take a
 // row instead of a key. `process.env` is named here and nowhere else under kernel/ (J1.18 gates it),
 // so there is no way to read a knob that has no row.
 
@@ -44,8 +44,8 @@ export function envOptional(spec: EnvSpec): string | undefined {
 }
 
 /**
- * The one read taking a raw key rather than a spec, for the `<NAME>_DB` family (DBS-07) — a family
- * has no single key an `EnvSpec` row can name (roadmap.md Gaps item 4). This is the one dynamic
+ * The one read taking a raw key rather than a spec, for the `<NAME>_DB` family — a family
+ * has no single key an `EnvSpec` row can name (a known gap). This is the one dynamic
  * read; J1.18 gates that it has exactly one call site.
  */
 export function envDynamic(key: string): string | undefined {
@@ -78,9 +78,9 @@ const KEY_RE = /^[A-Z][A-Z0-9_]*$/;
 
 /**
  * A knob FAMILY row — no single key a reader can resolve directly, so the row's own `key` carries
- * exactly one `<PLACEHOLDER>` marking where the variable part goes: `<NAME>_DB` (DBS-07),
- * `LOCK_STARVE_N_<JOB>` (GAT-10). Generalised from the first family (J2.12) rather than
- * special-cased per family — KRN-06 (roadmap.md Gaps item 4) still cannot express a family as a
+ * exactly one `<PLACEHOLDER>` marking where the variable part goes: `<NAME>_DB`,
+ * `LOCK_STARVE_N_<JOB>`. Generalised from the first family (J2.12) rather than
+ * special-cased per family — KRN-06 still cannot express a family as a
  * single readable key; this is the shape check's half of the workaround.
  */
 const FAMILY_KEY_RE = /^[A-Z0-9_]*<[A-Z]+>[A-Z0-9_]*$/;
@@ -105,7 +105,7 @@ export function assertSpecShape(rows: readonly EnvSpec[]): void {
 }
 
 /**
- * J2.11 (SUP-04) — a copy of the whole process environment, so `host/` (and `cli/`) never name
+ * a copy of the whole process environment, so `host/` (and `cli/`) never name
  * `process.env` themselves. `childEnv`'s inherited-env layer calls this instead of spreading
  * `process.env` inline, which is what keeps `test/knobs.test.ts` assertion 3's one-file rule true
  * as it now covers `host/` and `cli/` too (J2.3) — a real improvement over the reference, which

@@ -1,4 +1,4 @@
-// J3.5 (HRN-12) — the worktree this repo creates, names, hands to an agent and removes. THIS FILE
+// the worktree this repo creates, names, hands to an agent and removes. THIS FILE
 // IS THE MACHINERY ONLY: it never decides when to prep or tear one down (ruling 4,
 // kernel/runtime/runjob.ts, J3.6) — the caller that owns the pass owns the tree.
 //
@@ -93,7 +93,7 @@ export function reapWorktrees(repo: string, under: string, keep: string): string
 }
 
 /**
- * `{{WORKTREE}}`'s substitution (HRN-12) — where to read, the base to diff against, the head SHA,
+ * `{{WORKTREE}}`'s substitution — where to read, the base to diff against, the head SHA,
  * and an explicit instruction not to fall back to the main checkout, which would silently answer
  * every read with the live tree instead of this pass's own. Names no path under `plugins/` or
  * `.claude/` — HRN-16/SKL-08's rule applies to every prompt fragment, not only the skill markdown.

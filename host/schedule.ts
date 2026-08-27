@@ -12,7 +12,7 @@
 //
 // ScheduleEntry is PRT-06 verbatim. PRT-06 is an N5 row (kernel/ports/schedule.ts) and N2 has to
 // build the thing now, so the interface lives here and moves to the port at N5 UNCHANGED — the
-// same call N1 made for EnvSpec (KRN-06): ship the shape the port will carry, in the module that
+// same call N1 made for EnvSpec: ship the shape the port will carry, in the module that
 // needs it, and re-home it later without rewriting it.
 import { existsSync, statSync, readFileSync } from "node:fs";
 import { isAbsolute, join, sep } from "node:path";
@@ -27,29 +27,29 @@ export interface ScheduleEntry {
   readonly name: string;
   /** A 5-field cron expression, in the intersection `validate()` accepts. */
   readonly cron: string;
-  /** Where this entry's child stdout/stderr is appended (SUP-03, SUP-18). */
+  /** Where this entry's child stdout/stderr is appended. */
   readonly log: string;
   /**
-   * Entry-declared overrides, applied LAST (`inherited < .env < env:`, SUP-04) — the only knob
+   * Entry-declared overrides, applied LAST (`inherited < .env < env:`) — the only knob
    * reachable regardless of a program's `dotenv: false`. Key-value pairs, not a name list to pass
    * through from the parent: childEnv's formula spreads it as `{ ...parentEnv(), ...dotenvVars,
    * ...e.env }`, which is what SUP-04's own three-layer precedence needs — an entry's own literal
    * values, not a request to inherit named ones.
    */
   readonly env?: Readonly<Record<string, string>>;
-  /** Block for one of THIS entry's own ticks (GAT-08), derived by `gateWait(cron)` — never a
+  /** Block for one of THIS entry's own ticks, derived by `gateWait(cron)` — never a
    *  hand-picked number. */
   readonly gateWait?: boolean;
   /** Drop this firing before the self-lock and before the gate, while a refresh window is open
-   *  (SUP-10). Refused by `validate()` while `host/config.ts`'s `REFRESH_WINDOW` is null. */
+   *. Refused by `validate()` while `host/config.ts`'s `REFRESH_WINDOW` is null. */
   readonly clearsRefreshWindow?: boolean;
   /** SUP-13: the flag bounds where a pass may START, never how long it runs. */
   readonly maxRunMin?: number;
   /** Exactly one of `job`/`script` — the type does not enforce it because `validate()` must be
-   *  able to REPORT "both set" and "neither set" as distinct, checked faults (SUP-05). */
+   *  able to REPORT "both set" and "neither set" as distinct, checked faults. */
   readonly job?: string;
   readonly script?: string;
-  /** `false` for exactly one entry in the whole schedule (SUP-09); everything else is supervised
+  /** `false` for exactly one entry in the whole schedule; everything else is supervised
    *  by omission. */
   readonly supervised?: boolean;
   /** One line, required. Every entry states why it exists. */
@@ -61,16 +61,16 @@ export interface ScheduleEntry {
  *  nothing can check. A required field makes the row refusable by `validate()` and turns a
  *  comment into a checked claim. */
 export interface Program {
-  /** The old `lock_self` — per PROGRAM, not per entry (GAT-06). */
+  /** The old `lock_self` — per PROGRAM, not per entry. */
   readonly self: boolean;
   readonly gate: Mode | "none";
-  /** Writers only; omitted means all (GAT-02). */
+  /** Writers only; omitted means all. */
   readonly resources?: readonly string[];
   /** SUP-04: load-bearing, no default. A knob reachable only from an entry's `env:` list is the
    *  mechanism that keeps a shared `.env` out of the programs that must not see it — a defaulted
    *  field would hand it to them silently. */
   readonly dotenv: boolean;
-  /** Required when `gate === "none"` (GAT-07). */
+  /** Required when `gate === "none"`. */
   readonly whyNoGate?: string;
 }
 
@@ -78,7 +78,7 @@ export interface Program {
  *  and no program exists to register until N3, which is when the first row (below) lands. */
 export const PROGRAMS: Readonly<Record<string, Program>> = {
   "nightly-sandcastle": { self: true, gate: "excl", resources: ["repo"], dotenv: true },
-  // (JOB-O09) — the first `gate: "none"` row this repo has: the check reads `crontab -l` and
+  // the first `gate: "none"` row this repo has: the check reads `crontab -l` and
   // renders, racing nothing the gate protects, and it is most useful precisely when a writer is
   // holding the gate and jobs are backing up behind it.
   "ops-cron-check": {
@@ -88,7 +88,7 @@ export const PROGRAMS: Readonly<Record<string, Program>> = {
     whyNoGate:
       "reads `crontab -l` and renders; it races nothing the gate protects, and it is most useful precisely when a writer is holding the gate and jobs are backing up behind it — queueing it would blind the check in the case it exists for",
   },
-  // (JOB-O10) — keyed on the SCRIPT PATH, not the entry name: programOf(e) is
+  // keyed on the SCRIPT PATH, not the entry name: programOf(e) is
   // e.job ?? e.script ?? e.name, so "host/watchdog.sh" (e.script, below, verbatim —
   // project-relative, the same string scriptCommandOf resolves against ROOT) IS this program's
   // name. Only the FULL path validates — scriptCommandOf needs the real project-relative path to
@@ -109,7 +109,7 @@ export const PROGRAMS: Readonly<Record<string, Program>> = {
 
 /**
  * Empty at N2 by decision, not by accident — see host/schedule.test.ts test 1's own N2 title.
- * (SUP-01, SUP-02, SUP-03, SUP-12, GAT-07, TST-09) lands the first entry: `nightly-sandcastle`,
+ * lands the first entry: `nightly-sandcastle`,
  * six firings a night inside the croner ∩ POSIX intersection (`dow` unrestricted, so the dom+dow
  * divergence class cannot apply).
  *
@@ -163,7 +163,7 @@ export const programOf = (e: ScheduleEntry): string => e.job ?? e.script ?? e.na
 export const supervisedEntries = (s: readonly ScheduleEntry[] = SCHEDULE): readonly ScheduleEntry[] =>
   s.filter((e) => e.supervised !== false);
 
-/** The complement: entries the crontab bootstrap block times directly (SUP-08). */
+/** The complement: entries the crontab bootstrap block times directly. */
 export const bootstrapEntries = (s: readonly ScheduleEntry[] = SCHEDULE): readonly ScheduleEntry[] =>
   s.filter((e) => e.supervised === false);
 
@@ -253,7 +253,7 @@ export function validate(entries: readonly ScheduleEntry[] = SCHEDULE, opts: Val
     if (seenNames.has(e.name)) err(e.name, "duplicate name");
     seenNames.add(e.name);
 
-    // 2. stage prefix (SUP-20)
+    // 2. stage prefix
     if (stageOf(e.name) === MISC) {
       err(e.name, `name carries no known stage prefix (SUP-20): one of ${STAGES.join(", ")}`);
     }
@@ -301,7 +301,7 @@ export function validate(entries: readonly ScheduleEntry[] = SCHEDULE, opts: Val
           } else if (e.script.endsWith(".sh")) {
             // 12b. a .sh carries its own shebang and is exec'd DIRECTLY (no interpreter named), so
             // both must hold at boot — a stray `chmod -x` or a missing `#!` would otherwise fail
-            // silently at spawn time (SUP-05). A .ts is handed to node explicitly and needs
+            // silently at spawn time. A .ts is handed to node explicitly and needs
             // neither.
             const mode = statSync(p).mode;
             if ((mode & 0o111) === 0) {

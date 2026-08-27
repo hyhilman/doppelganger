@@ -1,4 +1,4 @@
-// J1.13 (LOG-01, LOG-06, LOG-07) — barrel for logging. Consumers import the whole surface from here.
+// barrel for logging. Consumers import the whole surface from here.
 //
 // Five files, split by role rather than by topic:
 //

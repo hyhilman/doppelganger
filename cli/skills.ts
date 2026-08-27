@@ -1,4 +1,4 @@
-// J3.7 (SKL-03, SKL-04, SKL-05, SKL-10, TST-23) — the pure half of the skills tool: `render`,
+// the pure half of the skills tool: `render`,
 // ownership decided from the filesystem alone (§5 Q0), the six findings `check` reports, and layer
 // 0 — the crontab precedent's most important half, landed here BEFORE J3.9's `sync` gives this
 // module its only `rm -rf`.
@@ -86,7 +86,7 @@ export function assertSafeTree(tree: SkillsTree, root: string): void {
 }
 
 // ---------------------------------------------------------------------------------------------
-// Ownership, decided from the filesystem alone (§5 Q0, SKL-10) — no ledger.
+// Ownership, decided from the filesystem alone (§5 Q0) — no ledger.
 // ---------------------------------------------------------------------------------------------
 
 export type Owner = "ours" | "foreign" | "absent";
@@ -133,7 +133,7 @@ export function ownerOf(dir: string): Owner {
 }
 
 // ---------------------------------------------------------------------------------------------
-// The six findings (SKL-10 names five; `source-missing` is this job's addition — see roadmap.md
+// The six findings (the spec names five; `source-missing` is this repo's addition — see
 // Section 2.30).
 // ---------------------------------------------------------------------------------------------
 
@@ -169,7 +169,7 @@ function firstDifferingLine(a: string, b: string): number {
 
 // The POSIX separator, spelled as an escape rather than a literal "/" right after a quote —
 // test/writes.test.ts's door 1 reads any quote immediately followed by / or ~ as a hardcoded PATH
-// (INS-02) with no exception, and this is a path SEPARATOR, not a path.
+// with no exception, and this is a path SEPARATOR, not a path.
 const POSIX_SEP = "\u002F";
 
 /** POSIX-separated, whatever the platform. */
@@ -192,7 +192,7 @@ const srcDirPosixFor = (tree: SkillsTree, sourceDir: string): string => toPosix(
  * `skillOf(job)` (kernel/ports/job.ts) FALLS BACK to `job.name` for a job that names none, which
  * is exactly right for a skill job (SKL-01: the skill name IS the job name unless overridden) and
  * exactly wrong here: it would make this function ask for a SKILL.md a deterministic job never
- * has. SKL-06's gate is meant to run "both ways" (roadmap.md) and exempt an `exec` job BY
+ * has. The gate is meant to run "both ways" and exempt an `exec` job BY
  * CONSTRUCTION — this is the fix that makes that claim actually true, rather than merely stated;
  * nothing before this job's own registration exercised `job.skill === undefined` at all.
  * `registeredNames` is built from the SAME filtered set, so a stray rendered directory that
@@ -261,7 +261,7 @@ export function check(jobs: readonly Job[], tree: SkillsTree): readonly Finding[
 }
 
 // ---------------------------------------------------------------------------------------------
-// J3.9 (SKL-04, SKL-10, SAF-01, TST-23) — the impure half: `render` (prints, writes nothing),
+// the impure half: `render` (prints, writes nothing),
 // `sync` (writes `missing`, rewrites `drift`, removes `orphan`, REFUSES `stray`/`collision`/
 // `source-missing`), `check` (prints every finding, never writes). Every verb calls
 // `assertSafeTree` first — layer 0, before any read and long before any prune.
@@ -322,7 +322,7 @@ function cmdRender(deps: SkillsDeps): VerbResult {
   return { out: parts.join("\n"), err: "", code: 0 };
 }
 
-/** Refuse first, write second, prune third (SKL-10) — a run with any refusal writes nothing at
+/** Refuse first, write second, prune third — a run with any refusal writes nothing at
  *  all. The directory is removed, not its contents: an orphan that is ALSO stray is caught by the
  *  refuse-first step (both findings fire for the same directory), so prune never reaches one that
  *  still holds extra content. */

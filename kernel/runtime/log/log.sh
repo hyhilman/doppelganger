@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# J1.7 (LOG-01, LOG-02, LOG-03, LOG-05, LOG-06, LOG-10) — the bash half of the one log line shape.
+# the bash half of the one log line shape.
 # kernel/runtime/log/emit.ts is the TypeScript half and MUST stay identical — cron redirects both
 # into the same file, so a format only one side can produce is not a format. J1.9 proves the two
 # agree byte for byte.

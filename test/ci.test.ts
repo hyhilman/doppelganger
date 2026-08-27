@@ -1,6 +1,6 @@
-// J0.13 (TST-21, TST-22) — CI runs npm test and nothing else. The reference has no CI at all
+// CI runs npm test and nothing else. The reference has no CI at all
 // (no .github/workflows/ in /home/hyhilman/projects/xenith/), so this is written from
-// CLAUDE.md's rule, not copied from the corpus. A line scan, not a YAML parser (TST-22).
+// CLAUDE.md's rule, not copied from the corpus. A line scan, not a YAML parser.
 
 import { test } from "node:test";
 import assert from "node:assert/strict";

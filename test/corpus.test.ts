@@ -1,7 +1,7 @@
 // Gate the reference corpus path (D15) and the provenance of its counts.
 //
 // The claim is split into what can be true NOW and what is a DATED OBSERVATION:
-//   - the corpus path resolves, and roadmap.md names no old macOS path — live, gated always.
+//   - the corpus path resolves, and the spec names no old macOS path — live, gated always.
 //   - the four counts — a dated observation, gated on PROVENANCE (same date stamp in all four
 //     places, §3.0's percentage consistent with its own denominator), not on a tolerance band. A
 //     ±2% band was tried and dropped: every real staleness this repo has produced drifts
@@ -53,7 +53,7 @@ function corpusPresent(path: string): boolean {
   return existsSync(join(path, "engine")) && existsSync(join(path, "compose-data/docker-compose.yml"));
 }
 
-// roadmap.md itself is untracked scaffolding (see .gitignore) — present on this machine, absent
+// the spec itself is untracked scaffolding (see .gitignore) — present on this machine, absent
 // in a fresh clone. Every assertion below that reads it must skip, not throw, when it is missing.
 function roadmapPresent(): boolean {
   return existsSync(join(ROOT, "roadmap.md"));
@@ -91,8 +91,8 @@ test("1. roadmap.md names no old macOS corpus path", (t) => {
     t.skip("roadmap.md not present (untracked scaffolding, see .gitignore)");
     return;
   }
-  // Scoped to roadmap.md only. CLAUDE.md names /Users/hyhilman/Projects/xenith/ on purpose — it
-  // is the sentence recording that the OLD path was wrong. roadmap.md is the spec of record and
+  // Scoped to the spec only. CLAUDE.md names /Users/hyhilman/Projects/xenith/ on purpose — it
+  // is the sentence recording that the OLD path was wrong. the spec is the spec of record and
   // has no reason to name it; do not widen this to a repo-wide grep.
   const roadmap = readRoadmap();
   assert.ok(!roadmap.includes("/Users/hyhilman/"), "roadmap.md must not name the old macOS corpus path");
@@ -103,7 +103,7 @@ test("2. the corpus path resolves out of roadmap.md's own text", (t) => {
     t.skip("roadmap.md not present (untracked scaffolding, see .gitignore)");
     return;
   }
-  // Always parses roadmap.md directly — CORPUS_OVERRIDE (used by assertions 3 and 6 to point
+  // Always parses the spec directly — CORPUS_OVERRIDE (used by assertions 3 and 6 to point
   // the LOOKUP elsewhere) must never mask a break in this parsing logic.
   const path = parseCorpusPathFromRoadmap(readRoadmap());
   assert.match(path, /^\//, "the corpus path must be absolute");
@@ -154,7 +154,7 @@ test("5. provenance: the four counts share one date stamp, and §3.0's percentag
 
   // Tying the DATES together (above) does not tie the NUMBERS together. Two files can carry the
   // same date stamp and still state different values for the one measurement they both claim to
-  // report — that gap is what let roadmap.md and CLAUDE.md disagree on the line count while this
+  // report — that gap is what let the spec and CLAUDE.md disagree on the line count while this
   // test stayed green. Compare the file count and the line count across the two files directly.
   const roadmapFileCount = Number(engineAll![1]);
   const roadmapLineCount = Number(engineAll![2].replace(/,/g, ""));

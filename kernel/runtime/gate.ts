@@ -1,9 +1,9 @@
-// J2.4 (GAT-01, GAT-02, GAT-03, GAT-04, GAT-06) / J2.5 (GAT-05) — the in-memory reader/writer gate.
+// J2.4 / J2.5 — the in-memory reader/writer gate.
 //
 // One supervisor process owns every tick, which is what makes an IN-MEMORY gate possible at all —
-// no cross-process coordination, no file lock. A reader takes `shared` on ALL resources (GAT-02); a
+// no cross-process coordination, no file lock. A reader takes `shared` on ALL resources; a
 // writer takes `excl` on only the resources it names, or on everything if it names none. Two writers
-// on DISJOINT resources run concurrently (GAT-03) — that is the whole reason the gate is per-
+// on DISJOINT resources run concurrently — that is the whole reason the gate is per-
 // resource rather than one flag.
 //
 // THE ONE DESIGN DIVERGENCE FROM THE REFERENCE, AND WHY. The reference's rwlock.ts is a
@@ -91,10 +91,10 @@ export interface GateState {
 }
 
 export interface Gate {
-  /** The fixed global acquisition order (GAT-04) — the order `names` was given in. */
+  /** The fixed global acquisition order — the order `names` was given in. */
   readonly resources: readonly string[];
   /**
-   * `mode = "shared"` always takes every resource (GAT-02); `asked` is ignored. `mode = "excl"`
+   * `mode = "shared"` always takes every resource; `asked` is ignored. `mode = "excl"`
    * with `asked = []` (the default) takes every resource too — a writer naming nothing is a safe
    * default, not a no-op. `waitMs <= 0` (the default) fails fast with no timer. Throws, naming the
    * unknown resource, if `asked` names something this gate does not have.
@@ -118,8 +118,8 @@ interface ResourceInternal {
   readonly queue: Waiter[];
 }
 
-/** A resource name is interpolated into a `lock-held` log line's `lock=` field (GAT-10) and into
- *  `--list`'s resources column (SUP-17), so it is checked for the same reason DBS-03 guards `ns`
+/** A resource name is interpolated into a `lock-held` log line's `lock=` field and into
+ *  `--list`'s resources column, so it is checked for the same reason DBS-03 guards `ns`
  *  and INS-01 guards `INSTANCE`. */
 const NAME_RE = /^[a-z][a-z0-9_-]*$/;
 
@@ -200,7 +200,7 @@ export function createGate(names: readonly string[]): Gate {
     }
     if (waitMs <= 0) return Promise.resolve(false);
     // SYNCHRONOUS enqueue: this executor runs synchronously, so `r.queue.push` has already
-    // happened by the time `acquire()` returns to a caller who does not await it (GAT-05).
+    // happened by the time `acquire()` returns to a caller who does not await it.
     return new Promise<boolean>((resolve) => {
       const waiter: Waiter = { mode, resolve };
       r.queue.push(waiter);

@@ -84,7 +84,7 @@ interface Harness {
 }
 
 /** Default child behaviour: exit 0 shortly after being spawned. Override `onChild` for a hang
- *  (SUP-13), an `error` event, or scripted stdout/stderr. */
+ *, an `error` event, or scripted stdout/stderr. */
 function makeHarness(
   overrides: Partial<SupervisorDeps> = {},
   onChild: (child: FakeChild) => void = (c) => setImmediate(() => c.emit("close", 0, null)),
@@ -143,7 +143,7 @@ function stubJobFiles(root: string, jobs: readonly string[]): void {
   for (const job of jobs) writeFileSync(join(dir, `${job}.ts`), "export {};\n");
 }
 
-/** (LSE-09) — a real, dead-owner `held` claim, written directly (bypassing acquire()'s own owner
+/** a real, dead-owner `held` claim, written directly (bypassing acquire()'s own owner
  *  generation, the same shape kernel/runtime/lease-reap.test.ts's own seed() uses) so
  *  `realReapOnBoot`'s real `reapDead()` sweep has something genuine to find. `LEASE_DB` must
  *  already be redirected before this is called. */
@@ -590,7 +590,7 @@ test("8. SUP-03: the recorded spawn options", async () => {
     assert.deepEqual(call.opts.stdio, ["ignore", "pipe", "pipe"]);
     assert.deepEqual([call.cmd, call.args], h.deps.jobRunner("probe"));
   }
-  // a script: entry uses <root>/<script> — pinned against scriptCommandOf itself (R3, SUP-03),
+  // a script: entry uses <root>/<script> — pinned against scriptCommandOf itself (R3),
   // the same shape as the job: branch's deepEqual against jobRunner above, so the two consumers
   // (this spawn and commandOf's crontab line) cannot drift apart silently.
   {
@@ -1118,7 +1118,7 @@ test("29. the argv guard exists", () => {
 });
 
 // -------------------------------------------------------------------------------------------
-// (SUP-17) — list(): a pure function, so these tests call it directly with a local
+// list(): a pure function, so these tests call it directly with a local
 // six-entry fixture and pin the whole string. `resourceNames` is a local ["a","b","c"], not
 // host/config.ts's real RESOURCE_NAMES — the same reasoning as gate.test.ts's own NAMES fixture:
 // these tests must not go red because an unrelated plugin adds a resource.

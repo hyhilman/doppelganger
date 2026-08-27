@@ -1,7 +1,7 @@
-// J3.4 (HRN-10) — the sentinel payload parser: last `<<<TAG … TAG>>>` block wins (agents echo the
+// the sentinel payload parser: last `<<<TAG … TAG>>>` block wins (agents echo the
 // template first, so the first block is the instruction, not the answer), and a malformed payload
 // writes nothing. Neither function here knows any vocabulary — the vocabulary (what `outcome=`
-// means, what values it may hold) is the job's own (SKL-07), read by host/jobs/nightly-sandcastle.ts
+// means, what values it may hold) is the job's own, read by host/jobs/nightly-sandcastle.ts
 // (J3.8)'s `parseVerdict`, never by this file.
 
 /**

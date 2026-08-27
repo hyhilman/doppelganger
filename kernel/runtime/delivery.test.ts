@@ -1,4 +1,4 @@
-// J4.13 (JOB-O11, SUP-14) — deliveryStamp's own contract, and DELIVERY_STAMPS as a checked
+// deliveryStamp's own contract, and DELIVERY_STAMPS as a checked
 // register.
 import { test } from "node:test";
 import assert from "node:assert/strict";

@@ -1,4 +1,4 @@
-// J3.8 (SKL-05) — the hand-registered list throws on a duplicate name.
+// the hand-registered list throws on a duplicate name.
 
 import { test } from "node:test";
 import assert from "node:assert/strict";

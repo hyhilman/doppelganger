@@ -1,4 +1,4 @@
-// J4.7 (LSE-10) — the supported form of the one-off DELETE. `acquire` refuses on
+// the supported form of the one-off DELETE. `acquire` refuses on
 // `status <> 'done'`, so waiting out the TTL does nothing at any horizon: this is how an operator
 // removes a claim by hand.
 //
@@ -66,7 +66,7 @@ export function run(argv: readonly string[], deps: LeaseClearDeps): Result {
     return { out: "", err: `no claim ${scope}/${key} — nothing to clear\n`, code: 0 };
   }
 
-  // `--force` is where the guard-4 (INS-04) escape hatch lives: a stale claim from a deleted
+  // `--force` is where the guard-4 escape hatch lives: a stale claim from a deleted
   // checkout is never reaped by a sweep (kernel/runtime/lease.ts's reapDead), and this is the
   // supported way to remove it.
   if (row.status === "held" && !force) {

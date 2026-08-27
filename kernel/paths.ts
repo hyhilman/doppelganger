@@ -1,4 +1,4 @@
-// J1.4 (DBS-07, INS-02) — every default path the kernel computes, so INS-02's project-relative
+// every default path the kernel computes, so INS-02's project-relative
 // category is mechanical rather than promised.
 //
 // ROOT comes from `cwd`, not from self-location. The reference walks three levels up from its own
@@ -42,7 +42,7 @@ export const STATE_DIR_ENV: EnvSpec = {
 
 export const STATE_DIR: string = projectPath(envStr(STATE_DIR_ENV));
 
-/** The knob FAMILY row (DBS-07) — no single `key` a reader can resolve, but the doc gate (J1.18)
+/** The knob FAMILY row — no single `key` a reader can resolve, but the doc gate (J1.18)
  *  needs a row to match §2.27's `<NAME>_DB` token against. */
 export const NAME_DB_ENV: EnvSpec = {
   key: "<NAME>_DB",

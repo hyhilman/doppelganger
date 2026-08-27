@@ -1,4 +1,4 @@
-// J3.5 (HRN-12) — prep, teardown, reap. Every test builds a real git repo under mkdtempSync.
+// prep, teardown, reap. Every test builds a real git repo under mkdtempSync.
 
 import { test } from "node:test";
 import assert from "node:assert/strict";

@@ -1,8 +1,8 @@
-// J1.3 (INS-01) — ONE `INSTANCE` name per checkout, so N2's crontab markers and N4's lease owner
+// ONE `INSTANCE` name per checkout, so N2's crontab markers and N4's lease owner
 // have something to be discriminated by.
 //
 // `ROOT` lands in J1.4, and this file does not wait on it: the supervisor spawns every child with
-// `cwd = ROOT` (SUP-03), so `cwd` IS the root for every job by construction, and `paths.ts` resolves
+// `cwd = ROOT`, so `cwd` IS the root for every job by construction, and `paths.ts` resolves
 // `ROOT` the same way. Reading `process.cwd()` here keeps the dependency one-directional — instance
 // resolution never imports paths.ts.
 import { basename } from "node:path";

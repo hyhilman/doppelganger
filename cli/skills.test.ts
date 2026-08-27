@@ -1,4 +1,4 @@
-// J3.7 (SKL-03, SKL-04, SKL-05, SKL-10, TST-23) — render, ownership, the six findings, layer 0.
+// render, ownership, the six findings, layer 0.
 // Every test builds a mkdtempSync tree; test 1 reads the real one, read-only.
 
 import { test } from "node:test";
@@ -29,7 +29,7 @@ function job(overrides: Partial<Job> = {}): Job {
     description: "d",
     plugin: "nightly",
     // J4.12: check()/render() now skip a job with no `skill` at all (an `exec:` job is exempt by
-    // construction, SKL-06) — every fixture here is exercising the SKILL-dispatch checking logic,
+    // construction) — every fixture here is exercising the SKILL-dispatch checking logic,
     // so it must declare one. SKL-01: the skill name IS the job name unless overridden — mirrored
     // here too, so a fixture overriding only `name` still resolves skillOf() to that same name.
     skill: overrides.skill ?? overrides.name ?? "nightly-probe",
@@ -230,7 +230,7 @@ test("14. layer 0 refuses four ways — relative renderedRoot, outside root, equ
 });
 
 // ---------------------------------------------------------------------------------------------
-// J3.9 (SKL-04, SKL-10, SAF-01, TST-23) — render/sync/check through run(argv, deps).
+// render/sync/check through run(argv, deps).
 // ---------------------------------------------------------------------------------------------
 
 function deps(tree: SkillsTree, root: string, jobs: readonly Job[] = [job()], dryRun = false) {

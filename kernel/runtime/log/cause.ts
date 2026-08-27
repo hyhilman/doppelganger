@@ -1,4 +1,4 @@
-// J1.11 (LOG-09, TST-19) — the one line worth reporting out of a child's dying output, which
+// the one line worth reporting out of a child's dying output, which
 // parse.ts skips by design (it reads only `ts=` lines — two thirds of every file is agent stdout).
 //
 // The pick is by SHAPE, not by position. A tail-N reports the runtime's version banner: a Node

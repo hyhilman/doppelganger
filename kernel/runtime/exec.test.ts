@@ -1,4 +1,4 @@
-// J1.15 (HRN-19) — exec.ts: one process wrapper with a wall clock. Driven through bash so no gh or
+// exec.ts: one process wrapper with a wall clock. Driven through bash so no gh or
 // git binary is needed.
 
 import { test } from "node:test";

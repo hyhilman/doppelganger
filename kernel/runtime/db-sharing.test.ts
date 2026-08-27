@@ -1,4 +1,4 @@
-// J1.17 (TST-20, DBS-01) — the two shared-database traps that are real at N1, pinned as behaviour,
+// the two shared-database traps that are real at N1, pinned as behaviour,
 // plus the static discipline gate. See CLAUDE.md's Working rules for the rule this file gates.
 //
 // Assertion 5 from the first draft ("process.ppid !== process.pid") was deleted — it is true in

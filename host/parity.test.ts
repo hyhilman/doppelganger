@@ -1,4 +1,4 @@
-// J2.10 (SUP-07, TST-15) — croner-vs-POSIX parity over a fixed 14-day window, with a strict
+// croner-vs-POSIX parity over a fixed 14-day window, with a strict
 // independent oracle.
 //
 // THE ORACLE, NAMED EXACTLY. A hand-written POSIX matcher, living in THIS FILE, importing nothing

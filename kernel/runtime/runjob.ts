@@ -1,4 +1,4 @@
-// J3.6 (HRN-02, HRN-12, HRN-13, HRN-16, SKL-08) — runJob: build the prompt from the skill NAME and
+// runJob: build the prompt from the skill NAME and
 // the args, substitute every placeholder, run, return one RunResult. It does not create or destroy
 // a worktree (ruling 4) — the caller that owns the pass owns the tree; `{{WORKTREE}}` is substituted
 // here, from an arg the caller supplies (typically `worktreePromptLines` joined), never prepared.
@@ -41,7 +41,7 @@ export function buildPrompt(job: Job, args: Readonly<Record<string, string>>): s
 
 /**
  * Replaces every `{{KEY}}` placeholder `args` names; returns the KEYS it could not resolve rather
- * than throwing, so `runJob` can throw ONCE naming every one of them (the `boot()` shape, KRN-08,
+ * than throwing, so `runJob` can throw ONCE naming every one of them (the `boot()` shape,
  * one layer down) instead of failing on the first.
  */
 export function substitute(

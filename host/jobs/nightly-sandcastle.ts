@@ -1,4 +1,4 @@
-// J3.8/J3.11/J3.12 (JOB-C15, SKL-02, SKL-05, SKL-07, TST-19, HRN-10, SAF-01…07, INS-06, KRN-07,
+// J3.8/J3.11/J3.12 (JOB-C15, SAF-01…07,
 // INV-1) — nightly-sandcastle: the verdict vocabulary, the blocked paths, the goal rotation, the
 // import smoke, the three-tier ship gate, and the pass itself.
 //
@@ -146,7 +146,7 @@ export const GOALS: readonly Goal[] = [
   },
 ];
 
-/** Rotates by `state.index`, wrapping. `only` FORCES one key (SAF-06) rather than rotating, and
+/** Rotates by `state.index`, wrapping. `only` FORCES one key rather than rotating, and
  *  does not advance `nextIndex` past it — throws on an unknown key rather than silently rotating. */
 export function nextGoal(
   state: { readonly index: number; readonly recent: readonly string[] },
@@ -220,7 +220,7 @@ export function tail(out: string, n: number = 20): string {
 }
 
 // ---------------------------------------------------------------------------------------------
-// J3.11 (JOB-C15, SAF-05, TST-19) — the three-tier ship gate. Cheapest first, each a real signal,
+// the three-tier ship gate. Cheapest first, each a real signal,
 // returning on the first failure. `deps.runIn` is REQUIRED so a test never spawns `npm test`
 // itself — every tier that would otherwise spawn a real process (2, 3, 4) goes through it.
 // ---------------------------------------------------------------------------------------------
@@ -243,7 +243,7 @@ export interface GateResult {
 }
 
 /** `nightly-sandcastle` -> `NIGHTLY_SANDCASTLE` — the derived half of a job's dry-run knob name.
- *  Never used to derive a KILL SWITCH (`*_NO_<FEATURE>`, KRN-07): that shape is plugin+feature,
+ *  Never used to derive a KILL SWITCH (`*_NO_<FEATURE>`): that shape is plugin+feature,
  *  not derivable from a job name, and this function must not be generalised to try. */
 const envPrefixOf = (jobName: string): string => jobName.toUpperCase().replace(/-/g, "_");
 
@@ -313,7 +313,7 @@ export function gate(files: readonly string[], deps: GateDeps): GateResult {
 }
 
 // ---------------------------------------------------------------------------------------------
-// J3.12 (JOB-C15, SAF-01…07, INS-06, KRN-07, INV-1) — the pass: rotate, refuse, prep, run, check
+// J3.12 (JOB-C15, SAF-01…07) — the pass: rotate, refuse, prep, run, check
 // both escape routes, gate, land or discard, report — every write path env-gated (the whole
 // safe-run surface is these seven knobs).
 // ---------------------------------------------------------------------------------------------
@@ -532,7 +532,7 @@ export async function execPass(deps: PassDeps): Promise<void> {
   // 5. reap a stranded sibling before touching our own path.
   reapWorktrees(deps.root, deps.worktreeRoot, wtPath);
 
-  // 6. rotation. An unknown ONLY key throws HERE, before anything is prepped (SAF-06).
+  // 6. rotation. An unknown ONLY key throws HERE, before anything is prepped.
   const state = readState(deps.db);
   const { goal, nextIndex } = nextGoal(state, only);
 
@@ -641,13 +641,13 @@ const nightlySandcastleJob: Job = defineJob({
   description: "Make one small, verified improvement to the engine repo in a single unattended pass (JOB-C15).",
   plugin: "nightly",
   skill: "nightly-sandcastle",
-  // Inheriting DEFAULTS.model is spelled DEFAULTS.model (HRN-11) — never a re-typed literal, which
+  // Inheriting DEFAULTS.model is spelled DEFAULTS.model — never a re-typed literal, which
   // is what keeps the model version a one-line bump (test/model.test.ts test 6).
   model: DEFAULTS.model,
   permissionMode: DEFAULTS.permissionMode,
   local: true,
   taskClass: "impl",
-  // R1 (HRN-16, JOB-C15) — the SKILL.md contract is "one pass, one improvement, report ONCE";
+  // R1 — the SKILL.md contract is "one pass, one improvement, report ONCE";
   // `runJob`'s default completionSignal is sandcastle's own `<promise>COMPLETE</promise>`, a string
   // this skill never emits (it emits `<<<SANDCASTLE ... SANDCASTLE>>>` instead). Without this line
   // the mismatch is invisible to sandcastle's own `run()`, which just keeps iterating: the real

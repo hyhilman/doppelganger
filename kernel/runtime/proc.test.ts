@@ -1,4 +1,4 @@
-// J4.2 (LSE-11) — proc.ts: the grid of every branch failing toward alive, plus real /proc probes.
+// proc.ts: the grid of every branch failing toward alive, plus real /proc probes.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";

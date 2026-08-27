@@ -1,7 +1,7 @@
-// J4.8 (QTA-01, QTA-05, QTA-06, QTA-07) — the account breaker. A walled account parks itself once
+// the account breaker. A walled account parks itself once
 // and recovers by itself: the window expires, and the next real run IS the probe.
 //
-// `scope` is one ACCOUNT, not one job (QTA-01). Standalone, every job spawns the same CLI against
+// `scope` is one ACCOUNT, not one job. Standalone, every job spawns the same CLI against
 // the same account, so they share `QUOTA_SCOPE` and whichever job discovers the limit parks the
 // rest. In a fleet each worker holds its own token, so a worker gets its own scope
 // (`workerScope(container)`) and one exhausted subscription darkens ONLY that container.
@@ -165,7 +165,7 @@ export function isPaused(scope: string): boolean {
  * Opens `scope`'s breaker for one window, sized by the class of limit `message` names. Returns
  * the ISO instant it re-probes at.
  *
- * `since:` is the start of the CONTINUOUS outage, not of this window (QTA-07): re-parking IS the
+ * `since:` is the start of the CONTINUOUS outage, not of this window: re-parking IS the
  * shape of a long outage, and stamping `since` on every park would make every outage read as one
  * window old. `class:` is recorded beside it so a watcher never re-parses the message. A breaker
  * lifted by hand starts a new outage, which is what lifting one means.

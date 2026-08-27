@@ -7,7 +7,7 @@
 //
 // `gateWait(cron)` derives "one of the entry's own ticks" from croner's OWN enumeration rather
 // than a hand-written parser, because the supervisor fires croner's timer, not a parser this repo
-// wrote. `gateWait(expr) <= tickSeconds(expr)` always (GAT-09) — waiting LONGER than your own
+// wrote. `gateWait(expr) <= tickSeconds(expr)` always — waiting LONGER than your own
 // interval is strictly worse than skipping: you hold your self-lock through the ticks you were
 // trying to avoid skipping.
 //
@@ -212,7 +212,7 @@ const gateWaitCache = new Map<string, number>();
 
 /**
  * `min(tickSeconds(expr), GATE_WAIT_CAP_S)`, memoised — the same entry asks the same question
- * every tick (GAT-08). Uses the early stop, so this stays cheap even for a dense expression.
+ * every tick. Uses the early stop, so this stays cheap even for a dense expression.
  */
 export function gateWait(expr: string): number {
   const cached = gateWaitCache.get(expr);
@@ -237,7 +237,7 @@ export interface Timer {
 
 /**
  * `protect: false` on purpose: overlap protection is a per-PROGRAM property and `PROGRAMS[].self`
- * (GAT-06) already states it — two mechanisms for one question is how they drift apart.
+ * already states it — two mechanisms for one question is how they drift apart.
  * `catch: true` so a thrown job function does not crash the supervisor process.
  */
 export function newTimer(e: ScheduleEntry, fn: () => void): Timer {

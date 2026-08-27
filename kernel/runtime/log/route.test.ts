@@ -1,4 +1,4 @@
-// J1.10 (LOG-04) — routing is a property of the level, not the caller.
+// routing is a property of the level, not the caller.
 
 import { test } from "node:test";
 import assert from "node:assert/strict";

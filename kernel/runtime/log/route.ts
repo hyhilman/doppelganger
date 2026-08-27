@@ -1,4 +1,4 @@
-// J1.10 (LOG-04) — routing is a property of the level, not the caller.
+// routing is a property of the level, not the caller.
 //
 // The caller never names a route. routeOf takes a Level and nothing else — not a job, not an event,
 // not a flag. That is LOG-04's sentence as a signature: a function that cannot see the caller cannot

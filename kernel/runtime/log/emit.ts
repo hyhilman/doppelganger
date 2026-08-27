@@ -1,11 +1,11 @@
-// J1.7 (LOG-01, LOG-02, LOG-03, LOG-05, LOG-06, LOG-10) — the TypeScript half of the one log line
+// the TypeScript half of the one log line
 // shape. `log.sh` is the bash half and MUST stay identical — cron redirects both into the same file,
 // so a format only one side can produce is not a format. J1.9 proves the two agree byte for byte.
 //
-// logfmt, not JSONL (LOG-02). Bash has no safe printf shape for nested-quoted JSON, and these files
+// logfmt, not JSONL. Bash has no safe printf shape for nested-quoted JSON, and these files
 // are read by eye; logfmt keeps both and parses in one regex.
 //
-// Writes to STDERR (LOG-06). Every cron entry redirects `>> <log> 2>&1`, and stdout stays free for
+// Writes to STDERR. Every cron entry redirects `>> <log> 2>&1`, and stdout stays free for
 // the payload a job actually prints.
 //
 // This file must never load `node:sqlite` (see kernel/runtime/log/index.ts) — a process that only
@@ -15,7 +15,7 @@ import { envStr, type EnvSpec } from "../../config.ts";
 
 export type Level = "debug" | "info" | "warn" | "error";
 
-/** No `fatal` (LOG-03): four levels, and nothing here has a fifth member. */
+/** No `fatal`: four levels, and nothing here has a fifth member. */
 export const ORDER: Record<Level, number> = { debug: 10, info: 20, warn: 30, error: 40 };
 
 export const LOG_LEVEL_ENV: EnvSpec = {
@@ -46,7 +46,7 @@ export function renderValue(v: string | number | boolean): string {
 }
 
 /**
- * `msg` is forced last regardless of insertion order (LOG-01).
+ * `msg` is forced last regardless of insertion order.
  *
  * It is the only field allowed to contain spaces, so a parser can split the structured half on
  * whitespace and take everything from `msg=` as one value. A field emitted after it would silently
@@ -88,7 +88,7 @@ export interface Logger {
 }
 
 export function logger(job: string): Logger {
-  // Severity is SET here (LOG-05): this file contains no regex or string test over `event` or
+  // Severity is SET here: this file contains no regex or string test over `event` or
   // `msg` that would infer a level from text.
   const at = (level: Level) => (event: string, fields?: Fields) => {
     if (ORDER[level] < MIN) return;

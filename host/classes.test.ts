@@ -1,4 +1,4 @@
-// J4.9 (QTA-08) — the host's own value-class vocabulary: pinned assignment, the three-way split
+// the host's own value-class vocabulary: pinned assignment, the three-way split
 // over PROGRAMS, the safe default, and the two-call-site coupling J4.10 will wire up.
 import { test } from "node:test";
 import assert from "node:assert/strict";

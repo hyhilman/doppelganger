@@ -1,4 +1,4 @@
-// J3.3 (HRN-07, HRN-11 command half, D2, TST-25 narrow, INS-02) — the sandcastle adapter.
+// J3.3 (HRN-07, HRN-11 command half, D2, TST-25 narrow) — the sandcastle adapter.
 //
 // Layer A (tests 1-4): the pure seam — buildAgent(req).buildPrintCommand(...) is a pure function on
 // a real provider object, asserted with zero spawn cost.

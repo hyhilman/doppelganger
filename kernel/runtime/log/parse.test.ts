@@ -1,4 +1,4 @@
-// J1.8 (LOG-07) — parseLine, the exact inverse of renderLine.
+// parseLine, the exact inverse of renderLine.
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -8,7 +8,7 @@ import { VALUE_MATRIX } from "./values.fixture.ts";
 
 test("1. round trip: parseLine(renderLine(...)) matches the inputs for every value in the matrix", () => {
   for (const v of VALUE_MATRIX) {
-    // LF is folded to a space by renderValue (LOG-01) — a deliberate, one-way transform, not part
+    // LF is folded to a space by renderValue — a deliberate, one-way transform, not part
     // of what "reversible" means here. Every other byte round-trips exactly.
     const expected = v.replace(/\n/g, " ");
     const line = renderLine("info", v, v, { k: v, msg: v });

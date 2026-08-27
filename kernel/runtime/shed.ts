@@ -1,4 +1,4 @@
-// J4.9 (QTA-08, QTA-09) — the account breaker (kernel/runtime/quota.ts) detects a wall and PAUSES;
+// the account breaker (kernel/runtime/quota.ts) detects a wall and PAUSES;
 // it never DEGRADES, because a chore-class nightly and a PR review burn the exact same wall and the
 // breaker cannot tell them apart. `decideShed` is the missing half.
 //
@@ -48,7 +48,7 @@ export const SHED_WINDOW_MS = (): number => envNum(QUOTA_SHED_WINDOW_MS_ENV);
  * It reads `since`, never `until`/`active`: the pause WINDOW is short (spend is 4x
  * `QUOTA_PAUSE_MS`, about two hours) and keying on it would stop shedding the moment the LAST park
  * expired, even though the account re-parks on its next real task. `since` survives exactly that
- * re-park (QTA-07), so it is what "recently" has to mean here too.
+ * re-park, so it is what "recently" has to mean here too.
  *
  * An unparseable `since` (an operator's hand-edit with `sqlite3` — `clearPause`'s sibling key
  * writes `""` for exactly this reason) is not a case handled specially — it is the first rule

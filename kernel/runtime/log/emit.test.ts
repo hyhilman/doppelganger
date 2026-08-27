@@ -1,4 +1,4 @@
-// J1.7 (LOG-01, LOG-02, LOG-03, LOG-05, LOG-06, LOG-10) — the TypeScript emitter, and the static
+// the TypeScript emitter, and the static
 // shape of log.sh. The cross-emitter byte comparison is J1.9.
 
 import { test } from "node:test";

@@ -1,5 +1,5 @@
-// J2.6 (SUP-10, INS-05, §5 Q1) — the gate's named resources and the refresh window, each stated
-// once as data. See roadmap.md §5 Q1 for the decision this file makes mechanical.
+// J2.6 (SUP-10, §5 Q1) — the gate's named resources and the refresh window, each stated
+// once as data. See the spec §5 Q1 for the decision this file makes mechanical.
 //
 // §5 Q1, settled: the HOST names the resources, not the kernel. INS-05 (declared non-goal: two
 // instances never coordinate) is what turns that leaning into a rule with a test — no named
@@ -13,13 +13,13 @@
 import type { EnvSpec } from "../kernel/config.ts";
 
 /**
- * J4.14 (JOB-O10, KRN-06) — the watchdog's two knobs. `readers: []` in test/knobs.test.ts's ROWS,
+ * the watchdog's two knobs. `readers: []` in test/knobs.test.ts's ROWS,
  * the `<NAME>_DB` precedent (kernel/paths.ts): the row is a TypeScript value nothing in TypeScript
  * ever reads — host/watchdog.sh reads `${WATCHDOG_SUPERVISOR_STALE_M:-5}` and
  * `${WATCHDOG_DRY_RUN:-0}` directly from its own environment. The row is not a lie because
  * host/watchdog.test.ts's drift gate BINDS it to the script: every knob the script reads must
  * have a matching row here, and every row's default must match the script's own, checked from
- * both sides (the log.sh <-> emit.ts precedent, TST-18, one directory over).
+ * both sides (the log.sh <-> emit.ts precedent, one directory over).
  */
 export const WATCHDOG_SUPERVISOR_STALE_M_ENV: EnvSpec = {
   key: "WATCHDOG_SUPERVISOR_STALE_M",
@@ -34,7 +34,7 @@ export const WATCHDOG_DRY_RUN_ENV: EnvSpec = {
 };
 
 export interface GateResource {
-  /** What a `lock=` field (GAT-10) and `--list` (SUP-17) print. Must match the gate's own name
+  /** What a `lock=` field and `--list` print. Must match the gate's own name
    *  rule, `^[a-z][a-z0-9_-]*$` — re-stated in host/config.test.ts rather than imported, because
    *  kernel/runtime/gate.ts does not export it. */
   readonly name: string;

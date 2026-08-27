@@ -1,4 +1,4 @@
-// J4.9 (QTA-08, QTA-09) — decideShed's decision table, pinned as one grid, plus shedModel and the
+// decideShed's decision table, pinned as one grid, plus shedModel and the
 // purity claim.
 import { test } from "node:test";
 import assert from "node:assert/strict";

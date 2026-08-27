@@ -1,4 +1,4 @@
-// J4.13 (JOB-O11, SUP-14) — the delivery-stamp CONTRACT, shipped with the one producer that is
+// the delivery-stamp CONTRACT, shipped with the one producer that is
 // real on this host: the supervisor's own heartbeat write.
 //
 // A stamp is PRESENCE, not staleness: a healthy system writes nothing (the file is absent, or was

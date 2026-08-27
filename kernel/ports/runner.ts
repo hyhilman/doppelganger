@@ -1,4 +1,4 @@
-// J3.2 (HRN-01, HRN-13, PRT-08) — what a run RETURNS, and the ONE `Runner` seam M11 (D3) swaps
+// what a run RETURNS, and the ONE `Runner` seam M11 (D3) swaps
 // with an own library, "every job file unchanged" as the acceptance criterion.
 //
 // RunResult is OURS, six fields, all required — not sandcastle's eleven, two of them functions that

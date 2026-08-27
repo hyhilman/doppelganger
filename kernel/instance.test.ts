@@ -1,4 +1,4 @@
-// J1.3 (INS-01) — resolveInstance and the validated INSTANCE name.
+// resolveInstance and the validated INSTANCE name.
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
