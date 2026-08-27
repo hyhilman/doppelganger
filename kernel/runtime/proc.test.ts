@@ -299,3 +299,27 @@ test("11. a restricted /proc downgrades a genuinely-dead ENOENT to unknown", () 
   });
   assert.equal(ownerLiveness(999999, Date.now(), r), "unknown");
 });
+
+// ---------------------------------------------------------------------------------------------
+// 12. procIsRestricted — readable mountinfo, but NO line names the /proc mount at all. Fails
+//     toward restricted (true), same as a read failure — "I could not tell" must also stop the
+//     reap. Distinct from test 10's throw case: this is a CLEAN read that finds nothing.
+// ---------------------------------------------------------------------------------------------
+
+test("12. procIsRestricted fails toward restricted (true) when mountinfo has no /proc line at all", () => {
+  assert.equal(
+    procIsRestricted(readers({ readMountInfo: () => "0 1 0:1 / / rw shared:1 - ext4 /dev/sda1 rw\n" })),
+    true,
+    "a mountinfo with real content but no /proc mount entry must still read as restricted, never false",
+  );
+  assert.equal(procIsRestricted(readers({ readMountInfo: () => "" })), true, "an empty mountinfo must also read as restricted");
+});
+
+// ---------------------------------------------------------------------------------------------
+// 13. pidNamespace — a non-throwing but malformed readNsLink() must return null, never the junk.
+// ---------------------------------------------------------------------------------------------
+
+test("13. pidNamespace returns null, never the raw text, when readNsLink's output does not match pid:[N]", () => {
+  assert.equal(pidNamespace(readers({ readNsLink: () => "not a valid ns link" })), null);
+  assert.equal(pidNamespace(readers({ readNsLink: () => "" })), null);
+});

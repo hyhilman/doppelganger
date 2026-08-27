@@ -4,13 +4,13 @@ import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { hostname } from "node:os";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { closeAll, type Db } from "./db.ts";
 import { INSTANCE } from "../instance.ts";
 import { pidNamespace, realReaders, type ProcReaders } from "./proc.ts";
-import { leaseDb, read, reapDead, REAP_GRACE_MS, type LeaseStatus } from "./lease.ts";
+import { leaseDb, read, reapDead, clear, REAP_GRACE_MS, type LeaseStatus } from "./lease.ts";
 
 let dir: string;
 
@@ -279,4 +279,66 @@ test("12. the whole guard table as ONE grid — twelve rows, one sweep, exactly 
     assert.ok(read(scope, keys[name]!), `expected ${name} to survive the sweep`);
   }
   assert.equal(read(scope, keys.reaped!), null);
+});
+
+// ---------------------------------------------------------------------------------------------
+// Guard 0 and guard 9 have no caller-visible row in the grid above — guard 0 is a SWEEP-wide
+// short-circuit (computed once, before the per-row loop even starts), not a per-row condition,
+// and guard 9 needs a genuine race to exercise at all. Each gets its own test, same seam.
+// ---------------------------------------------------------------------------------------------
+
+test("13. guard 0 — pidNamespace() === null stops the sweep BEFORE the lease store is ever opened", () => {
+  // Guard 5 (id.pidns !== ns) would ALSO skip every row once ns is null, since a real owner's
+  // pidns is always a non-empty digit string and can never equal the literal value null — so the
+  // REAPED SET alone cannot distinguish "guard 0 returned early" from "guard 0 was removed and
+  // guard 5 caught every row anyway". The one channel that can: guard 0 returns before `list()`
+  // ever runs, so the lease store is never opened. Point LEASE_DB at a path whose PARENT is a
+  // plain file, not a directory — openDb's mkdirSync then throws ENOTDIR the instant anything
+  // tries to open it. Guard 0 present: no throw, because the store is never touched. Guard 0
+  // removed: reapDead proceeds to list() and the open throws.
+  const blockDir = mkdtempSync(join(tmpdir(), "lease-reap-guard0-"));
+  writeFileSync(join(blockDir, "blocker"), "x");
+  const prevLeaseDb = process.env.LEASE_DB;
+  process.env.LEASE_DB = join(blockDir, "blocker", "lease.db");
+  const nsUnknownReaders: ProcReaders = {
+    ...realReaders,
+    readNsLink: () => {
+      throw new Error("no /proc here");
+    },
+  };
+  try {
+    let result: unknown[] | undefined;
+    assert.doesNotThrow(() => {
+      result = reapDead({ readers: nsUnknownReaders });
+    }, "guard 0 must return before the lease store — an unopenable path here — is ever touched");
+    assert.deepEqual(result, []);
+  } finally {
+    if (prevLeaseDb === undefined) delete process.env.LEASE_DB;
+    else process.env.LEASE_DB = prevLeaseDb;
+    rmSync(blockDir, { recursive: true, force: true });
+  }
+});
+
+test("14. guard 9 — a row deleted by another process between the liveness check and this sweep's own clear() is never reported as reaped", () => {
+  const { scope, key } = fresh();
+  const pid = deadPid();
+  seed(scope, key, { owner: owner(INSTANCE, HOST, NS, pid), claimedAt: OLD_ENOUGH, expiresAt: FUTURE });
+
+  // Simulate the race guard 9 exists for: something else clears this exact row WHILE this sweep
+  // is still deciding to reap it — right inside the one reader call ownerLiveness makes for a
+  // genuinely-dead pid, i.e. strictly BEFORE reapDead reaches its own clear() call below.
+  const racingReaders: ProcReaders = {
+    ...realReaders,
+    readProcStat: (p: number) => {
+      clear(scope, key, { force: true }); // the racer wins first
+      return realReaders.readProcStat(p); // still resolves genuinely dead (ENOENT) -> passes guard 8
+    },
+  };
+  const reaped = reapDead({ readers: racingReaders });
+  assert.equal(
+    reaped.find((r) => r.scope === scope),
+    undefined,
+    "a row already gone before this sweep's own clear() must not be reported as reaped",
+  );
+  assert.equal(read(scope, key), null, "the row is gone either way — the racer's delete stands");
 });
