@@ -125,15 +125,29 @@ function stripComments(src: string): string {
 }
 const CODE = stripComments(SCRIPT_SRC);
 
+/** Real `node` INVOCATIONS in `line`, never text MENTIONS: double-quoted string contents (the
+ *  fault messages' own prose, which says "node" too) are blanked out first, so what is left is
+ *  only what bash would actually treat as command text. Counts every occurrence, not just
+ *  whether the line has one — two invocations on the SAME line must both be counted, which a
+ *  per-LINE match (one match per line, however many times "node" appears in it) cannot do. */
+function nodeInvocationsIn(line: string): number {
+  const withoutQuoted = line.replace(/"[^"]*"/g, '""');
+  return (withoutQuoted.match(/\bnode\b/g) ?? []).length;
+}
+
 test("3. the script names no node, no npm and nothing under node_modules — except probe 2's two signed node calls", () => {
   assert.equal((CODE.match(/\bnpm\s/g) ?? []).length, 0, "no npm invocation");
   assert.equal((CODE.match(/node_modules\//g) ?? []).length, 0, "no path INTO node_modules — only its own existence is checked");
   assert.equal((CODE.match(/\btsx\b/g) ?? []).length, 0, "no tsx");
   assert.equal((CODE.match(/\bsqlite3\b/g) ?? []).length, 0, "no sqlite3");
-  const nodeCalls = [...CODE.matchAll(/^[^\n]*\bnode\b[^\n]*$/gm)].filter((l) => l[0].trim().length > 0 && !l[0].includes("node_modules"));
-  assert.equal(nodeCalls.length, 2, `expected exactly 2 node-naming lines (probe 2), got ${nodeCalls.length}:\n${nodeCalls.map((l) => l[0]).join("\n")}`);
-  assert.ok(nodeCalls[0]![0].includes("node --version"));
-  assert.ok(nodeCalls[1]![0].includes("watchdog.probe.ts"));
+  const nodeLines: string[] = [];
+  for (const line of CODE.split("\n")) {
+    if (line.includes("node_modules")) continue;
+    for (let i = 0; i < nodeInvocationsIn(line); i++) nodeLines.push(line);
+  }
+  assert.equal(nodeLines.length, 2, `expected exactly 2 node invocations (probe 2), got ${nodeLines.length}:\n${nodeLines.join("\n")}`);
+  assert.ok(nodeLines[0]!.includes("node --version"));
+  assert.ok(nodeLines[1]!.includes("watchdog.probe.ts"));
 });
 
 test("4. set -e is absent and set -uo pipefail is present", () => {

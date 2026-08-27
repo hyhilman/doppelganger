@@ -392,7 +392,13 @@ test("7. HRN-14's companion scan — a bypass run declares local: true", () => {
 
 test("8. P4 — no non-test file imports a *.fixture.ts, which is what test 6's exclusion is paid for with", () => {
   const files = allNonTestTsFiles(); // already excludes *.fixture.ts and *.test.ts
-  const importRe = /from\s*["']([^"']*\.fixture\.ts)["']/;
+  // Every spelling, per LOOP.md's standing rule ("a gate that pattern-matches ONE spelling of an
+  // import is not a gate") — the test/no-raw-sqlite.test.ts precedent, one file over: a static
+  // `from "…fixture.ts"`, a `require("…fixture.ts")`, and a dynamic `import("…fixture.ts")` all
+  // make the fixture's literal reachable from production code, and the OLD regex here only ever
+  // covered the first.
+  const importRe =
+    /from\s*["']([^"']*\.fixture\.ts)["']|require\(\s*["']([^"']*\.fixture\.ts)["']\s*\)|import\(\s*["']([^"']*\.fixture\.ts)["']\s*\)/;
   const offenders = files
     .filter((f) => importRe.test(readFileSync(f, "utf8")))
     .map((f) => f.slice(ROOT.length + 1));
