@@ -227,7 +227,7 @@ test("11. the TTL is the derived one — SUPERVISOR_MAX_RUN_MIN's bound plus the
 });
 
 // ---------------------------------------------------------------------------------------------
-// J4.8 (QTA-01, QTA-05) — the account breaker's producer and consumer, both gated on job.exec.
+// J4.8 (QTA-01, QTA-05) — the account breaker's producer and consumer, both gated on job.skill.
 // ---------------------------------------------------------------------------------------------
 
 function fakeExecJob(overrides: Partial<Job> = {}): Job {
@@ -283,6 +283,28 @@ test("14. the reference's source scan, ported — every registered job with NO s
     const src = readFileSync(file, "utf8");
     assert.ok(!/from\s*["'][^"']*\/quota\.ts["']/.test(src), `${job.name}: a deterministic job must not import quota.ts`);
     assert.ok(!/\brunJob\s*\(/.test(src), `${job.name}: a deterministic job must not call runJob(`);
+  }
+});
+
+test("14b. the real nightly-sandcastle registry object — which carries BOTH exec and skill — still refuses while walled; the gate is job.skill, not job.exec", async () => {
+  const job = JOBS.find((j) => j.name === "nightly-sandcastle");
+  assert.ok(job, "nightly-sandcastle must be registered");
+  assert.ok(job!.exec !== undefined, "precondition: this job carries exec");
+  assert.ok(job!.skill !== undefined, "precondition: this job carries skill");
+  const { pause, clearPause } = await import("../kernel/runtime/quota.ts");
+  pause(QUOTA_SCOPE, "weekly limit reached");
+  try {
+    const { log, calls } = capturingLog();
+    // fakePassDeps' git() returns "" and NIGHTLY_SANDCASTLE_BASE defaults to "main", so if the
+    // consumer wrongly let this dispatch through to job.exec (execPass), execPass would run its
+    // own "not-on-base" skip and log a DIFFERENT event before returning — still exit 0, but for
+    // the wrong reason, having reached the agent-spawning code path while the account is walled.
+    const code = await runNamed(job!, fakePassDeps({ log }));
+    assert.equal(code, 0);
+    assert.equal(calls.length, 1, `expected exactly one log line, got: ${JSON.stringify(calls)}`);
+    assert.equal(calls[0]!.event, "quota-paused", "runNamed must refuse before job.exec is ever reached");
+  } finally {
+    clearPause(QUOTA_SCOPE);
   }
 });
 
