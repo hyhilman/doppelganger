@@ -555,3 +555,68 @@ test("15. .doppelganger/ holds only allowlisted entries, recursively", () => {
   sweep(dir, true);
   assert.deepEqual(offenders, [], `.doppelganger/ holds an entry the allowlist does not cover: ${offenders.join(", ")}`);
 });
+
+// F6 — WORK.md's own "**NN items**" headings and its "# ✅ MVP READY — NNN items" banner are free
+// to drift from the checkbox bullets they summarize — the exact defect the builder had to fix by
+// hand when N4's header briefly said a wrong count. Per LOOP.md's own standing rule: if you write
+// a count in a doc, wire the test that pins it. Both numbers are PARSED, never re-typed here.
+test("16. WORK.md's header item counts match the checkbox bullets actually under them", () => {
+  const workMd = readFileSync(join(ROOT, "WORK.md"), "utf8");
+  const lines = workMd.split("\n");
+
+  const PHASE_HEADING = /^##\s+(N\d+)\s+—.*\*\*(\d+)\s+items\*\*/;
+  const BULLET = /^- \[( |x)\]/;
+  const MVP_BANNER = /^#\s+✅\s+MVP READY\s+—\s+(\d+)\s+items/;
+
+  interface Phase {
+    readonly name: string;
+    readonly declared: number;
+    actual: number;
+  }
+  const phases: Phase[] = [];
+  let cur: Phase | null = null;
+  let mvpBannerDeclared: number | null = null;
+  let phasesBeforeBanner = -1; // -1 until the banner line is found
+
+  for (const line of lines) {
+    const heading = PHASE_HEADING.exec(line);
+    if (heading) {
+      if (cur) phases.push(cur);
+      cur = { name: heading[1]!, declared: Number(heading[2]), actual: 0 };
+      continue;
+    }
+    const banner = MVP_BANNER.exec(line);
+    if (banner) {
+      if (cur) phases.push(cur);
+      cur = null;
+      mvpBannerDeclared = Number(banner[1]);
+      phasesBeforeBanner = phases.length; // every phase seen SO FAR is what the banner sums
+      continue;
+    }
+    if (line.startsWith("#")) {
+      if (cur) phases.push(cur);
+      cur = null;
+      continue;
+    }
+    if (!cur) continue;
+    if (BULLET.test(line)) cur.actual++;
+  }
+  if (cur) phases.push(cur);
+
+  assert.ok(phases.length > 0, "expected at least one WORK.md phase heading with a declared **NN items** count");
+  for (const p of phases) {
+    assert.equal(
+      p.actual,
+      p.declared,
+      `WORK.md's ${p.name} heading claims **${p.declared} items** but ${p.actual} checkbox bullet(s) are actually under it`,
+    );
+  }
+
+  assert.ok(phasesBeforeBanner >= 0, "expected a '# ✅ MVP READY — NNN items' banner in WORK.md");
+  const mvpActual = phases.slice(0, phasesBeforeBanner).reduce((sum, p) => sum + p.actual, 0);
+  assert.equal(
+    mvpActual,
+    mvpBannerDeclared,
+    `the MVP READY banner claims ${mvpBannerDeclared} items but the phases before it total ${mvpActual}`,
+  );
+});
