@@ -200,11 +200,36 @@ test("14. QUOTA_FIXTURE_RECHECK — opt-in, skipped by default", { skip: process
   if (!existsSync(referenceDb)) {
     return; // nothing to recheck against on this machine
   }
-  // Read-only, opt-in: reports any note: wording the fixture does not already classify. Asserts
-  // nothing about specific bytes — a recheck, not a pin (never run by default npm test).
+  // Read-only, opt-in: never run by default npm test, so this is the one place a live external
+  // store may be read at all.
   const { DatabaseSync } = await import("node:sqlite");
   const refDb = new DatabaseSync(referenceDb, { readOnly: true });
   const rows = refDb.prepare("SELECT value FROM quota_meta WHERE key LIKE 'note:%'").all() as unknown as { value: string }[];
+  const liveMessages = new Set(rows.map((r) => r.value));
+
+  // The claim test 15 only checks the SHAPE ("first-hand" carries a date, is not the bare
+  // wording") is otherwise self-attested — nothing stops an invented row from being marked
+  // `via: "first-hand"` and passing both. Here, with the real store on hand, the MESSAGE itself —
+  // the actual classifier input, the part that matters — is checked against it: every
+  // `via: "first-hand"` row's `message` is looked up as a byte-for-byte `note:` value this store
+  // currently holds. REPORTED, not asserted — measured 2026-08-27, one day after capture: this
+  // store had already rotated `note:claude` onto an unrelated NEW wall (a weekly limit, not the
+  // spend one the fixture captured), which is a real account doing real work, not a fixture
+  // defect. A hard failure here would just be re-pinning an external mutable value one level
+  // removed, the same mistake `recordedAt` (below) is deliberately not making.
+  const firstHand = LIMITS.filter((f) => f.via === "first-hand");
+  const missing = firstHand.filter((f) => !liveMessages.has(f.message));
+  if (missing.length > 0) {
+    console.log(
+      `QUOTA_FIXTURE_RECHECK: ${missing.length}/${firstHand.length} first-hand row(s) no longer match a live note: value (the store may have rotated since capture): ${missing.map((f) => f.source).join(", ")}`,
+    );
+  }
+
+  // recordedAt is explicitly NOT rechecked here (kernel/runtime/quota.fixture.ts's header states
+  // why): it is a captured-at-time snapshot of the store's own since: value, and the store moves
+  // independently (a re-park writes a fresh since:) — asserting it against the live value would
+  // be pinning an external mutable value, the exact thing LOOP.md warns against, not a recheck.
+
   const known = new Set(LIMITS.map((f) => f.message));
   const unclassified = rows.map((r) => r.value).filter((v) => !known.has(v) && isLimitError(v) && limitClass(v) === "unknown");
   if (unclassified.length > 0) {

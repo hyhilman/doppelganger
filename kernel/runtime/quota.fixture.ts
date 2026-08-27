@@ -18,6 +18,17 @@
 // a wrapper prefix ("task 502 failed: ...", or "claude-code exited with code 1:\n..."). The bare
 // spelling exists only in tier 2, marked `via: "reference-corpus"`. A row spelling it and marked
 // `first-hand` would be exactly the TST-19 violation this file exists to avoid making twice.
+//
+// Tier 1's `recordedAt` is a CAPTURE-TIME SNAPSHOT of the store's own `since:` value, not a
+// live-pinned truth — the store moves independently (a re-park writes a fresh `since:`), so this
+// value WILL drift and is expected to. Measured directly: `worker-nexus-ashton`'s `since:` read
+// `2026-08-26T06:40:42Z` when this fixture was captured and `2026-08-26T21:38:10Z` a day later —
+// an external mutable value copied into the repo, exactly what LOOP.md's "never pin an exact
+// value of something outside this repo" warns against. Kept anyway, because it answers a
+// different question than "is this still the live value": it is provenance — when THIS evidence
+// was captured — not a claim the store still says so. `quota.test.ts` test 14's
+// `QUOTA_FIXTURE_RECHECK` therefore re-verifies the tier-1 rows' MESSAGES (the actual classifier
+// input) against the live store, but deliberately never `recordedAt` against it.
 import type { LimitClass } from "./quota.ts";
 
 export interface LimitFixture {
