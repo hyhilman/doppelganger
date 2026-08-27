@@ -26,11 +26,11 @@ Advance only when VERIFY comes back with nothing blocking.
 
 | Phase | Items | Est. | Plan | Gap | Build | Verify |
 |-------|-------|------|------|-----|-------|--------|
-| N0 — Ground truth | 11 | 2 d | ✅ | ✅ | ✅ | ⚠ |
+| N0 — Ground truth | 11 | 2 d | ✅ | ✅ | ✅ | ✅ |
 | N1 — Kernel the loop needs | 26 | 1.5–2 wk | ✅ | ✅ | ✅ | ✅ |
 | N2 — Supervisor and gate, no entry yet | 32 | 1 wk | ✅ | ✅ | ✅ | ✅ |
 | N3 — Harness + skills + the pass | 34 | 1.5–2 wk | ✅ | ✅ | ✅ | ✅ |
-| N4 — Safe to leave alone | 22 | 1 wk | ✅ | ✅ | ✅ | — |
+| N4 — Safe to leave alone | 22 | 1 wk | ✅ | ✅ | ✅ | ✅ |
 
 Legend: `—` not started · `▶` running · `✅` done · `⚠` done with open follow-ups.
 
@@ -53,6 +53,29 @@ Legend: `—` not started · `▶` running · `✅` done · `⚠` done with open
 - **Never assert a number the same commit writes.** Parse it from the file that owns it.
 - **Never pin an exact value of something outside this repo.** It rots. State the claim as an
   approximation and gate the approximation.
+
+## ✅ MVP COMPLETE — N0 through N4, 125 items, 2026-08-27
+
+All five phases ran the full plan → gap → build → verify cycle, and every phase's follow-up
+fixes landed. `npm test`: **672 tests, 669 pass, 0 fail, 3 opt-in skips.**
+
+The three claims, each tested by driving the real code rather than by reading a test:
+
+- **A walled account parks and recovers by itself.** The real job was walled through the real
+  runner, parked, refused the next tick before spawning, and — with the window pushed into the
+  past — let the next real task act as the probe and re-park. The CLI genuinely received the
+  downshifted model.
+- **A killed pass does not wedge the next one.** A real pass was killed mid-lease; the `held`
+  row survived, the next tick refused with the exact recovery command, `reapDead` cleared it,
+  and the following tick ran.
+- **The watchdog says so when it stops.** A stale heartbeat produced the breach line, the breach
+  file and exit 1 — and a missing *and* an empty `log.sh` both still reported.
+
+N0's `⚠` is cleared: J0.13 AC4 (a real CI run) was closed on 2026-08-26.
+
+**What this is NOT yet: a framework.** No manifest, no `boot()`, one plugin. That is N5, and
+`v0` is honestly "an unattended job runner with a plugin-shaped seam" until a second plugin
+contributes a source and a route. Do not describe it as the second thing.
 
 ## Settled questions
 
