@@ -686,3 +686,19 @@ test("40. SAF-07 is documented — the dry-run knob's why contains COSTS, the ma
   assert.ok(dryRunWhy.includes("COSTS"));
   assert.ok(maxWhy.includes("free"));
 });
+
+test("41. QTA-08 — under a spend-wall downshift, pass-start's model= is the model actually handed to the runner, not the pre-shed request", async () => {
+  const repo = makeRepo();
+  const runnerBundle = happyRunner();
+  const { deps, entries, runnerCalls } = buildContext(repo, { runner: runnerBundle });
+  // The job's own model is DEFAULTS.model ("claude-opus-5"); a downshift moves it to
+  // DEFAULTS.shedModel ("claude-sonnet-5") before it ever reaches the runner. The log line must
+  // report that same post-shed value — under a wall it is the only human-readable record of
+  // what actually ran.
+  await execPass({ ...deps, shed: { skip: false, downshift: true } });
+  const started = entries.find((e) => e.event === "pass-start");
+  assert.ok(started, JSON.stringify(entries));
+  assert.equal(runnerCalls.length, 1);
+  assert.equal(started!.fields.model, runnerCalls[0]!.model, "pass-start's model must equal the model handed to the runner");
+  assert.equal(started!.fields.model, "claude-sonnet-5");
+});

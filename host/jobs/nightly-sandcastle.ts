@@ -16,7 +16,7 @@ import type { Logger } from "../../kernel/runtime/log/emit.ts";
 import { extractBlock, extractFields } from "../../kernel/runtime/payload.ts";
 import { runJob } from "../../kernel/runtime/runjob.ts";
 import { prepWorktree, teardownWorktree, reapWorktrees, worktreePromptLines, type Worktree } from "../../kernel/runtime/worktree.ts";
-import type { ShedDecision } from "../../kernel/runtime/shed.ts";
+import { shedModel, type ShedDecision } from "../../kernel/runtime/shed.ts";
 import { DEFAULTS, defineJob, type Job } from "../../kernel/ports/job.ts";
 import type { Runner } from "../../kernel/ports/runner.ts";
 
@@ -576,7 +576,12 @@ export async function execPass(deps: PassDeps): Promise<void> {
       promptArgs,
       ...(modelOverride !== undefined ? { model: modelOverride } : {}),
     };
-    log.info("pass-start", { goal: goal.key, model: jobForRun.model ?? DEFAULTS.model });
+    // QTA-08 — log the model actually handed to the runner, not the pre-shed request: `runJob`
+    // applies `shedModel`'s downshift AFTER this point, so logging `jobForRun.model` here would
+    // print DEFAULTS.model under a wall while DEFAULTS.shedModel is what really ran — the one
+    // human-readable record of a pass, actively misleading in an incident.
+    const runModel = shedModel(jobForRun.model ?? DEFAULTS.model, deps.shed);
+    log.info("pass-start", { goal: goal.key, model: runModel });
     const run = await runJob(jobForRun, { runner: deps.runner, cwd: wt.path, logPath: runLogPath, shed: deps.shed });
 
     // 11. verdict — HRN-10's "malformed payload writes nothing" as a warning, not a crash.
