@@ -1,5 +1,3 @@
-// J0.5 (§1, ADO-14) — the §1 layout gate.
-//
 // This is the drift gate for the repo's own shape: what must exist, what the
 // workspaces list must mean in both directions, what must NOT exist, and the half
 // of tsconfig.json that describes the layout rather than the toolchain.
@@ -151,9 +149,6 @@ test("11. tsconfig.json include names kernel, plugins, host, cli and test", () =
   }
 });
 
-// J1.19 (INS-02, §1) / J2.2 (§1, ADO-14) — the §1 module map. Reads what J1.1 and J2.1 wrote
-// earlier, so no commit both writes the map and asserts it.
-
 interface MapEntry {
   path: string; // relative to <dir>/
   tags: string[];
@@ -162,8 +157,8 @@ interface MapEntry {
 const PHASE_TAGS = ["N1", "N2", "N3", "N4", "N5"] as const;
 
 /**
- * Phase state derived from WORK.md, which owns it (J2.2, ADO-14) — so this rule need not be
- * hand-edited every phase.
+ * Phase state derived from WORK.md, which owns it — so this rule need not be hand-edited every
+ * phase.
  *
  * A phase is SHIPPED when it has at least one `- [ ]`/`- [x]` bullet and every bullet is ticked.
  * The first phase with an unticked bullet is CURRENT; everything after it is FUTURE (named by
@@ -233,9 +228,9 @@ const TAG_RE = /\b(N1|N2|N3|N4|N5|v0|v1)\b/g;
 /** Parse §1's `<dir>/` block (from the fenced layout diagram) into one entry per named file, each
  *  carrying its milestone tag(s) (N1..N5, v0, v1 — a row can carry more than one, e.g. "v0 · N1").
  *  Directory-only lines (ports/, runtime/, contracts/, jobs/) update the current prefix and produce
- *  no entry of their own; a bare prose line (contracts/, jobs/) names no files at all. Generalised
- *  from J1.19's kernel-only parser (J2.2) so the same logic reads host/ and cli/ too — the anchor is
- *  the first line beginning `<dir>/`, and the block ends at the next line starting at indent 0. */
+ *  no entry of their own; a bare prose line (contracts/, jobs/) names no files at all. The same
+ *  logic reads kernel/, host/ and cli/ — the anchor is the first line beginning `<dir>/`, and the
+ *  block ends at the next line starting at indent 0. */
 function parseBlock(dir: string): MapEntry[] {
   const roadmap = readFileSync(join(ROOT, "roadmap.md"), "utf8");
   const lines = roadmap.split("\n");
@@ -351,13 +346,12 @@ test("12. every real kernel/, host/, cli/ file is named in §1, and every §1 ro
   }
 });
 
-// F4 — no TST- row said a test may not leave anything behind in the checkout, so `./leak.db`
-// (J1.17 AC2's mutation residue) sat here unnoticed: it is gitignored, so `git status` stayed
-// clean. Every real database this suite opens lives under mkdtempSync, outside the checkout
-// (kernel/runtime/db-sharing.test.ts's own discipline gate, assertion 6, already proves that for
-// every caller of the store's open function), and `.doppelganger/` (STATE_DIR's default) is
-// excluded here because it is real, gitignored runtime state that no test in this suite writes —
-// nothing today creates it.
+// No TST- row said a test may not leave anything behind in the checkout, so `./leak.db` once sat
+// here unnoticed: it was gitignored, so `git status` stayed clean. Every real database this suite
+// opens lives under mkdtempSync, outside the checkout (kernel/runtime/db-sharing.test.ts's own
+// discipline gate already proves that for every caller of the store's open function), and
+// `.doppelganger/` (STATE_DIR's default) is excluded here because it is real, gitignored runtime
+// state that no test in this suite writes — nothing today creates it.
 test("13. no stray *.db*/*.db-wal/*.db-shm file anywhere in the checkout", () => {
   const dirs = walkDirs().filter(
     (d) => !d.relPath.startsWith("node_modules") && !d.relPath.startsWith(".doppelganger"),
@@ -377,16 +371,16 @@ test("13. no stray *.db*/*.db-wal/*.db-shm file anywhere in the checkout", () =>
   );
 });
 
-// F6 (N2 VERIFY) — roadmap.md §3's per-phase "Ships:" list must agree with WORK.md's checklist for
-// that phase. roadmap.md's N2 line said `SUP-01…21, ..., TST-17 (gate half)`; WORK.md — the source
-// of truth (this file's own §5/CLAUDE.md ranking) — ships `SUP-01…18` and no `TST-17` at all
-// (TST-17 is whole, and it is N4's). Nothing caught the drift. This is the gate that would have.
+// roadmap.md §3's per-phase "Ships:" list must agree with WORK.md's checklist for that phase.
+// roadmap.md's N2 line once said `SUP-01…21, ..., TST-17 (gate half)`; WORK.md — the source of
+// truth — shipped `SUP-01…18` and no `TST-17` at all. Nothing caught the drift. This is the gate
+// that would have.
 //
 // Scoped to SHIPPED phases only (shippedPhases() above): a phase still in progress has a Ships
 // line that is still being negotiated, and gating a draft is not this test's job. Every token in a
 // SHIPPED phase's Ships line must be one of:
-//   - a plain ID:            TST-21      -> also JOB-C15's shape (R4): a JOB- id carries one
-//                                            infix letter before its digits (JOB-B/C/G/J/O/P/R/S/T)
+//   - a plain ID:            TST-21      -> also JOB-C15's shape: a JOB- id carries one infix
+//                                            letter before its digits (JOB-B/C/G/J/O/P/R/S/T)
 //   - a zero-padded range:   SUP-01…18   -> SUP-01 .. SUP-18, same digit width as the start
 //   - a family wildcard:     DBS-*       -> not expanded; every WORK.md ID under that PREFIX is
 //                                            excluded from BOTH sides instead — the wildcard's
@@ -500,11 +494,10 @@ test("14. roadmap.md §3's Ships list agrees with WORK.md, for every SHIPPED pha
   }
 });
 
-// J3.14 — N1 F4's blind spot, one directory over. Assertion 13 explicitly EXCLUDES
-// `.doppelganger/`, and `.gitignore` covers it — the exact pair that let `./leak.db` survive a
-// whole phase unnoticed (N1 F4). N3 starts writing real things there, so the rule becomes an
-// ALLOWLIST of what may exist. A directory that does not exist passes trivially, so a fresh clone
-// is green; nothing here reads an mtime, so nothing here is flaky.
+// Assertion 13 explicitly EXCLUDES `.doppelganger/`, and `.gitignore` covers it — the exact pair
+// that once let a stray database file survive a whole phase unnoticed. That is why THIS rule is
+// an ALLOWLIST of what may exist, not another exclusion. A directory that does not exist passes
+// trivially, so a fresh clone is green; nothing here reads an mtime, so nothing here is flaky.
 const DOPPELGANGER_ALLOWLIST = new Set([
   "state",
   "logs",
@@ -514,13 +507,12 @@ const DOPPELGANGER_ALLOWLIST = new Set([
   "gitconfig",
   "supervisor.heartbeat",
   "supervisor.status.json",
-  // J4.13 (JOB-O11) — present exactly while beat()'s heartbeat write is failing; every test uses
-  // its own temp root, so it must never exist here after a run (delivery.test.ts, supervisor.test.ts).
+  // JOB-O11's heartbeat.fail: present exactly while beat()'s heartbeat write is failing; every
+  // test uses its own temp root, so it must never exist here after a run.
   "heartbeat.fail",
-  // J4.14 (JOB-O10) — watchdog.lock is the flock target (present for the process's lifetime, an
-  // empty regular file the same shape a lockfile always is); watchdog.breach is present exactly
-  // while a probe is failing (AC10 removes it by hand after the one live run against this
-  // checkout, and `git status --porcelain` is asserted clean afterwards).
+  // JOB-O10's watchdog.lock is the flock target (present for the process's lifetime, an empty
+  // regular file the same shape a lockfile always is); watchdog.breach is present exactly while a
+  // probe is failing, and is removed by hand after a live run against this checkout.
   "watchdog.lock",
   "watchdog.breach",
 ]);
@@ -528,15 +520,14 @@ const DOPPELGANGER_ALLOWLIST = new Set([
 test("15. .doppelganger/ holds only allowlisted entries, recursively", () => {
   const dir = join(ROOT, ".doppelganger");
   if (!existsSync(dir)) return;
-  // N3 F6: the sweep is RECURSIVE. The flat readdirSync missed a stray at
-  // .doppelganger/state/junk.db, and .gitignore hides the whole tree from git status — the exact
-  // pair that let ./leak.db survive a full phase in N1. scratch/ and worktrees/ are excluded:
-  // their CONTENTS are throwaway by design (their top-level names are still checked).
+  // The sweep is RECURSIVE: a flat readdirSync would miss a stray file nested under, say,
+  // .doppelganger/state/, and .gitignore hides the whole tree from git status — so a nested stray
+  // would go unnoticed exactly like a top-level one. scratch/ and worktrees/ are excluded: their
+  // CONTENTS are throwaway by design (their top-level names are still checked).
   const THROWAWAY = new Set(["scratch", "worktrees"]);
-  // R2 (INS-02, DBS-01) — state/ is dbPath()'s DESIGNED home for every integration's database
-  // (kernel/paths.ts: dbPath(name) => join(STATE_DIR, `${name}.db`), STATE_DIR defaults to
-  // .doppelganger/state). A database living there under one of dbPath()'s own names is not a leak
-  // — calling it one is exactly what made a normal run turn this suite red. Read from
+  // state/ is dbPath()'s DESIGNED home for every integration's database (kernel/paths.ts:
+  // dbPath(name) => join(STATE_DIR, `${name}.db`), STATE_DIR defaults to .doppelganger/state). A
+  // database living there under one of dbPath()'s own names is not a leak. Read from
   // DB_NAMESPACES rather than re-typed here: test/skills.test.ts assertion 11 already gates it as
   // a superset of every real dbPath( call site, so this stays derived, not promised.
   const LEGIT_DB_NAMES = new Set((DB_NAMESPACES as readonly string[]).map((ns) => `${ns}.db`));
@@ -567,10 +558,9 @@ test("15. .doppelganger/ holds only allowlisted entries, recursively", () => {
   assert.deepEqual(offenders, [], `.doppelganger/ holds an entry the allowlist does not cover: ${offenders.join(", ")}`);
 });
 
-// F6 — WORK.md's own "**NN items**" headings and its "# ✅ MVP READY — NNN items" banner are free
-// to drift from the checkbox bullets they summarize — the exact defect the builder had to fix by
-// hand when N4's header briefly said a wrong count. Per LOOP.md's own standing rule: if you write
-// a count in a doc, wire the test that pins it. Both numbers are PARSED, never re-typed here.
+// WORK.md's own "**NN items**" headings and its "# ✅ MVP READY — NNN items" banner are free to
+// drift from the checkbox bullets they summarize. The standing rule: if you write a count in a
+// doc, wire the test that pins it. Both numbers are PARSED, never re-typed here.
 test("16. WORK.md's header item counts match the checkbox bullets actually under them", (t) => {
   if (!requireDoc(t, "WORK.md")) return;
   const workMd = readFileSync(join(ROOT, "WORK.md"), "utf8");

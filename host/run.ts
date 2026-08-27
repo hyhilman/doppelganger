@@ -1,12 +1,12 @@
-// J3.14 (HRN-02, SKL-05, D10, SUP-03, §1) — ruling 3's fix: the ONE argv block a scheduled job
-// reaches. `host/supervisor.ts`'s `jobRunner` and `host/schedule.ts`'s `commandOf` both point at
-// THIS file, never at a job file directly — a job file has no argv block of its own (SKL-05: the
-// registry, `host/jobs/index.ts`, is what exists; a job file is a MODULE, not an entry point).
+// The ONE argv block a scheduled job reaches. `host/supervisor.ts`'s `jobRunner` and
+// `host/schedule.ts`'s `commandOf` both point at THIS file, never at a job file directly — a job
+// file has no argv block of its own (SKL-05: the registry, `host/jobs/index.ts`, is what exists; a
+// job file is a MODULE, not an entry point).
 //
-// GATE ON THE NAME, NEVER ON CATCHING THE IMPORT. This file's registry is a hand-written list
-// (SKL-05), so every job file is imported at module load (via `host/jobs/index.ts`) and a job file
-// that throws while LOADING surfaces as its own error before `resolveJob` is ever reached — which
-// is stronger than a `try { require(...) } catch { "no such job" }` shape would be.
+// GATE ON THE NAME, NEVER ON CATCHING THE IMPORT. This file's registry is a hand-written list, so
+// every job file is imported at module load (via `host/jobs/index.ts`) and a job file that throws
+// while LOADING surfaces as its own error before `resolveJob` is ever reached — which is stronger
+// than a `try { require(...) } catch { "no such job" }` shape would be.
 import { spawnSync } from "node:child_process";
 import { openDb } from "../kernel/runtime/db.ts";
 import { logger } from "../kernel/runtime/log/emit.ts";
@@ -61,26 +61,23 @@ export function jobListing(jobs: readonly Job[]): string {
  *
  * LSE-04 — every registered job claims its hour before it runs, GENERIC, not special-cased: the
  * key is `${job.name}@<UTC hour>`, the clock versioning it for a reason wholly unrelated to
- * whether the pass worked (ruling 3, plan/N4-uac.md). `done` terminal is then exactly right —
- * that hour's run happened once — and it excludes what the gate (per-process) cannot: a hand-run
- * beside a scheduled tick, or a second checkout (INS-05). The TTL is DERIVED from SUP-13's own
- * bound (`SUPERVISOR_MAX_RUN_MIN` — past which the supervisor has already SIGKILLed the child)
- * plus the kill grace, never chosen. A refusal is a skipped tick, exit 0, logged at `info` with
- * the exact `lease-clear` command an operator needs (the same shape as `quota-paused` below, and
- * for the same reason — INV-10's spirit: a refusal costs the work nothing). The lease wrapper is
- * NOT gated on `job.exec` — a double-run is a hazard for every job shape, model or not.
+ * whether the pass worked. `done` terminal is then exactly right — that hour's run happened once —
+ * and it excludes what the gate (per-process) cannot: a hand-run beside a scheduled tick, or a
+ * second checkout (INS-05). The TTL is DERIVED from SUP-13's own bound (`SUPERVISOR_MAX_RUN_MIN` —
+ * past which the supervisor has already SIGKILLed the child) plus the kill grace, never chosen. A
+ * refusal is a skipped tick, exit 0, logged at `info` with the exact `lease-clear` command an
+ * operator needs (INV-10's spirit: a refusal costs the work nothing). The lease wrapper is NOT
+ * gated on `job.exec` — a double-run is a hazard for every job shape, model or not.
  *
  * QTA-01/05 — the producer and the consumer of the account breaker, BOTH gated on
  * `job.skill !== undefined`, NEVER on `job.exec === undefined`: `nightly-sandcastle` carries BOTH
- * fields (skill for SKL-01/render, exec for D10's own dispatch above), and its `exec`
- * (`execPass`) calls `runJob` internally — it is the one job in this repo that spawns a model, and
- * an `exec`-keyed gate would exempt it from the very breaker it exists to protect. `skill` is what
- * actually says "this job's run reaches an agent," in EITHER dispatch shape. A job with no skill
- * at all (a purely deterministic `exec:` job, e.g. `ops-cron-check`) spawns no model, so it can
- * neither hit a plan wall nor legitimately open one — ungated, it would be SKIPPED by a wall it
- * could not have caused, and its own unrelated failure could OPEN one and park every job on the
- * host (the reference's 2026-08-07 incident). The consumer refuses BEFORE the lease is even
- * attempted — a wall costs the tick nothing, not even a claimed hour.
+ * fields (skill for SKL-01/render, exec for D10's own dispatch above), and its `exec` (`execPass`)
+ * calls `runJob` internally — it is the one job in this repo that spawns a model, and an
+ * `exec`-keyed gate would exempt it from the very breaker it exists to protect. `skill` is what
+ * actually says "this job's run reaches an agent," in EITHER dispatch shape. A job with no skill at
+ * all spawns no model, so it can neither hit a plan wall nor legitimately open one — ungated, its
+ * own unrelated failure could open a wall and park every job on the host. The consumer refuses
+ * BEFORE the lease is even attempted — a wall costs the tick nothing, not even a claimed hour.
  *
  * QTA-08/SUP-16 — the downshift half. `decideShed` is computed ONCE, right here, and reused for
  * BOTH dispatch shapes below: the skill path's own `RunJobDeps.shed`, and the exec path's
@@ -143,8 +140,8 @@ export async function runNamed(job: Job, deps: PassDeps): Promise<number> {
 }
 
 // ---------------------------------------------------------------------------------------------
-// The argv block. UNTESTED BY CONSTRUCTION (ruling 1) — no test imports this file in a way that
-// reaches it. AC3/AC4 drive it as a real child process instead.
+// The argv block. UNTESTED BY CONSTRUCTION — no test imports this file in a way that reaches it.
+// It is driven as a real child process instead.
 //
 // `deps.db` is a GETTER, not an eagerly-opened handle: `openDb` runs on the FIRST access to
 // `deps.db` (inside `execPass`, which is well past the kill switch), so a killed pass creates no
@@ -162,8 +159,8 @@ if (import.meta.filename === process.argv[1]) {
       root: ROOT,
       runner: sandcastleRunner({
         gitConfigGlobal: projectPath(".doppelganger/gitconfig"),
-        // The push gate (N3): a COMMAND, not a write path. Signed in test/writes.test.ts's
-        // DOOR1_EXCEPTIONS (N3 F2); door 1 decodes escapes now, so no spelling hides from it.
+        // The push gate: a COMMAND, not a write path. Signed in test/writes.test.ts's
+        // DOOR1_EXCEPTIONS; door 1 decodes escapes now, so no spelling hides from it.
         gitSshCommand: "/bin/false",
       }),
       git,

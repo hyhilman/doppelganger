@@ -1,6 +1,5 @@
-// J3.2 (HRN-01, HRN-02, HRN-07, HRN-15, SKL-01) — Job, DEFAULTS, the permission-mode allowlist and
-// OPUS_GUIDANCE. Numbered to match plan/N3-uac.md's J3.2 "Do (tests)" list — tests 6/7 (Runner,
-// runTimeoutMs) live in runner.test.ts, so this file's numbering skips them on purpose.
+// Tests 6/7 (Runner, runTimeoutMs) live in runner.test.ts, so this file's numbering skips them on
+// purpose.
 
 import { test } from "node:test";
 import assert from "node:assert/strict";

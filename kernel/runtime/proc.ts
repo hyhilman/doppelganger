@@ -1,12 +1,10 @@
-// J4.2 (LSE-11) — pid liveness in the CALLER's namespace, every branch failing toward "alive".
+// Pid liveness in the CALLER's namespace, every branch failing toward "alive" (LSE-11): a boolean
+// cannot express the difference between "I read a live process", "I read positive evidence of
+// absence" and "I could not read at all" — and the middle one is the only one that may ever delete
+// somebody's lock. `Liveness` is a three-member union so `reapDead` (kernel/runtime/lease.ts) can
+// act on exactly one of them: "dead" is the ONLY verdict that authorises a reap.
 //
-// LSE-11's row: "every branch failing toward alive". A boolean cannot express the difference
-// between "I read a live process", "I read positive evidence of absence" and "I could not read at
-// all" — and the middle one is the only one that may ever delete somebody's lock. `Liveness` is a
-// three-member union so `reapDead` (kernel/runtime/lease.ts, J4.5) can act on exactly one of them:
-// "dead" is the ONLY verdict that authorises a reap.
-//
-// THE REFERENCE FAILS TOWARD DEAD IN THREE BRANCHES, MEASURED (ruling 4, plan/N4-uac.md): its
+// THE REFERENCE FAILS TOWARD DEAD IN THREE BRANCHES, MEASURED: its
 // `bootTimeSec()` returns `null` on an unreadable `/proc/stat` and its `processStartedAt()` then
 // returns `null` too, which its `isOwnerAlive()` reads as `false` — dead. `pidNamespace()` reads
 // `/proc/self/ns/pid`; `bootTimeSec()` reads `/proc/stat` — different files with different

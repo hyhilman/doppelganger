@@ -1,8 +1,7 @@
-// J2.8 (TST-25, narrow) / J3.3 — every root dependency is confined to its one declared importer,
-// and the workspace's bare package specifiers are all declared dependencies. Generalised from
-// croner-only (J2.8) to an importer REGISTER (J3.3), the same shape test/writes.test.ts already
-// uses, so a second dependency does not mean a second hardcoded assertion. The general
-// per-workspace form of TST-25 arrives at N5; this is the narrow form the phase that creates a
+// Every root dependency is confined to its one declared importer, and the workspace's bare
+// package specifiers are all declared dependencies. Uses an importer REGISTER, the same shape
+// test/writes.test.ts uses, so a second dependency does not mean a second hardcoded assertion.
+// The general per-workspace form arrives at N5; this is the narrow form the phase that creates a
 // dependency ships.
 
 import { test } from "node:test";
@@ -28,10 +27,9 @@ function walk(dir: string, out: string[]): void {
 /**
  * One shared regex for every clause in this file, covering four import spellings: `from "X"`,
  * `require("X")`, a dynamic `import("X")` (static or awaited), and the bare side-effect form
- * `import "X";` with no `from` clause at all — the spelling this repo's own gates have missed
- * three times before (LOOP.md's standing rule). What it cannot see: a specifier built by string
- * concatenation, or one held in a variable and passed to a dynamic `import()` — accepted, and
- * written down here rather than discovered later.
+ * `import "X";` with no `from` clause at all — easy to miss if a gate only matches `from`. What
+ * it cannot see: a specifier built by string concatenation, or one held in a variable and passed
+ * to a dynamic `import()` — accepted, and written down here rather than discovered later.
  */
 const SPECIFIER_RE =
   /\bfrom\s+["']([^"']+)["']|\brequire\(\s*["']([^"']+)["']\s*\)|\bimport\(\s*["']([^"']+)["']\s*\)|\bimport\s+["']([^"']+)["']/g;
@@ -68,7 +66,7 @@ function allTsFiles(dirs: readonly string[]): string[] {
     try {
       walk(abs, out);
     } catch {
-      // directory does not exist yet — tolerated, same as the repo-wide registers (J2.3)
+      // directory does not exist yet — tolerated, same as the repo-wide registers
     }
   }
   return out;
@@ -76,9 +74,9 @@ function allTsFiles(dirs: readonly string[]): string[] {
 
 /** Every root dependency's one declared importer, plus why it is the only one — the same shape
  *  test/writes.test.ts's REGISTER uses. A new root dependency signs a row here in the SAME commit
- *  that adds it (J2.8's own precedent, generalised at J3.3). */
+ *  that adds it. */
 const IMPORTERS: Record<string, { readonly importer: string; readonly why: string }> = {
-  croner: { importer: "host/cron.ts", why: "the only cron seam (SUP-07, J2.8)" },
+  croner: { importer: "host/cron.ts", why: "the only cron seam (SUP-07)" },
   "@ai-hero/sandcastle": {
     importer: "host/runner.ts",
     why: "the only agent-runner seam; M11 (D3) replaces this file, every job file unchanged (D2)",

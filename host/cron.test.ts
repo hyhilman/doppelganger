@@ -1,7 +1,6 @@
-// J2.8 (GAT-08, GAT-09) — parseFive's intersection grammar, tickSeconds derived from croner's own
-// enumeration, and gateWait's memoised early-stopped cap. We do NOT test that croner's timer
-// fires — that would cost a minute of wall clock and would be a test of croner. What we test is
-// that the pattern croner will fire on is the pattern POSIX fires on (J2.10 does that part).
+// We do NOT test that croner's timer fires — that would cost a minute of wall clock and would be
+// a test of croner. What we test is that the pattern croner will fire on is the pattern POSIX
+// fires on.
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -132,14 +131,10 @@ test("10. the early stop is real and is what makes gateWait usable", () => {
 });
 
 test("11. gateWait is memoised: the second call is not slower", () => {
-  // F8 (N2 VERIFY): `e0` below is a sixth, previously unlisted timing assertion — the plan's
-  // exceptions table said "all five". Measured COLD (this test filtered to run alone, e.g. `--
-  // test-name-pattern`, so nothing has warmed up croner yet): 18-19ms, ~5x headroom against the
-  // original 100ms bound — the tightest in the phase (rows 3/4 sit at ~1000x/~100x). Measured WARM
-  // (the normal `npm test` path — test 8 above already calls gateWait("53 8 * * *") once, so this
-  // is not really a first call in practice): ~0ms. Real risk under `npm test` is low, but raised to
-  // 300ms anyway for a cold or reordered run, cheap insurance against the tightest bound in the
-  // phase; see plan/N2-uac.md's exceptions table row 7.
+  // Measured COLD (this test filtered to run alone, so nothing has warmed up croner yet): 18-19ms,
+  // ~5x headroom against the 100ms bound. Measured WARM (the normal `npm test` path — test 8 above
+  // already calls gateWait("53 8 * * *") once): ~0ms. Real risk under `npm test` is low, but the
+  // bound is 300ms anyway — cheap insurance against a cold or reordered run.
   const t0 = Date.now();
   const first = gateWait("53 8 * * *");
   const e0 = Date.now() - t0;
@@ -151,10 +146,9 @@ test("11. gateWait is memoised: the second call is not slower", () => {
   assert.ok(e1 < 100, `second (memoised) call: expected < 100ms, got ${e1}ms`);
 });
 
-// A literal, not host/schedule.test.ts's `entry()` fixture builder — J2.7 lists that builder's
-// importers as J2.9/J2.11/J2.13/J2.14/J2.17, and J2.8 is not one of them: importing a .test.ts
-// file for its export re-runs every test() call that file registers as a side effect of the
-// import, which would inflate this file's own count when run in isolation.
+// A literal, not host/schedule.test.ts's `entry()` fixture builder — importing a .test.ts file
+// for its export re-runs every test() call that file registers as a side effect of the import,
+// which would inflate this file's own count when run in isolation.
 function fixtureEntry(): ScheduleEntry {
   return { name: "probe-timer", cron: "* * * * *", log: "log/probe.log", job: "probe-timer", why: "fixture" };
 }
@@ -169,12 +163,9 @@ test("12. newTimer builds a live timer, stopped in a finally", () => {
   } finally {
     timer.stop();
   }
-  // DEVIATION from plan/N2-uac.md test 12, recorded in the final report: the plan asserts
-  // "nextRun() still answers" after stop(), read as truthy — but measured, croner's own stopped
-  // Cron returns null from nextRun(), not another date. That IS "not silently a dispose()": the
-  // object stays intact and callable rather than throwing or becoming unusable — it truthfully
-  // reports there is no next run, because there is none. Assert the weaker, TRUE claim: the call
-  // does not throw, and its answer is the correct one for a stopped job.
+  // croner's own stopped Cron returns null from nextRun(), not another date. That IS "not silently
+  // a dispose()": the object stays intact and callable rather than throwing or becoming unusable —
+  // it truthfully reports there is no next run, because there is none.
   assert.doesNotThrow(() => timer.nextRun(), "nextRun() must still be callable after stop()");
   assert.equal(timer.nextRun(), null, "a stopped timer truthfully reports no next run, rather than throwing");
 });

@@ -1,12 +1,6 @@
-// J4.15 (TST-17, GAT-03, GAT-06, GAT-07) — the gate contract, over the REAL PROGRAMS and the REAL
-// RESOURCE_NAMES, not a fixture.
-//
 // kernel/runtime/gate.test.ts already proves the contract over the entire finite request space
-// against a FIXTURE gate over `["a","b","c"]` — 24 tests, three levels, nothing re-shipped here
-// (its own header now names this file as the live half). What N2/N3 never had was a schedule with
-// more than one PROGRAM: an assertion over one element is an assertion about nothing, which is
-// exactly what the reference's own single-entry SCHEDULE gave it. Three programs (J4.9/J4.12/J4.14)
-// is what makes it real.
+// against a FIXTURE gate over `["a","b","c"]` — nothing re-shipped here. A schedule with only one
+// PROGRAM would make this an assertion about nothing; three real programs is what makes it real.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createGate, type Mode, type GateHold } from "../kernel/runtime/gate.ts";
@@ -91,8 +85,8 @@ test("4. GAT-06 live: acquireSelf is keyed on the PROGRAM, not the entry", () =>
   const gate = createGate(RESOURCE_NAMES);
   const programName = "nightly-sandcastle";
   assert.ok(PROGRAMS[programName]?.self, "fixture precondition: this real PROGRAMS row must set self: true");
-  // Two DIFFERENT schedule entries could, in principle, both name this same program (SCHEDULE has
-  // none today — plan/N4-uac.md's own note) — acquireSelf must refuse the second regardless.
+  // Two different schedule entries could, in principle, name this same program — acquireSelf must
+  // refuse the second regardless.
   const releaseEntryA = gate.acquireSelf(programName);
   assert.ok(releaseEntryA, "the first entry of this program must acquire self cleanly");
   const releaseEntryB = gate.acquireSelf(programName);

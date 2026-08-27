@@ -1,23 +1,19 @@
-// J3.2 (HRN-01, HRN-02, HRN-07, HRN-13, HRN-15, SKL-01, PRT-08) — the shape a job declares: what a
-// job IS, and DEFAULTS in ONE place.
-//
 // PRT-05 lists `permissionMode` as an optional Job field; this file makes it REQUIRED — a
-// deliberate deviation, flagged in plan/N3-uac.md's Gaps (item 20) and roadmap.md's PRT-05 row. HRN-07 says an unattended job hangs on the
+// deliberate deviation from roadmap.md's PRT-05 row. HRN-07 says an unattended job hangs on the
 // first tool prompt without a permission mode, which is the one omission that is a 3am hang rather
 // than a wrong default, so a compile error is the right enforcement (job.test.ts test 8 is the
 // suppressed-directive check that makes it one).
 //
 // PERMISSION_MODES is a two-member allowlist THIS REPO owns, not sandcastle's six-member
 // ClaudeCodeOptions.permissionMode union ("default" | "acceptEdits" | "plan" | "auto" | "dontAsk" |
-// "bypassPermissions") and not the claude CLI's own advertised list — measured (plan/N3-uac.md
-// ruling 1), all three disagree. `plan`/`acceptEdits`/`default` are supervised-only or simply not
-// used here; job.test.ts asserts the exclusion so a future edit cannot silently widen it.
+// "bypassPermissions") and not the claude CLI's own advertised list — measured, all three disagree.
+// `plan`/`acceptEdits`/`default` are supervised-only or simply not used here; job.test.ts asserts
+// the exclusion so a future edit cannot silently widen it.
 //
 // DEFAULTS.permissionMode is "bypassPermissions" — the value the one real job (nightly-sandcastle)
 // uses — not "auto": nothing at N3 exercises "auto", and "auto does not hang" is unmeasurable
 // without a real run that reaches a tool prompt. A default nothing exercises guards nothing.
-// Required-plus-real beats optional-plus-aspirational (see the commit body / plan/N3-uac.md Gaps 20 for the
-// three reasons).
+// Required-plus-real beats optional-plus-aspirational.
 
 /** Reasoning effort, matching @ai-hero/sandcastle's ClaudeCodeOptions — kernel/ never imports the
  *  package itself (D1), so the union is restated here rather than imported. */
@@ -29,10 +25,9 @@ export const PERMISSION_MODES = ["auto", "bypassPermissions"] as const;
 export type PermissionMode = (typeof PERMISSION_MODES)[number];
 
 /** HRN-01: ONE place. `model` is a pinned version, never a floating alias (HRN-11) — test/model.ts
- *  (J3.10) scans the whole repo for every OTHER model literal, so this is the one that is allowed
- *  to exist.
+ *  scans the whole repo for every OTHER model literal, so this is the one that is allowed to exist.
  *
- *  `shedModel` (J4.9, ruling 8, QTA-08) is the downshift target `kernel/runtime/shed.ts`'s
+ *  `shedModel` (QTA-08) is the downshift target `kernel/runtime/shed.ts`'s
  *  `shedModel()` moves an opus request to under a recent spend wall — it lives HERE, not in
  *  shed.ts, for the same reason `model` does: one place, held to the same PINNED/ALIAS rules
  *  (test/model.test.ts tests 3/4), so a downshift can never land on a floating alias either. */
@@ -50,9 +45,9 @@ export const DEFAULTS: {
 
 /**
  * PRT-05, with `permissionMode` made required (see the module header) and `worktree`/`session`
- * dropped at N3 (ruling 4 / HRN-06 — session runners are M11's). `skill` and `exec` are D10's two
- * shapes and there is no third: exactly one must be set, enforced at runtime by
- * `kernel/runtime/runjob.ts` (J3.6), because the type alone cannot express "exactly one of".
+ * dropped at N3 (HRN-06 — session runners are M11's). `skill` and `exec` are D10's two shapes and
+ * there is no third: exactly one must be set, enforced at runtime by `kernel/runtime/runjob.ts`,
+ * because the type alone cannot express "exactly one of".
  */
 export interface Job {
   /** SUP-20 prefix; SKL-01 — it IS the skill name. */
@@ -78,13 +73,13 @@ export interface Job {
    *  `runTimeoutMs` (kernel/ports/runner.ts). */
   readonly taskClass?: "impl";
   /** HRN-14: pins a shared-master writer to one node. A PLACEMENT field, not an authorization
-   *  precondition — see kernel/ports/runner.ts's neighbour test/model.test.ts (J3.10) for the
-   *  companion scan this distinction requires. */
+   *  precondition — see kernel/ports/runner.ts's neighbour test/model.test.ts for the companion
+   *  scan this distinction requires. */
   readonly local?: boolean;
 }
 
 /**
- * "Pinned" (HRN-11, J3.10): names a generation and cannot silently become a different one. Current
+ * "Pinned" (HRN-11): names a generation and cannot silently become a different one. Current
  * Anthropic model IDs carry no date suffix and are complete as written (DEFAULTS.model above is
  * one); a dated snapshot is ALSO pinned — this regex accepts both shapes and pins no exact value,
  * because pinning something outside this repo is exactly the thing that rots.
@@ -100,11 +95,11 @@ export const ALIASES: readonly RegExp[] = [
 ];
 
 /**
- * The runtime half of HRN-11 — J3.10's static scan cannot see a model an environment variable
- * supplies (`NIGHTLY_SANDCASTLE_MODEL=opus` in `.env` is exactly the floating alias the build gate
- * bans), so this runs at the one place `RunRequest.model` is actually built
- * (`kernel/runtime/runjob.ts`'s `runJob`, J3.6) — the SAME predicate the static scan imports, so the
- * two can never disagree.
+ * The runtime half of HRN-11 — the static scan (test/model.test.ts) cannot see a model an
+ * environment variable supplies (`NIGHTLY_SANDCASTLE_MODEL=opus` in `.env` is exactly the floating
+ * alias the build gate bans), so this runs at the one place `RunRequest.model` is actually built
+ * (`kernel/runtime/runjob.ts`'s `runJob`) — the SAME predicate the static scan imports, so the two
+ * can never disagree.
  */
 export function assertPinned(model: string): void {
   const isAlias = ALIASES.some((re) => re.test(model));

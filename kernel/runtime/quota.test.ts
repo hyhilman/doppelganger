@@ -1,4 +1,3 @@
-// J4.8 (QTA-01, QTA-05, QTA-06, QTA-07) — the account breaker, classifier and window.
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, rmSync, existsSync } from "node:fs";
@@ -228,7 +227,7 @@ test("14. QUOTA_FIXTURE_RECHECK — opt-in, skipped by default", { skip: process
   // recordedAt is explicitly NOT rechecked here (kernel/runtime/quota.fixture.ts's header states
   // why): it is a captured-at-time snapshot of the store's own since: value, and the store moves
   // independently (a re-park writes a fresh since:) — asserting it against the live value would
-  // be pinning an external mutable value, the exact thing LOOP.md warns against, not a recheck.
+  // pin an external mutable value, not recheck one.
 
   const known = new Set(LIMITS.map((f) => f.message));
   const unclassified = rows.map((r) => r.value).filter((v) => !known.has(v) && isLimitError(v) && limitClass(v) === "unknown");

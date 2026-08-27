@@ -1,30 +1,26 @@
-// J2.15 (SUP-08 pure half, INS-03, TST-16) — the crontab managed block: per-instance markers and
-// the pure string transforms that read/write it.
-//
-// J2.16 (SUP-08 impure half, SAF-01, SAF-05) adds the side effects: `readCrontab`/`install`
-// (both go through `run()`, kernel/runtime/exec.ts's one execFileSync call site, HRN-19) and the
-// `render`/`sync`/`check` command dispatcher the argv block calls.
+// The crontab managed block: per-instance markers and the pure string transforms that read/write
+// it, plus the impure side effects — `readCrontab`/`install` (both go through `run()`,
+// kernel/runtime/exec.ts's one execFileSync call site) and the `render`/`sync`/`check` command
+// dispatcher the argv block calls.
 //
 // LAYER 0, READ THIS FIRST: `readCrontab` and `install` refuse a command name that is not an
 // absolute path. `execFileSync` with a bare name does a PATH lookup, and the thing PATH finds is
 // the user's REAL crontab — so a test, a mutation, or a future caller that ever passes a bare
-// `"crontab"` is unreachable, not merely discouraged. This is the guard that makes every RED
-// mutation this job's ACs describe safe to perform: without it, a mutated `sync` reaching
-// `install` would overwrite the developer's own crontab, which is exactly the failure the plan's
-// own first draft had.
+// `"crontab"` is unreachable, not merely discouraged. Without this guard, a mutated `sync` reaching
+// `install` would overwrite the developer's own crontab.
 //
 // LAYER 0 DOES NOT COVER A CALLER WHO PASSES NOTHING AT ALL — that is `CRONTAB_CMD_ENV`'s job, one
 // level up: the row is `required: true` with NO `default`, so `envStr(CRONTAB_CMD_ENV)` THROWS
-// naming the key rather than silently resolving to some absolute path nobody chose. Follow-up F1
-// (N2 VERIFY) found the row's old default WAS `"/usr/bin/crontab"` — a real, absolute path on most
-// hosts — so a caller who forgot to pass `CRONTAB_CMD` sailed straight past layer 0 and reached the
-// developer's real crontab read-only. The two layers are independent on purpose: layer 0 stops a
-// PATH lookup, the required row stops a silent default; together they cover "wrong" and "missing".
+// naming the key rather than silently resolving to some absolute path nobody chose. This row's
+// default used to be `"/usr/bin/crontab"` — a real, absolute path on most hosts — so a caller who
+// forgot to pass `CRONTAB_CMD` sailed straight past layer 0 and reached the developer's real
+// crontab read-only. The two layers are independent on purpose: layer 0 stops a PATH lookup, the
+// required row stops a silent default; together they cover "wrong" and "missing".
 //
 // `cli/` is `private: true` (cli/package.json) — this is an app-internal path, not a published
 // import, so reaching into `host/schedule.ts` for `validate`/`bootstrapEntries`/`commandOf`/
-// `SCHEDULE` is fine at N2. Whether `cli` publishes at all is still open (ADO-01, plan/N0-uac.md's
-// Gaps item 1) — that decision belongs there, not here.
+// `SCHEDULE` is fine. Whether `cli` publishes at all is still open (ADO-01) — that decision
+// belongs there, not here.
 //
 // INS-03: the crontab is the one resource two checkouts on the same host cannot avoid sharing, so
 // its markers carry the instance name and every transform here operates on ONE instance's region,
@@ -359,7 +355,7 @@ export function diff(want: readonly string[], got: readonly string[]): string[] 
 }
 
 // ---------------------------------------------------------------------------------------------
-// J2.16 — the impure half: readCrontab/install (layer 0 first), the safe-run knobs, and the
+// The impure half: readCrontab/install (layer 0 first), the safe-run knobs, and the
 // render/sync/check dispatcher. See the module header for why layer 0 exists.
 // ---------------------------------------------------------------------------------------------
 
@@ -506,9 +502,9 @@ export function run(argv: readonly string[], deps: CrontabDeps): { out: string; 
 }
 
 // ---------------------------------------------------------------------------------------------
-// The argv block. UNTESTED BY CONSTRUCTION (plan/N2-uac.md ruling 1) — no test imports this file
-// in a way that reaches it. Resolves the knobs (ruling 2: only here, never at module scope),
-// dispatches to `run`, and writes the two streams itself.
+// The argv block. UNTESTED BY CONSTRUCTION — no test imports this file in a way that reaches it.
+// Resolves the knobs only here, never at module scope, dispatches to `run`, and writes the two
+// streams itself.
 // ---------------------------------------------------------------------------------------------
 if (import.meta.filename === process.argv[1]) {
   const deps: CrontabDeps = {

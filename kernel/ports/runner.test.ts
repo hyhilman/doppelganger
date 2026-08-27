@@ -1,5 +1,4 @@
-// J3.2 (HRN-01, HRN-13, PRT-08) — runTimeoutMs and the Runner/RunResult contract. Numbered 6/7 to
-// match plan/N3-uac.md's J3.2 "Do (tests)" list; tests 1-5/8 live in job.test.ts.
+// Numbered 6/7; tests 1-5/8 live in job.test.ts.
 
 import { test } from "node:test";
 import assert from "node:assert/strict";

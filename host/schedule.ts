@@ -1,10 +1,10 @@
-// J2.7 (SUP-01, SUP-02, SUP-04, SUP-09, GAT-07, PRT-06) — the schedule as DATA: the two shapes,
-// the two empty registries, and the one derivation (programOf) that keys everything else.
+// The schedule as DATA: the two shapes, the two empty registries, and the one derivation
+// (programOf) that keys everything else.
 //
-// SUP-01: the supervisor (host/supervisor.ts, J2.11/J2.13) imports THIS file and registers one
-// croner timer per entry — an entry IS the schedule, read live, with no compiled copy to drift.
-// The crontab (cli/crontab.ts, J2.15) holds only the entries carrying `supervised: false` — never
-// a rendering of the whole schedule. cli/crontab.test.ts asserts that.
+// SUP-01: the supervisor (host/supervisor.ts) imports THIS file and registers one croner timer
+// per entry — an entry IS the schedule, read live, with no compiled copy to drift. The crontab
+// (cli/crontab.ts) holds only the entries carrying `supervised: false` — never a rendering of the
+// whole schedule. cli/crontab.test.ts asserts that.
 //
 // SUP-09: `supervised: false` marks an entry the supervisor must NOT own. The bar is deliberately
 // high — the only candidate anywhere in the roadmap is `watchdog` (JOB-O10, N4), because a
@@ -25,17 +25,16 @@ import { parseFive } from "./cron.ts";
 
 export interface ScheduleEntry {
   readonly name: string;
-  /** A 5-field cron expression, in the intersection J2.9's `validate()` accepts. */
+  /** A 5-field cron expression, in the intersection `validate()` accepts. */
   readonly cron: string;
   /** Where this entry's child stdout/stderr is appended (SUP-03, SUP-18). */
   readonly log: string;
   /**
    * Entry-declared overrides, applied LAST (`inherited < .env < env:`, SUP-04) — the only knob
-   * reachable regardless of a program's `dotenv: false`. CORRECTION (J2.11): J2.7 originally typed
-   * this as a NAME list to pass through from the parent; childEnv's real formula spreads it as
-   * key-value pairs (`{ ...parentEnv(), ...dotenvVars, ...e.env }`), which is what SUP-04's own
-   * three-layer precedence needs — an entry's own literal values, not a request to inherit named
-   * ones. Fixed here rather than in a new commit that would touch nothing else.
+   * reachable regardless of a program's `dotenv: false`. Key-value pairs, not a name list to pass
+   * through from the parent: childEnv's formula spreads it as `{ ...parentEnv(), ...dotenvVars,
+   * ...e.env }`, which is what SUP-04's own three-layer precedence needs — an entry's own literal
+   * values, not a request to inherit named ones.
    */
   readonly env?: Readonly<Record<string, string>>;
   /** Block for one of THIS entry's own ticks (GAT-08), derived by `gateWait(cron)` — never a
@@ -59,7 +58,7 @@ export interface ScheduleEntry {
 
 /** SUP-02, plus `whyNoGate` — an addition to the reference's field list, flagged in Gaps. GAT-07
  *  says a `gate: "none"` exemption states why; the reference states that in a code comment, which
- *  nothing can check. A required field makes the row refusable by `validate()` (J2.9) and turns a
+ *  nothing can check. A required field makes the row refusable by `validate()` and turns a
  *  comment into a checked claim. */
 export interface Program {
   /** The old `lock_self` — per PROGRAM, not per entry (GAT-06). */
@@ -79,9 +78,9 @@ export interface Program {
  *  and no program exists to register until N3, which is when the first row (below) lands. */
 export const PROGRAMS: Readonly<Record<string, Program>> = {
   "nightly-sandcastle": { self: true, gate: "excl", resources: ["repo"], dotenv: true },
-  // J4.12 (JOB-O09) — the first gate: "none" row this repo has (validate rule 17's first live
-  // subject): the check reads `crontab -l` and renders, racing nothing the gate protects, and it
-  // is most useful precisely when a writer is holding the gate and jobs are backing up behind it.
+  // (JOB-O09) — the first `gate: "none"` row this repo has: the check reads `crontab -l` and
+  // renders, racing nothing the gate protects, and it is most useful precisely when a writer is
+  // holding the gate and jobs are backing up behind it.
   "ops-cron-check": {
     self: true,
     gate: "none",
@@ -89,16 +88,11 @@ export const PROGRAMS: Readonly<Record<string, Program>> = {
     whyNoGate:
       "reads `crontab -l` and renders; it races nothing the gate protects, and it is most useful precisely when a writer is holding the gate and jobs are backing up behind it — queueing it would blind the check in the case it exists for",
   },
-  // J4.14 (JOB-O10) — keyed on the SCRIPT PATH, not the entry name: programOf(e) is
-  // e.job ?? e.script ?? e.name, and this is the first script: entry this repo has, so
-  // "host/watchdog.sh" (e.script, below, verbatim — project-relative, the same string
-  // scriptCommandOf resolves against ROOT) IS this program's name. Deviation from the plan's own
-  // text, recorded here: the plan's prose calls this key "watchdog.sh" (and so does
-  // host/classes.ts's WATCH list and host/classes.test.ts), but its own schedule-entry sketch sets
-  // script: "host/watchdog.sh" — the two sketches disagree, and only the FULL path validates,
-  // since scriptCommandOf needs the real project-relative path to find the file at all. Fixed by
-  // using the full path everywhere a PROGRAMS-key-shaped value is needed; "watchdog.sh" survives
-  // only as the readable short name in prose.
+  // (JOB-O10) — keyed on the SCRIPT PATH, not the entry name: programOf(e) is
+  // e.job ?? e.script ?? e.name, so "host/watchdog.sh" (e.script, below, verbatim —
+  // project-relative, the same string scriptCommandOf resolves against ROOT) IS this program's
+  // name. Only the FULL path validates — scriptCommandOf needs the real project-relative path to
+  // find the file at all; "watchdog.sh" survives only as the readable short name in prose.
   //
   // It must run precisely when everything else is wedged, including behind a writer holding the
   // gate exclusively — gating it would let the failure it exists to catch silence it. It takes its
@@ -115,21 +109,21 @@ export const PROGRAMS: Readonly<Record<string, Program>> = {
 
 /**
  * Empty at N2 by decision, not by accident — see host/schedule.test.ts test 1's own N2 title.
- * J3.15 (SUP-01, SUP-02, SUP-03, SUP-12, GAT-07, TST-09) lands the first entry, the moment N3
- * exists for: `nightly-sandcastle`, six firings a night inside the croner ∩ POSIX intersection
- * N2 measured (`dow` unrestricted, so the dom+dow divergence class cannot apply).
+ * (SUP-01, SUP-02, SUP-03, SUP-12, GAT-07, TST-09) lands the first entry: `nightly-sandcastle`,
+ * six firings a night inside the croner ∩ POSIX intersection (`dow` unrestricted, so the dom+dow
+ * divergence class cannot apply).
  *
  * `resources: ["repo"]` only, `skills` deliberately dropped — the pass reads `.claude/skills/`
- * for its whole duration, but its only writer is `skills sync`, an operator CLI that takes no
- * gate at all (J3.9). Holding `skills` `excl` for a whole pass would exclude future scheduled
- * entries from a resource nothing here contends, buying nothing and costing JOB-C16's (N5)
- * concurrency. The read is unprotected, and that is INS-05's problem (a resource whose writer is
- * outside the supervisor is not a gate problem), not GAT's — flagged in Gaps.
+ * for its whole duration, but its only writer is `skills sync`, an operator CLI that takes no gate
+ * at all. Holding `skills` `excl` for a whole pass would exclude future scheduled entries from a
+ * resource nothing here contends, buying nothing and costing JOB-C16's (N5) concurrency. The read
+ * is unprotected, and that is INS-05's problem (a resource whose writer is outside the supervisor
+ * is not a gate problem), not GAT's.
  *
  * `maxRunMin: 90` is DERIVED, not chosen: `RUN_TIMEOUT_IMPL_MS` (40 min) + `GATE_TIMEOUT_MS`
  * (5 min) × 2 (the ff-miss path re-runs the gate) = 50 min, plus worktree prep and reporting,
  * against SUP-13's SIGKILL bound — host/schedule.test.ts's budget assertion pins the relation so
- * the two numbers can never drift apart silently (N2 F1's exact shape).
+ * the two numbers can never drift apart silently.
  *
  * No entry here sets `supervised: false` — `crontab render` still emits a managed block with zero
  * command lines, and nothing starts the supervisor itself yet. That is SUP-09/JOB-O10, N4.
@@ -148,7 +142,7 @@ export const SCHEDULE: readonly ScheduleEntry[] = [
     cron: "15 22 * * *",
     job: "ops-cron-check",
     log: projectPath(".doppelganger/logs/ops-cron-check.log"),
-    why: "Crontab drift, once a day at 22:15 UTC (05:15 WIB) — after the nightly window closes and clear of :00/:30, so a report is waiting before the workday. Diffs the installed managed block against a fresh render of host/schedule.ts: one info line every run, an error line only on drift. Declared here deliberately, so the checker is covered by the config it verifies. Needs CRONTAB_CMD set in .env (required, no default — N2 F1) or it fails loudly.",
+    why: "Crontab drift, once a day at 22:15 UTC (05:15 WIB) — after the nightly window closes and clear of :00/:30, so a report is waiting before the workday. Diffs the installed managed block against a fresh render of host/schedule.ts: one info line every run, an error line only on drift. Declared here deliberately, so the checker is covered by the config it verifies. Needs CRONTAB_CMD set in .env (required, no default) or it fails loudly.",
   },
   {
     name: "ops-watchdog",
@@ -175,36 +169,31 @@ export const bootstrapEntries = (s: readonly ScheduleEntry[] = SCHEDULE): readon
 
 /**
  * The one-line shell command a `supervised: false` entry renders into the crontab bootstrap block
- * (SUP-08, `cli/crontab.ts`, J2.15) — exported so validate()'s rule 23 and the crontab renderer
- * never spell it twice. Deterministic and pure: no path is resolved here beyond the already-
- * computed `ROOT` constant.
+ * (SUP-08, `cli/crontab.ts`) — exported so validate()'s rule 23 and the crontab renderer never
+ * spell it twice. Deterministic and pure: no path is resolved here beyond the already-computed
+ * `ROOT` constant.
  */
 /**
- * Ruling 3 (plan/N3-uac.md, J3.14): the ONE argv block a scheduled job reaches is host/run.ts —
- * never the job file directly. The first N3 draft rendered `host/jobs/<job>.ts` here, which has
- * no argv block of its own and would have exited 0 having done nothing, every night, silently.
- * ONE constant serves both consumers (`commandOf` here, `realJobRunner` in host/supervisor.ts),
- * so the two spellings cannot drift apart — N3 F1's fix, after a review regressed the supervisor
- * copy and the suite stayed green.
+ * The ONE argv block a scheduled job reaches is host/run.ts — never the job file directly, which
+ * has no argv block of its own and would exit 0 having done nothing, every night, silently. ONE
+ * constant serves both consumers (`commandOf` here, `realJobRunner` in host/supervisor.ts), so the
+ * two spellings cannot drift apart.
  */
 export const JOB_ENTRYPOINT = "host/run.ts";
 
 /**
- * R3 (SUP-03) — N3 F1's exact fix shape, one row over. `commandOf`'s script branch rendered
- * `node <script>` unconditionally while `spawnChild` (host/supervisor.ts) execs the script file
- * DIRECTLY — `[join(root, script), []]`, relying on the script's own shebang. `node` cannot run a
- * bash script, and nothing caught the disagreement because SCHEDULE has never held a `script:`
- * entry (N4's watchdog, JOB-O10, is the first). ONE function now serves both consumers, so the two
- * spellings cannot drift apart.
+ * `commandOf`'s script branch rendered `node <script>` unconditionally while `spawnChild`
+ * (host/supervisor.ts) execs the script file DIRECTLY — `[join(root, script), []]`, relying on
+ * the script's own shebang. `node` cannot run a bash script, and nothing caught the disagreement
+ * because SCHEDULE had never held a `script:` entry before now (JOB-O10's watchdog is the first).
+ * ONE function now serves both consumers, so the two spellings cannot drift apart.
  *
- * J4.11 (a FIX to SUP-03/05/08, no new feature id — N4 is the phase that first writes a `script:`
- * entry, so this is where ruling 5's second half had to land) finishes it: a `.sh` carries its own
- * shebang, so no interpreter is named — a bare `bash` would be a PATH lookup in cron's stripped
- * environment (N2 F1's hazard) and `/bin/bash` a door-1 literal that moves between distributions.
- * A `.ts` has no shebang and must name one explicitly. `validate()`'s rules 12a/12b (below) are
- * what make the first arm safe: nothing here checks the exec bit or a shebang — a script rendered
- * with no interpreter and no permission to run itself would fail silently at spawn time, at 3am,
- * with SUP-05's whole point being that this is a BOOT-time refusal instead.
+ * A `.sh` carries its own shebang, so no interpreter is named — a bare `bash` would be a PATH
+ * lookup in cron's stripped environment, and `/bin/bash` a door-1 literal that moves between
+ * distributions. A `.ts` has no shebang and must name one explicitly. `validate()`'s rules 12a/12b
+ * (below) are what make the first arm safe: nothing here checks the exec bit or a shebang — a
+ * script rendered with no interpreter and no permission to run itself would fail silently at
+ * spawn time, at 3am, with SUP-05's whole point being that this is a BOOT-time refusal instead.
  */
 export function scriptCommandOf(root: string, script: string): readonly [cmd: string, args: readonly string[]] {
   const abs = join(root, script);
@@ -236,8 +225,7 @@ export interface ValidateOpts {
  * SUP-05: the boot gate. Collects every fault over every entry (SUPERVISED OR NOT — the
  * bootstrap-only ones need checking too, since crontab check calls this) and throws ONCE, each
  * line naming its entry. `opts` defaults to the real values, computed HERE rather than at module
- * scope (J2.3 door 6), so a caller writes `validate()` and a test writes
- * `validate([e], { logRoots: [tmp] })`.
+ * scope, so a caller writes `validate()` and a test writes `validate([e], { logRoots: [tmp] })`.
  *
  * `validate([])` does not throw (host/validate.test.ts test 1) — an empty schedule is valid BY
  * DECISION, not by the absence of a subject to check.

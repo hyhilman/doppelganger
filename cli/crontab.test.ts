@@ -1,5 +1,3 @@
-// J2.15 (SUP-08 pure half, INS-03, TST-16) — the crontab managed block's pure transforms.
-//
 // `BLOCK`-shaped fixtures stand in for `render()`'s real output wherever the mechanics under test
 // (markers, splice, collisions, adopt) never read the block's CONTENT, only its shape (a begin
 // line, a body, an end line) — the same simplification the reference uses. `render()` itself is
@@ -234,15 +232,12 @@ test("13. the unnamed (legacy) block: legacyRange finds it, installedBlock(insta
 });
 
 test("14. SUP-01: render over a five-entry fixture with one supervised:false entry emits exactly its command line, and none of the four supervised ones", () => {
-  // DEVIATION from plan/N2-uac.md J2.15's DO item 14, which describes "two supervised: false"
-  // entries: validate()'s rule 22 (host/schedule.ts, J2.9) enforces SUP-09's actual, already-
-  // reworded form — "at most one" (roadmap.md's own SUP-09 row: "'exactly one' would refuse the
-  // state N2 ships in") — and throws "more than one entry sets supervised: false" on a second one.
-  // render() calls that same validate() first, so a two-bootstrap fixture cannot reach the
-  // rendering step at all; confirmed by running it and reading the real error text before making
-  // this change. This test keeps the DO item's INTENT — render emits exactly the bootstrap
-  // entries' command lines and none of the supervised ones — with a fixture SUP-09 actually
-  // allows: one bootstrap entry among five.
+  // `validate()`'s rule 22 (host/schedule.ts) enforces SUP-09's rule — "at most one" (roadmap.md's
+  // own SUP-09 row: "'exactly one' would refuse the state N2 ships in") — and throws "more than
+  // one entry sets supervised: false" on a second one. render() calls that same validate() first,
+  // so a two-bootstrap fixture cannot reach the rendering step at all. This test uses a fixture
+  // SUP-09 actually allows: one bootstrap entry among five — render emits exactly that entry's
+  // command line and none of the supervised ones.
   // Each entry needs its OWN log path — commandOf(e) embeds `log`, and validEntry()'s default is
   // shared, so without this every entry would render the identical command line and the "none of
   // the four supervised ones" half of this test could not tell them apart.

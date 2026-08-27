@@ -1,20 +1,20 @@
-// J0.12 (D15) — gate the reference corpus path and the provenance of its counts.
+// Gate the reference corpus path (D15) and the provenance of its counts.
 //
 // The claim is split into what can be true NOW and what is a DATED OBSERVATION:
 //   - the corpus path resolves, and roadmap.md names no old macOS path — live, gated always.
-//   - the four counts J0.11 refreshed — a dated observation, gated on PROVENANCE (same date
-//     stamp in all four places, §3.0's percentage consistent with its own denominator), not on
-//     a tolerance band. A ±2% band was tried and dropped: every real staleness this repo has
-//     produced drifts 0.4%-0.84%, which passes a ±2% gate — the band could not catch the
-//     failure it was written for. See plan/N0-uac.md J0.12 for the full reasoning.
+//   - the four counts — a dated observation, gated on PROVENANCE (same date stamp in all four
+//     places, §3.0's percentage consistent with its own denominator), not on a tolerance band. A
+//     ±2% band was tried and dropped: every real staleness this repo has produced drifts
+//     0.4%-0.84%, which passes a ±2% gate — the band could not catch the failure it was written
+//     for.
 //   - an exact re-measure against the live corpus is opt-in (CORPUS_RECHECK=1), never run in CI.
 //
-// Follow-up fix (F4): the four counts are written as ROUNDED APPROXIMATIONS ("about 250 TS
-// files"), not exact integers. An exact count of a live external repo that other people commit
-// to is false again within hours — pinning a fresh exact number just resets a clock that runs
-// out again tomorrow. The provenance checks above still hold the two files to the SAME stated
-// approximation; the opt-in re-measure below checks the live corpus still ROUNDS to that
-// approximation, not that it equals a frozen integer.
+// The four counts are written as ROUNDED APPROXIMATIONS ("about 250 TS files"), not exact
+// integers. An exact count of a live external repo that other people commit to is false again
+// within hours — pinning a fresh exact number just resets a clock that runs out again tomorrow.
+// The provenance checks above still hold the two files to the SAME stated approximation; the
+// opt-in re-measure below checks the live corpus still ROUNDS to that approximation, not that it
+// equals a frozen integer.
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -59,8 +59,8 @@ function roadmapPresent(): boolean {
   return existsSync(join(ROOT, "roadmap.md"));
 }
 
-// The four dated observations J0.11 refreshed, now written as approximations ("about 250").
-// Matched by structure (the surrounding words and the number's unit), not by literal value, so a
+// The four dated observations, written as approximations ("about 250"). Matched by structure
+// (the surrounding words and the number's unit), not by literal value, so a
 // future refresh does not need to touch this file. Every gap between tokens is `\s+`/`\s*`, not a
 // literal single space — markdown line-wraps a sentence wherever it likes, and the claim being
 // gated is the words and the numbers, not which column they wrap at. The "about " is optional in
@@ -202,7 +202,7 @@ function roundToNearest(value: number, bucket: number): number {
 // Opt-in re-measure against the live corpus. Test-only, also not an EnvSpec row (same reasoning
 // as CORPUS_OVERRIDE above). A human runs this when the approximation itself looks wrong; a
 // nightly-polish job at N5 is the natural long-term owner. On failure: re-measure, update all
-// four places, move the date (J0.11's shape) — do not just widen the tolerance to make it pass.
+// four places, move the date — do not just widen the tolerance to make it pass.
 test("6. CORPUS_RECHECK=1 -> the live corpus still rounds to the stated approximation (opt-in, not in CI)", (t) => {
   if (!roadmapPresent()) {
     t.skip("roadmap.md not present (untracked scaffolding, see .gitignore)");

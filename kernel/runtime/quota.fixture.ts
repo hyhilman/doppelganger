@@ -1,5 +1,4 @@
-// J4.8 (QTA-01, QTA-05/06/07, TST-19) — the quota classifier's corpus, lifted from REAL data,
-// never invented. Two tiers only.
+// The quota classifier's corpus, lifted from REAL data, never invented (TST-19). Two tiers only.
 //
 // Tier 1 — recorded first-hand on THIS machine, 2026-08-26:
 // xenith/engine/.sandcastle/state/quota.db, every `note:`/`since:` pair the store held, read via
@@ -8,27 +7,24 @@
 // fallback (classify the raw `note:`) exists for.
 //
 // Tier 2 — the reference's own test corpus, xenith/engine/src/lib/quota.test.ts, read verbatim.
-// Only the three *spend* positives carry a dated incident comment there (two from 2026-08-10 —
-// cps#1820's review and #649's triage — and one from the 2026-08-18 outage); the six period
-// wordings and all six negatives are bare list entries with no date at all. Writing a plausible
-// date onto an undated row would be invention by another route, so `recordedAt` is `string | null`
-// and is populated ONLY where the source actually names one.
+// Only the three *spend* positives carry a dated incident comment there; the six period wordings
+// and all six negatives are bare list entries with no date at all. Writing a plausible date onto
+// an undated row would be invention by another route, so `recordedAt` is `string | null` and is
+// populated ONLY where the source actually names one.
 //
 // No first-hand row spells the BARE "You've hit your ... spend limit" wording — every one carries
-// a wrapper prefix ("task 502 failed: ...", or "claude-code exited with code 1:\n..."). The bare
-// spelling exists only in tier 2, marked `via: "reference-corpus"`. A row spelling it and marked
-// `first-hand` would be exactly the TST-19 violation this file exists to avoid making twice.
+// a wrapper prefix. The bare spelling exists only in tier 2, marked `via: "reference-corpus"`. A
+// row spelling it and marked `first-hand` would be the TST-19 violation this file exists to avoid.
 //
 // Tier 1's `recordedAt` is a CAPTURE-TIME SNAPSHOT of the store's own `since:` value, not a
 // live-pinned truth — the store moves independently (a re-park writes a fresh `since:`), so this
-// value WILL drift and is expected to. Measured directly: `worker-nexus-ashton`'s `since:` read
-// `2026-08-26T06:40:42Z` when this fixture was captured and `2026-08-26T21:38:10Z` a day later —
-// an external mutable value copied into the repo, exactly what LOOP.md's "never pin an exact
-// value of something outside this repo" warns against. Kept anyway, because it answers a
-// different question than "is this still the live value": it is provenance — when THIS evidence
-// was captured — not a claim the store still says so. `quota.test.ts` test 14's
-// `QUOTA_FIXTURE_RECHECK` therefore re-verifies the tier-1 rows' MESSAGES (the actual classifier
-// input) against the live store, but deliberately never `recordedAt` against it.
+// value WILL drift and is expected to. Measured directly: `worker-nexus-ashton`'s `since:` read one
+// timestamp when this fixture was captured and a different one a day later — an external mutable
+// value, never a live-pinned truth. Kept anyway, because it answers a different question than "is
+// this still the live value": it is provenance — when THIS evidence was captured — not a claim the
+// store still says so. `quota.test.ts` test 14's `QUOTA_FIXTURE_RECHECK` therefore re-verifies the
+// tier-1 rows' MESSAGES (the actual classifier input) against the live store, but deliberately
+// never `recordedAt` against it.
 import type { LimitClass } from "./quota.ts";
 
 export interface LimitFixture {

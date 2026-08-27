@@ -1,19 +1,17 @@
-// J2.4 (GAT-01, GAT-02, GAT-03, GAT-04, GAT-06) — the gate proved against a pure model over the
-// ENTIRE finite request space, not over a handful of scenarios. See gate.ts's module header for the
-// deadlock argument and the premise it rests on.
+// The gate proved against a pure model over the ENTIRE finite request space, not over a handful
+// of scenarios. See gate.ts's module header for the deadlock argument and the premise it rests on.
 //
-// No timer of any kind, anywhere in this file (AC6) — every wait here is either `waitMs = 0`
-// (which creates no timer at all, at this commit) or an await on an already-settled promise chain
-// driven by `drain()` on release.
+// No timer of any kind, anywhere in this file — every wait here is either `waitMs = 0` (which
+// creates no timer at all, at this commit) or an await on an already-settled promise chain driven
+// by `drain()` on release.
 //
-// J4.15 (TST-17) — this IS the "gate contract" row TST-17 names: 24 tests over three levels (the
-// exclusion decision against a pure model over all 256 ordered request pairs; the acquisition
-// order over every caller spelling; no wait-for cycle over all 64 ordered writer pairs), all built
-// against a FIXTURE gate over `["a","b","c"]`. Nothing here is re-shipped for J4.15 — not one test
-// in this file changes. host/gate-contract.test.ts is the genuinely new half: the same contract,
-// asserted over the REAL `RESOURCE_NAMES` and the REAL `PROGRAMS`, which needed a schedule with
-// more than one program to say anything at all — an assertion over a single element is an
-// assertion about nothing, which is exactly what N2/N3 had.
+// This IS the "gate contract" row TST-17 names: 24 tests over three levels (the exclusion
+// decision against a pure model over all 256 ordered request pairs; the acquisition order over
+// every caller spelling; no wait-for cycle over all 64 ordered writer pairs), all built against a
+// FIXTURE gate over `["a","b","c"]`. host/gate-contract.test.ts is the genuinely new half: the
+// same contract, asserted over the REAL `RESOURCE_NAMES` and the REAL `PROGRAMS`, which needed a
+// schedule with more than one program to say anything at all — an assertion over a single element
+// is an assertion about nothing.
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -236,9 +234,8 @@ test("11. two gates over the same names exclude nothing from each other", async 
 });
 
 // -------------------------------------------------------------------------------------------
-// J2.5 (GAT-05) — the FIFO queue, writer priority, the timeout, and the whole-acquisition
-// wait budget. Still no real timer created by THIS file (AC6) — the only timers are the gate's
-// own, driven by `waitMs`, and the four 50 ms waits below are this phase's only real delays.
+// Still no real timer created by THIS file — the only timers are the gate's own, driven by
+// `waitMs`, and the four 50 ms waits below are this phase's only real delays.
 // -------------------------------------------------------------------------------------------
 
 test("12. enqueue is synchronous: a queued waiter is visible before acquire() is awaited", async () => {
@@ -309,16 +306,14 @@ test("15. the timeout path: a queued acquire that times out is removed from the 
 
 test("16. a timeout unblocks the queue behind it", async () => {
   const gate = createGate([...NAMES]);
-  // DEVIATION from plan/N2-uac.md J2.5 group 5, recorded in the final report: the plan's fixture
-  // has the ORIGINAL holder release right after the timeout ("release the holder; the queued
-  // writer resolves truthy"). But release() always calls drain() on its own — so a mutation that
-  // deletes the drain() call INSIDE the timeout handler is invisible to that fixture: the
-  // SUBSEQUENT release's own drain() grants the queued party regardless, and AC5's mutation does
-  // not turn the suite red with that scenario. The distinguishing case needs a party BEHIND the
-  // timed-out waiter that is compatible with the RESOURCE'S CURRENT HOLDER and can therefore be
-  // granted the moment the timed-out waiter is removed — with NO release ever happening. A shared
-  // reader is compatible with another shared reader; a queued writer blocks it only via GAT-05
-  // writer priority, not via the resource's own state.
+  // release() always calls drain() on its own, so a fixture where the original holder releases
+  // right after the timeout can't catch a mutation that deletes the drain() call INSIDE the
+  // timeout handler — the SUBSEQUENT release's own drain() would grant the queued party regardless.
+  // The distinguishing case needs a party BEHIND the timed-out waiter that is compatible with the
+  // RESOURCE'S CURRENT HOLDER and can therefore be granted the moment the timed-out waiter is
+  // removed — with NO release ever happening. A shared reader is compatible with another shared
+  // reader; a queued writer blocks it only via GAT-05 writer priority, not via the resource's own
+  // state.
   const reader1 = await gate.acquire("shared", ["a"], 0);
   assert.ok(reader1);
   const writerX = gate.acquire("excl", ["a"], 50); // will time out; blocks reader2 via writer priority alone
@@ -338,13 +333,10 @@ test("16. a timeout unblocks the queue behind it", async () => {
 
 test("17. the wait budget spans the whole acquisition, not each resource in turn", async () => {
   const gate = createGate([...NAMES]);
-  // DEVIATION from plan/N2-uac.md J2.5 group 6, recorded in the final report: the plan's fixture
-  // holds only ["c"], leaving "a" free. Since a free resource costs ~0ms of the budget whether the
-  // implementation passes each resource the REMAINING budget or the FULL waitMs, that fixture
-  // cannot actually distinguish the AC4 mutation (elapsed stays ~50ms either way) — it is the same
-  // fixture as group 7 below, which itself proves "a" resolves at once. Holding BOTH "a" and "c"
-  // makes the second resource's wait genuinely depend on how much budget the first one already
-  // spent, which is what makes the 2x-vs-1x difference real.
+  // Holding BOTH "a" and "c" (not just "c", leaving "a" free) makes the second resource's wait
+  // genuinely depend on how much budget the first one already spent — a free resource costs ~0ms
+  // of the budget regardless of whether the implementation passes each resource the REMAINING
+  // budget or the FULL waitMs, so a fixture holding only "c" could not tell the two apart.
   const h = await gate.acquire("excl", ["a", "c"], 0);
   assert.ok(h);
   const started = Date.now();
@@ -400,8 +392,8 @@ test("19. mixed reader/writer liveness across multiple resources, three parties,
 });
 
 // -------------------------------------------------------------------------------------------
-// J2.12 (GAT-10) — lock-starve visibility: the threshold half. The COUNTER (lockloss:<job>) is
-// JOB-O02's (N5); these tests cover starveThreshold, the pure resolver its threshold comes from.
+// Lock-starve visibility: the threshold half only. The COUNTER (lockloss:<job>) is JOB-O02's
+// (N5); these tests cover starveThreshold, the pure resolver its threshold comes from.
 // -------------------------------------------------------------------------------------------
 
 function scrubbedChild(code: string, env: Record<string, string> = {}): string {

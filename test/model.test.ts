@@ -1,5 +1,5 @@
-// J3.10 (HRN-11, HRN-14, TST-08) — every agent run names a pinned model, and a bypass run declares
-// local. Ported in spirit from the reference's `model-declaration.test.ts` masker — 132 measured-
+// Every agent run names a pinned model, and a bypass run declares local. Ported in spirit from
+// the reference's `model-declaration.test.ts` masker — 132 measured-
 // correct lines whose failure mode is silent: a mis-read regex literal blanks the rest of a file
 // and every call site in it stops existing, which reads as a pass. Test 2 (`lost === 0`) is the
 // only guard against that, and the reference's own comment is carried here: NEVER spell `runJob(`
@@ -18,7 +18,7 @@ import { JOBS } from "../host/jobs/index.ts";
 const ROOT = new URL("..", import.meta.url).pathname.replace(/\/$/, "");
 const SCANNED_DIRS = ["kernel", "host", "plugins", "cli"];
 
-// P4 (plan/N4-uac.md) — measured 2026-08-26: kernel/runtime/quota.fixture.ts's tier-1 rows survive
+// Measured 2026-08-26: kernel/runtime/quota.fixture.ts's tier-1 rows survive
 // the model-literal scan (test 6) only because every recorded wording happens to contain an
 // apostrophe ("You've") that ends the character class early — a coincidence one added row
 // destroys ("claude-code exited with code 3: boom" matches outright). test/layout.test.ts's own
@@ -265,27 +265,17 @@ function walk(): Walked {
 test("1. every defineJob/runJob object literal names model unless the literal has exec — and the floor is derived from the registry (J3.16)", () => {
   const { checked, sites } = walk();
 
-  // J3.10 shipped this as `checked >= 1` — a floor loose enough to survive a registry that did
-  // not exist yet. J3.16 (TST-09) makes the registry the source of truth for the exact count.
+  // Every registered job's OWN `defineJob({...})` call is exactly one scanned site, regardless of
+  // whether that job needs to NAME model — `walk()` counts a site the moment it finds a
+  // well-formed object literal, before it ever looks at the literal's own keys. `ops-cron-check`
+  // is an exec job that carries no model, and it IS scanned — proving the floor counts "does this
+  // job's own site get counted", not "must this job name model" (that separate rule is enforced by
+  // `offenders` below, which exempts a literal naming `exec`).
   //
-  // CORRECTED at J4.12: every registered job's OWN `defineJob({...})` call is exactly one
-  // scanned site, regardless of whether that job needs to NAME model — `walk()` counts a site
-  // the moment it finds a well-formed object literal, before it ever looks at the literal's own
-  // keys. The floor was originally written as `JOBS.filter((j) => j.exec === undefined ||
-  // j.model !== undefined).length` on the (until now untested) assumption that an `exec` job
-  // with no `model` would somehow not be scanned at all — true only by accident, because
-  // nightly-sandcastle (J3.10's one exec job) also happens to set `model` for HRN-11 reasons
-  // unrelated to being scanned. `ops-cron-check` (J4.12) is the first exec job that genuinely
-  // carries no model, and it IS scanned (checked=2, the old floor stayed at 1) — proving the
-  // filter answered "must this job name model", not "does this job's own site get counted".
-  // The "must name model unless exec" rule is enforced separately, correctly, by `offenders`
-  // below, which already exempts a literal naming `exec`.
-  //
-  // `runJobLiteralSites` names the OTHER shape this file's scan can find: a `runJob(...)` call
-  // in non-test source whose FIRST argument is an object literal (rather than a `Job` variable).
+  // `runJobLiteralSites` names the OTHER shape this file's scan can find: a `runJob(...)` call in
+  // non-test source whose FIRST argument is an object literal (rather than a `Job` variable).
   // Every non-test `runJob(...)` call site today passes a variable first, so none is extracted —
-  // 0 today, named so the day one appears this floor visibly moves instead of silently drifting
-  // (AC6 proves the registry side of that with a fixture job).
+  // 0 today, named so the day one appears this floor visibly moves instead of silently drifting.
   const runJobLiteralSites = 0;
   const floor = JOBS.length + runJobLiteralSites;
   assert.equal(checked, floor, `checked=${checked}, expected the registry-derived floor ${floor}`);
@@ -383,9 +373,9 @@ test("7. HRN-14's companion scan — a bypass run declares local: true", () => {
       const extracted = extractObjectArg(raw, openParenIdx);
       if (!extracted) continue;
       const pmValue = topLevelPermissionModeValue(extracted.body);
-      // "resolves to bypassPermissions" — spelled as the literal, or as DEFAULTS.permissionMode,
-      // since J3.2 made that the default value. permissionMode is REQUIRED on Job, so a real
-      // literal always sets it one way or the other — there is no third, absent case to handle.
+      // "resolves to bypassPermissions" — spelled as the literal, or as DEFAULTS.permissionMode
+      // (its default value). permissionMode is REQUIRED on Job, so a real literal always sets it
+      // one way or the other — there is no third, absent case to handle.
       const resolvesToBypass =
         pmValue === "bypassPermissions" ||
         (/permissionMode\s*:\s*DEFAULTS\.permissionMode\b/.test(extracted.body) && DEFAULTS.permissionMode === "bypassPermissions");
@@ -399,11 +389,10 @@ test("7. HRN-14's companion scan — a bypass run declares local: true", () => {
 
 test("8. P4 — no non-test file imports a *.fixture.ts, which is what test 6's exclusion is paid for with", () => {
   const files = allNonTestTsFiles(); // already excludes *.fixture.ts and *.test.ts
-  // Every spelling, per LOOP.md's standing rule ("a gate that pattern-matches ONE spelling of an
-  // import is not a gate") — the test/no-raw-sqlite.test.ts precedent, one file over: a static
-  // `from "…fixture.ts"`, a `require("…fixture.ts")`, and a dynamic `import("…fixture.ts")` all
-  // make the fixture's literal reachable from production code, and the OLD regex here only ever
-  // covered the first.
+  // Every spelling: a pattern that matches only ONE spelling of an import is not a real gate. A
+  // static `from "…fixture.ts"`, a `require("…fixture.ts")`, and a dynamic `import("…fixture.ts")`
+  // all make the fixture's literal reachable from production code, and the OLD regex here only
+  // ever covered the first.
   const importRe =
     /from\s*["']([^"']*\.fixture\.ts)["']|require\(\s*["']([^"']*\.fixture\.ts)["']\s*\)|import\(\s*["']([^"']*\.fixture\.ts)["']\s*\)/;
   const offenders = files

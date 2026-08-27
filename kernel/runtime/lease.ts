@@ -1,18 +1,17 @@
-// J4.3 (LSE-01, LSE-02, LSE-04, LSE-05, LSE-06, INS-04) — the mutex. `scope` + `key`, one SQLite
-// statement per acquire, `done` terminal at any horizon, an owner string a reaper can check later
-// without guessing.
+// The mutex: `scope` + `key`, one SQLite statement per acquire, `done` terminal at any horizon,
+// an owner string a reaper can check later without guessing.
 //
 // NO `LSE-` ROW SAYS WHAT A LEASE IS FOR AT v0 (roadmap.md Gaps item 3) — every named consumer is
-// v1 (pipeline watchers), M9 (LSE-12's serial group) or N5 (`ops-lease-reap`). `withLease` (J4.4)
-// is what gives this store a real writer: `<job>@<UTC hour>` in `runNamed`. The v0 unit of
-// exclusion is ONE JOB'S ONE FIRING — the gate (per-process, kernel/runtime/gate.ts) and the lease
-// (per-host, per-instance) divide exactly at that line.
+// v1 (pipeline watchers), M9 (LSE-12's serial group) or N5 (`ops-lease-reap`). `withLease` is what
+// gives this store a real writer: `<job>@<UTC hour>` in `runNamed`. The v0 unit of exclusion is
+// ONE JOB'S ONE FIRING — the gate (per-process, kernel/runtime/gate.ts) and the lease (per-host,
+// per-instance) divide exactly at that line.
 //
-// `renew` and `heldCount` are NOT here (ruling 3, plan/N4-uac.md). `renew` exists in the reference
-// so a long task can hold a small TTL; ours derives the TTL from SUP-13's own bound instead
-// (host/run.ts's hourly key), so it has no caller. `heldCount` fed `maxConcurrent`, which is cut —
-// one key per job per hour, and `acquireSelf` already caps per program in-process. LSE-12 (M9)
-// names `heldCount` explicitly and brings it back with the serial group that needs it.
+// `renew` and `heldCount` are NOT here. `renew` exists in the reference so a long task can hold a
+// small TTL; ours derives the TTL from SUP-13's own bound instead (host/run.ts's hourly key), so
+// it has no caller. `heldCount` fed `maxConcurrent`, which is cut — one key per job per hour, and
+// `acquireSelf` already caps per program in-process. LSE-12 (M9) names `heldCount` explicitly and
+// brings it back with the serial group that needs it.
 import { hostname } from "node:os";
 import { randomUUID } from "node:crypto";
 import { openDb, type Db } from "./db.ts";
@@ -203,11 +202,9 @@ export function release(lease: Lease, outcome: "done" | "failed" = "done"): bool
 }
 
 // ---------------------------------------------------------------------------------------------
-// J4.4 (LSE-03, LSE-04, LSE-09 subject) — withLease: acquire -> run -> release, four members and
-// every one has a caller. See the header for what is CUT and why: no `settle`, no `maxConcurrent`,
-// no `heldCount`, no `renew`, no heartbeat interval, no `AbortSignal`, no `lost`, and above all no
-// `beatMs` — a test seam added to a production signature purely so a test could watch a path no
-// caller takes.
+// withLease is CUT down on purpose: no `settle`, no `maxConcurrent`, no `heldCount`, no `renew`,
+// no heartbeat interval, no `AbortSignal`, no `lost`, and above all no `beatMs` — a test seam
+// added to a production signature purely so a test could watch a path no caller takes.
 // ---------------------------------------------------------------------------------------------
 
 export type WithLeaseResult<T> =
@@ -304,11 +301,11 @@ export function parseOwner(owner: string): OwnerId | null {
 }
 
 // ---------------------------------------------------------------------------------------------
-// J4.5 (LSE-07, LSE-08) — reapDead: delete live claims whose owning process is gone, so the key is
-// reusable NOW rather than at expiry. Every guard is a SKIP, and the order is cheapest-and-most-
-// decisive first. Only a row that survives every guard is reaped — and it is reaped with `force`
-// BECAUSE it is `held`: the guards above are what earn the `force`, and this is not the same
-// operation as a hand-typed `lease-clear --force`.
+// reapDead deletes live claims whose owning process is gone, so the key is reusable NOW rather
+// than at expiry. Every guard is a SKIP, and the order is cheapest-and-most-decisive first. Only a
+// row that survives every guard is reaped — and it is reaped with `force` BECAUSE it is `held`:
+// the guards above are what earn the `force`, and this is not the same operation as a hand-typed
+// `lease-clear --force`.
 // ---------------------------------------------------------------------------------------------
 
 export interface Reaped {

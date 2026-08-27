@@ -1,15 +1,15 @@
-// J2.8 (GAT-08, GAT-09) — the croner seam. This is the ONLY file that imports `croner`
-// (test/deps.test.ts asserts it); everything else reads a cron expression through `parseFive`,
-// `tickSeconds` or `gateWait`, never through the library directly.
+// The croner seam. This is the ONLY file that imports `croner` (test/deps.test.ts asserts it);
+// everything else reads a cron expression through `parseFive`, `tickSeconds` or `gateWait`, never
+// through the library directly.
 //
-// `host/cron.ts` reads cron EXPRESSIONS; `cli/crontab.ts` (J2.15/J2.16) writes the user's CRONTAB.
-// They share four letters and nothing else.
+// `host/cron.ts` reads cron EXPRESSIONS; `cli/crontab.ts` writes the user's CRONTAB. They share
+// four letters and nothing else.
 //
-// GAT-08/GAT-09: `gateWait(cron)` derives "one of the entry's own ticks" from croner's OWN
-// enumeration rather than a hand-written parser, because the supervisor fires croner's timer, not
-// a parser this repo wrote. `gateWait(expr) <= tickSeconds(expr)` always (GAT-09) — waiting LONGER
-// than your own interval is strictly worse than skipping: you hold your self-lock through the
-// ticks you were trying to avoid skipping.
+// `gateWait(cron)` derives "one of the entry's own ticks" from croner's OWN enumeration rather
+// than a hand-written parser, because the supervisor fires croner's timer, not a parser this repo
+// wrote. `gateWait(expr) <= tickSeconds(expr)` always (GAT-09) — waiting LONGER than your own
+// interval is strictly worse than skipping: you hold your self-lock through the ticks you were
+// trying to avoid skipping.
 //
 // A LIVE `Cron` HOLDS THE EVENT LOOP OPEN. Any test that builds one with `newTimer` must call
 // `.stop()` in a `finally` — without it, a `node --test` file hangs.
@@ -22,7 +22,7 @@ import type { ScheduleEntry } from "./schedule.ts";
  * `gateWait` differ run to run and `crontab check` report drift that is not there. Three reasons
  * for THIS date: it is a Sunday, so all seven weekdays appear in the first seven days · February
  * 2026 has 28 days, so a 14-day window crosses a month end on day seven, exactly where croner and
- * POSIX disagree (J2.10) · and it never changes.
+ * POSIX disagree · and it never changes.
  */
 export const CRON_ANCHOR = Date.UTC(2026, 1, 22);
 
@@ -34,8 +34,8 @@ export const GATE_WAIT_CAP_S_ENV: EnvSpec = {
 export const GATE_WAIT_CAP_S: number = envNum(GATE_WAIT_CAP_S_ENV);
 
 // ---------------------------------------------------------------------------------------------
-// parseFive — the intersection grammar (ruling 3 of plan/N2-uac.md): only what croner AND POSIX
-// crontab both accept. Reports every problem, never just the first.
+// parseFive — the intersection grammar: only what croner AND POSIX crontab both accept. Reports
+// every problem, never just the first.
 // ---------------------------------------------------------------------------------------------
 
 interface FieldSpec {
@@ -105,8 +105,7 @@ function parsePart(part: string, field: FieldSpec, problems: string[]): boolean 
     // Bounded by the field's CARDINALITY (max - min + 1), not by field.max: measured, croner
     // accepts "0-59/60 * * * *" (minute cardinality 60) as a once-an-hour firing and rejects
     // "0-59/61" as "steps cannot be greater than maximum value of part (60)" — the bound is the
-    // count of values the field can take, not the largest single value in it (J2.10's corpus
-    // caught this; the field.max version was a bug in the first draft of this rule).
+    // count of values the field can take, not the largest single value in it.
     const cardinality = field.max - field.min + 1;
     if (s < 1 || s > cardinality) {
       problems.push(`${field.name}: step ${JSON.stringify(stepTok)} must be between 1 and ${cardinality}`);
@@ -122,9 +121,8 @@ export type ParseResult = { readonly ok: true } | { readonly ok: false; readonly
 /**
  * Exactly five whitespace-separated fields, each a comma list of `*` | `N` | `N-M`, optionally
  * `/S`. `dom` and `dow` may not both be restricted (POSIX's OR-the-two-day-fields semantics is
- * outside what croner's `nextRun` actually fires on — see plan/N2-uac.md ruling 3). Finally,
- * `new Cron(expr, { paused: true })` must not throw, as a backstop for anything the rules above
- * did not anticipate.
+ * outside what croner's `nextRun` actually fires on). Finally, `new Cron(expr, { paused: true })`
+ * must not throw, as a backstop for anything the rules above did not anticipate.
  */
 export function parseFive(expr: string): ParseResult {
   const problems: string[] = [];
@@ -195,8 +193,8 @@ export function firings(expr: string, fromMs: number, toMs: number, stopAtS?: nu
  * The smallest consecutive gap between firings of `expr`, in seconds, over `days` days from
  * `CRON_ANCHOR`. `0` when fewer than two firings turn up in the window — the caller reads `0` as
  * "rarer than the window" and takes the cap. `days` defaults to 21: a weekly expression needs more
- * than 14 days to show two firings, so `gateWait` (which needs the true tick) uses 21; J2.10's
- * parity walk uses 14 because SUP-07 says so — one anchor, two lengths, each with its own reason.
+ * than 14 days to show two firings, so `gateWait` (which needs the true tick) uses 21; the parity
+ * walk uses 14 because SUP-07 says so — one anchor, two lengths, each with its own reason.
  */
 export function tickSeconds(expr: string, days = 21, stopAtS?: number): number {
   const fromMs = CRON_ANCHOR;
@@ -248,12 +246,10 @@ export function newTimer(e: ScheduleEntry, fn: () => void): Timer {
 
 /**
  * `true` if `date` matches `expr`, straight from croner's own `Cron.match` — independent of
- * `nextRun`'s iterator. J2.10's opt-in re-measure (`CRON_PARITY_RECHECK=1`) is the one caller: it
+ * `nextRun`'s iterator. The opt-in re-measure (`CRON_PARITY_RECHECK=1`) is the one caller: it
  * needs a croner answer that does NOT go through the same iterator `nextRun`/`firings` do, or a
  * `nextRun` bug and a `match` check would just be testing the same code path twice. host/cron.ts
- * stays the ONLY file importing croner (test/deps.test.ts) — this is a deliberate addition beyond
- * plan/N2-uac.md J2.10's stated "Files touched" (host/parity.test.ts only), recorded in J2.10's
- * commit.
+ * stays the ONLY file importing croner (test/deps.test.ts).
  */
 export function cronMatch(expr: string, date: Date): boolean {
   return new Cron(expr, { paused: true, timezone: "UTC" }).match(date);

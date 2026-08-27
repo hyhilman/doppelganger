@@ -1,10 +1,7 @@
-// J2.11 (SUP-03, SUP-04, SUP-11, SUP-13, SUP-16, GAT-08, GAT-09) — runEntry: one entry's tick, end
-// to end.
-//
-// Ruling 2 in full: runEntry(e, deps, isDraining) takes everything impure through `deps`, with NO
-// default on any field, so TypeScript refuses a call that would write into the real checkout. The
-// real values (the real gate, the real spawn, the real paths) are assembled in main()'s argv block
-// (J2.13), which no test reaches.
+// runEntry(e, deps, isDraining) takes everything impure through `deps`, with NO default on any
+// field, so TypeScript refuses a call that would write into the real checkout. The real values
+// (the real gate, the real spawn, the real paths) are assembled in main()'s argv block, which no
+// test reaches.
 //
 // THE PRE-FLIGHT ORDER (the row content, stated as a sequence — GAT-09's whole content is why step
 // 4 comes before step 5):
@@ -14,7 +11,7 @@
 //   4. acquireSelf(program)            -> null? log warn lock-held mode=self, return  (GAT-06)
 //   5. gate !== "none" -> acquire(mode, resources, gateWait)                 (GAT-08)
 //                         null? log warn lock-held, releaseSelf, return
-//   6. draining? -> log info drain-skipped, return                          (J2.13's stop())
+//   6. draining? -> log info drain-skipped, return                          (main()'s stop())
 //   7. await spawnSlot(spawnStaggerMs)   <- HOLDS THE GATE. See below.       (HRN-18)
 //   8. draining? -> log info drain-skipped, return
 //   9. spawn(...)       finally { hold?.release(); releaseSelf(); }
@@ -24,9 +21,9 @@
 // self-lock while it waits, so the ticks it waits through are the ticks it forces to skip — which
 // is why the wait is DERIVED (gateWait(e.cron), GAT-08) and capped, never hand-picked (GAT-09).
 //
-// STEP 7's PLACEMENT — after the gate, immediately before spawn — was challenged as a regression
-// against the reference and it is not one; the check is on the record. Staggering BEFORE the gate
-// does not work: the stagger exists to space the moment two children each take an OS lock on
+// STEP 7's PLACEMENT — after the gate, immediately before spawn — is not a regression against the
+// reference. Staggering BEFORE the gate does not work: the stagger exists to space the moment two
+// children each take an OS lock on
 // `~/.gitconfig`, and if two entries stagger apart and then both block at the gate, they are
 // released by the same drain() and spawn in the same instant — the stagger has been spent and the
 // race is still there. The stagger only removes the race if it is the LAST thing before spawn,
@@ -55,8 +52,8 @@ import { decideShed } from "../kernel/runtime/shed.ts";
 import { deliveryStamp } from "../kernel/runtime/delivery.ts";
 import { classOf } from "./classes.ts";
 
-// §2.27's three supervisor knobs. Each is read here (envNum) so `main()`'s argv block (J2.13) can
-// pass the resolved value into `deps` without resolving anything itself — the same pattern
+// §2.27's three supervisor knobs. Each is read here (envNum) so `main()`'s argv block can pass
+// the resolved value into `deps` without resolving anything itself — the same pattern
 // host/cron.ts's GATE_WAIT_CAP_S already uses.
 export const SUPERVISOR_MAX_RUN_MIN_ENV: EnvSpec = {
   key: "SUPERVISOR_MAX_RUN_MIN",
@@ -106,17 +103,16 @@ export interface SpawnOptions {
 export type SpawnFn = (cmd: string, args: readonly string[], opts: SpawnOptions) => SpawnedChild;
 
 /**
- * Everything impure `runEntry` needs, as a required `deps` argument — ruling 2. `jobRunner` is how
- * `job:` entries become a command without this file knowing what a job is: at N3 (ruling 3,
- * plan/N3-uac.md) it spawns `host/run.ts <job>` — the ONE argv block a scheduled job reaches — and
- * NEVER the job file directly, which the first N3 draft got wrong and which is why the spawned
- * command is driven end to end rather than merely assumed (J3.14 AC4). The real one is assembled
- * in `main()`'s argv block (J2.13).
+ * Everything impure `runEntry` needs, as a required `deps` argument. `jobRunner` is how `job:`
+ * entries become a command without this file knowing what a job is: it spawns `host/run.ts <job>`
+ * — the ONE argv block a scheduled job reaches — and NEVER the job file directly, which is why the
+ * spawned command is driven end to end rather than merely assumed. The real one is assembled in
+ * `main()`'s argv block.
  *
  * `shouldShed` (SUP-16, QTA-08/09) and boot-time lease reap (SUP-15) were the two N4 seams N2
  * shipped honest but unfinished: SUP-16 is a PLACEMENT row — before the gate — checked from N2 on;
- * the real predicate (`realShouldShed`, J4.10) replaced the `() => ({ skip: false })` spy the argv
- * block carried until then.
+ * the real predicate (`realShouldShed`) replaced the `() => ({ skip: false })` spy the argv block
+ * carried until then.
  */
 export interface SupervisorDeps {
   /** SUP-03: the child's cwd. Never the package directory. */
@@ -139,7 +135,7 @@ export interface SupervisorDeps {
 
 const sinkCache = new Map<string, Sink>();
 
-/** Every child currently in flight, across every entry — J2.13's `stop()` reads this to know who
+/** Every child currently in flight, across every entry — main()'s `stop()` reads this to know who
  *  to signal on a drain, and `snapshot()` reads its size. Module-level because `stop()` and
  *  `spawnChild()` need to agree on the same set without threading it through every call. */
 const liveChildren = new Set<SpawnedChild>();
@@ -269,8 +265,8 @@ function spawnChild(e: ScheduleEntry, program: Program, deps: SupervisorDeps): P
 }
 
 /** One entry's tick, end to end. See the module header for the pre-flight order and why each step
- *  sits where it does. `isDraining` is separate from `deps`: it is a live signal main() (J2.13)
- *  flips mid-run, not a value assembled once per call. */
+ *  sits where it does. `isDraining` is separate from `deps`: it is a live signal main() flips
+ *  mid-run, not a value assembled once per call. */
 export async function runEntry(
   e: ScheduleEntry,
   deps: SupervisorDeps,
@@ -284,7 +280,7 @@ export async function runEntry(
 
   const row = deps.programs[program];
   if (!row) {
-    // validate() (J2.9) refuses this before boot; defensive only.
+    // validate() refuses this before boot; defensive only.
     log.error("job-failed", { msg: `no PROGRAMS row for ${program}` });
     return;
   }
@@ -325,7 +321,7 @@ export async function runEntry(
   }
 
   try {
-    // 6. draining? (J2.13's stop())
+    // 6. draining? (main()'s stop())
     if (isDraining()) {
       log.info("drain-skipped", {});
       return;
@@ -349,8 +345,8 @@ export async function runEntry(
 }
 
 // ---------------------------------------------------------------------------------------------
-// J2.13 (SUP-06, SUP-14, SUP-15, SUP-18) — main(): boot, timers, heartbeat, drain, the loud
-// refusal. The boot sequence, in order: validate (throws → bootOrDie prints every line and sets
+// main(): boot, timers, heartbeat, drain, the loud refusal. The boot sequence, in order: validate
+// (throws → bootOrDie prints every line and sets
 // process.exitCode) → reapOnBoot (non-fatal; SUP-15's whole content is "before the timers", so a
 // sweep never races the ticks it exists to unblock) → one newTimer per SUPERVISED entry (SUP-03)
 // → beat() once, then every 60s, unref'd (SUP-14) → the `supervisor-up` line → SIGTERM/SIGINT ->
@@ -369,8 +365,8 @@ export interface BootDeps extends SupervisorDeps {
   readonly heartbeatPath: string;
   readonly statusPath: string;
   /** JOB-O11, SUP-14: `DELIVERY_STAMPS`' one N4 row (kernel/runtime/delivery.ts) — present exactly
-   *  while `beat()`'s heartbeat write is failing. REQUIRED, no default (the `reapOnBoot` precedent,
-   *  J4.6): a field a future argv-block edit could drop in silence is a field that will be. */
+   *  while `beat()`'s heartbeat write is failing. REQUIRED, no default: a field a future argv-block
+   *  edit could drop in silence is a field that will be. */
   readonly heartbeatFailPath: string;
   readonly bootLog: string;
   readonly drainMs: number;
@@ -378,13 +374,8 @@ export interface BootDeps extends SupervisorDeps {
    *  timers — was asserted with a fake); REQUIRED from N4, when `realReapOnBoot` below gives it
    *  one. An optional field is a field a future argv-block edit can drop in silence. */
   readonly reapOnBoot: () => Iterable<Record<string, string | number>>;
-  /**
-   * Production is `process.exit`; a test supplies a recorder instead. NOT part of the interface
-   * sketch in plan/N2-uac.md J2.13 — added here because the plan's own "Risks" section requires
-   * it verbatim ("stop() taking its exit function through deps... is also the seam a test
-   * needs"), which the sketch omitted. Required, not defaulted, like every other impure field
-   * (ruling 2).
-   */
+  /** Production is `process.exit`; a test supplies a recorder instead — the seam a test needs to
+   *  observe `stop()`'s exit call. Required, not defaulted, like every other impure field. */
   readonly exit: (code: number) => void;
 }
 
@@ -406,7 +397,7 @@ export function snapshot(deps: BootDeps): Record<string, unknown> {
  * Never throws: a supervisor that dies because it could not write its own liveness stamp turns a
  * full disk into a dead fleet, which is strictly worse than the watchdog firing.
  *
- * J4.13, ruling 7 — TWO INDEPENDENT `try` blocks, not one. The obvious shape (both writes in ONE
+ * TWO INDEPENDENT `try` blocks, not one. The obvious shape (both writes in ONE
  * `try`, stamping from its `catch`) is wrong: a GOOD heartbeat plus a FAILING `status.json` write
  * would then set the stamp, and the watchdog's probe 4 would print "the supervisor is alive but
  * cannot write its heartbeat — probe 3 is a false alarm" while probe 3 never fired and the
@@ -507,16 +498,15 @@ export async function main(schedule: readonly ScheduleEntry[], deps: BootDeps): 
     log.info("supervisor-draining", { signal: sig, children: children.length });
     for (const c of children) c.kill("SIGTERM");
 
-    // DEVIATION from plan/N2-uac.md's "both timers unref'd", recorded here: this Promise IS
-    // stop()'s own await — it is not background work, it is the mechanism stop() uses to know
-    // when to proceed. Unref'ing a timer stop() is itself waiting on lets Node consider the event
-    // loop drained (and, in a process with nothing else running — every test in this file that
-    // exercises drain — end the run) before the timer ever gets a chance to fire, which measured
-    // as exactly this: "Promise resolution is still pending but the event loop has already
-    // resolved". The REAL point behind "unref'd" — this must never hold a shutdown open beyond
-    // what draining needs — is met anyway: the drain waits at most `drainMs` (children that never
-    // exit are SIGKILLed and the poll then finds an empty set within one more 200ms tick), and
-    // stop() calls `deps.exit()` explicitly the moment it is done either way.
+    // This Promise IS stop()'s own await — it is not background work, it is the mechanism stop()
+    // uses to know when to proceed. Unref'ing a timer stop() is itself waiting on lets Node
+    // consider the event loop drained (and, in a process with nothing else running — every test
+    // in this file that exercises drain — end the run) before the timer ever gets a chance to
+    // fire: Promise resolution can still be pending while the event loop has already resolved.
+    // The REAL point behind "unref'd" — this must never hold a shutdown open beyond what draining
+    // needs — is met anyway: the drain waits at most `drainMs` (children that never exit are
+    // SIGKILLed and the poll then finds an empty set within one more 200ms tick), and stop() calls
+    // `deps.exit()` explicitly the moment it is done either way.
     await new Promise<void>((resolve) => {
       const killTimer = setTimeout(() => {
         for (const c of liveChildren) c.kill("SIGKILL");
@@ -554,19 +544,19 @@ export async function main(schedule: readonly ScheduleEntry[], deps: BootDeps): 
  *  SUP-06 — a restart loop and a watchdog report within 15 minutes — are DECLINED: the restart
  *  policy is SUP-19 (moved to M9 with the fleet) and the watchdog is JOB-O10 (N4). N2 ships the
  *  exit code and the message; this comment names which phase owns the rest. */
-/** The REAL argv pair a scheduled `job:` entry spawns (SUP-03, N3 F1). Exported and top-level so a
- *  test can pin it — the argv block in main() below is untestable by construction, and the first
- *  N3 review proved that an inline literal there can regress to `host/jobs/<job>.ts` (the silent
- *  no-op) with the whole suite green. `JOB_ENTRYPOINT` is the same constant `commandOf` renders,
- *  so the crontab line and the spawned command cannot name two different targets. */
+/** The REAL argv pair a scheduled `job:` entry spawns (SUP-03). Exported and top-level so a test
+ *  can pin it — the argv block in main() below is untestable by construction, and an inline
+ *  literal there could regress to `host/jobs/<job>.ts` (a silent no-op) with the whole suite
+ *  green. `JOB_ENTRYPOINT` is the same constant `commandOf` renders, so the crontab line and the
+ *  spawned command cannot name two different targets. */
 export const realJobRunner = (job: string): readonly [string, readonly string[]] =>
   [process.execPath, [projectPath(JOB_ENTRYPOINT), job]];
 
 /**
  * LSE-09's real sweep. Exported top-level so a test can pin it — the argv block below is
- * untestable by construction (N2 ruling 1), and N3 F1 is the precedent: an inline literal there
- * regressed once with the whole suite green. Opens `lease.db` on first call and the handle lives
- * for the supervisor's process — one long-lived connection to a file that holds tens of rows.
+ * untestable by construction, and an inline literal there could regress with the whole suite
+ * green. Opens `lease.db` on first call and the handle lives for the supervisor's process — one
+ * long-lived connection to a file that holds tens of rows.
  */
 export const realReapOnBoot = (): Iterable<Record<string, string | number>> =>
   reapDead().map((r) => ({ scope: r.scope, key: r.key, pid: r.pid, claimed: r.claimedAt, ttlLeftMin: r.ttlLeftMin }));
@@ -574,10 +564,10 @@ export const realReapOnBoot = (): Iterable<Record<string, string | number>> =>
 /**
  * SUP-16, QTA-08/09's real predicate — the SKIP half. `deps.shouldShed` (`SupervisorDeps`) stays a
  * required field; the argv block wires THIS in place of the N2 spy (`() => ({ skip: false })`).
- * Exported top-level so a test can pin it — the argv block below is untested by construction (N2
- * ruling 1), and N3 F1 is the precedent: an inline literal there regressed once with the whole
- * suite green. Opens `quota.db` on the first call (`inspect`, inside `decideShed`'s caller here,
- * never inside `decideShed` itself — QTA-09) and the handle lives for the supervisor's process.
+ * Exported top-level so a test can pin it — the argv block below is untestable by construction,
+ * and an inline literal there could regress with the whole suite green. Opens `quota.db` on the
+ * first call (`inspect`, inside `decideShed`'s caller here, never inside `decideShed` itself —
+ * QTA-09) and the handle lives for the supervisor's process.
  *
  * `program` is `programOf(e)` — `runEntry`'s own key, e.g. `nightly-sandcastle`. `classOf` is the
  * SAME function `host/run.ts`'s `runNamed` calls for the DOWNSHIFT half, but handed a different
@@ -607,7 +597,7 @@ export async function bootOrDie(schedule: readonly ScheduleEntry[], deps: BootDe
 }
 
 // ---------------------------------------------------------------------------------------------
-// J2.14 (SUP-17) — list(): the resolved schedule, printed. Pure — returns a string, prints
+// (SUP-17) — list(): the resolved schedule, printed. Pure — returns a string, prints
 // nothing — so a test can pin the exact text without capturing console.log; only the argv block
 // below ever calls console.log with the result.
 // ---------------------------------------------------------------------------------------------
@@ -706,9 +696,9 @@ export function list(schedule: readonly ScheduleEntry[], opts: ListOpts): string
 }
 
 // ---------------------------------------------------------------------------------------------
-// The argv block. UNTESTED BY CONSTRUCTION (plan/N2-uac.md ruling 1) — no test imports this file
+// The argv block. UNTESTED BY CONSTRUCTION — no test imports this file
 // in a way that reaches it. It assembles the real deps and dispatches --list / --gate / boot.
-// `supervisor --list` is SUP-17 (J2.14); until that job lands, only boot runs.
+// `supervisor --list` is SUP-17; until that job lands, only boot runs.
 // ---------------------------------------------------------------------------------------------
 if (import.meta.filename === process.argv[1]) {
   const { SCHEDULE, PROGRAMS } = await import("./schedule.ts");

@@ -1,5 +1,5 @@
-// J1.19 (INS-02, §1) — "there is no third category" made testable: three doors, each shutting off
-// one way a hidden write path could exist, plus the two-word vocabulary the register accepts.
+// "There is no third category" made testable: three doors, each shutting off one way a hidden
+// write path could exist, plus the two-word vocabulary the register accepts.
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -9,9 +9,9 @@ import { join } from "node:path";
 
 const ROOT = new URL("..", import.meta.url).pathname.replace(/\/$/, "");
 
-// J2.3 (INS-02, KRN-06) — every N2 file lands outside kernel/, so the three repo-wide registers
-// must learn about host/ and cli/ before the first such file exists. plugins/ stays out: it holds
-// no .ts file until N5, and scanning it now would be a scan with no subject.
+// Every N2 file lands outside kernel/, so the three repo-wide registers must learn about host/
+// and cli/ before the first such file exists. plugins/ stays out: it holds no .ts file until N5,
+// and scanning it now would be a scan with no subject.
 const SCANNED_DIRS = ["kernel", "host", "cli"];
 
 function walkTsFiles(dir: string, out: string[]): void {
@@ -46,34 +46,33 @@ function allTsFiles(): string[] {
 // reads as a quote-then-slash and false-positives on kernel/runtime/log/{emit,parse}.ts's own
 // escaping code.
 //
-// EXCEPTIONS ARE SIGNED, NEVER SPELLED AROUND (N3 F2): door 1 decodes \uXXXX escapes before it
-// scans, because three N3 literals were spelled `\u002F…` so the scanner would not see them —
-// and a review then planted a genuinely hardcoded path in the same spelling and the suite stayed
-// green. A gate a file can opt out of by respelling is not a gate. A literal that legitimately
-// starts with a slash but is NOT a path (a command, a command prefix, a separator) gets a row in
+// EXCEPTIONS ARE SIGNED, NEVER SPELLED AROUND: door 1 decodes \uXXXX escapes before it scans,
+// because some literals were once spelled `\u002F…` so the scanner would not see them — and a
+// hardcoded path was then planted in the same spelling while the suite stayed green. A gate a
+// file can opt out of by respelling is not a gate. A literal that legitimately starts with a
+// slash but is NOT a path (a command, a command prefix, a separator) gets a row in
 // DOOR1_EXCEPTIONS below: file, exact literal, expected count, and the reason. The count is
-// asserted exactly, so a SECOND copy of a signed literal is an offender, not a free pass — the
-// hole N2's own DOOR1_ALLOWED_LITERAL had.
+// asserted exactly, so a SECOND copy of a signed literal is an offender, not a free pass.
 //
-// History (F1/F2, N2 VERIFY): `cli/crontab.ts`'s `CRONTAB_CMD_ENV` used to carry
-// `default: "/usr/bin/crontab"` — a real, absolute crontab binary on most hosts, which meant a
-// caller who forgot to set `CRONTAB_CMD` sailed past layer 0 (it only refuses a non-absolute
-// command) and reached the developer's real crontab. F1 dropped the default and made the row
-// `required: true`, so the literal no longer exists in that file at all — this door needed a
-// scoped exception before and needs none now. If a hardcoded absolute path ever reappears in
-// `cli/crontab.ts`, this door must trip on it like anywhere else.
+// History: `cli/crontab.ts`'s `CRONTAB_CMD_ENV` used to carry `default: "/usr/bin/crontab"` — a
+// real, absolute crontab binary on most hosts, which meant a caller who forgot to set
+// `CRONTAB_CMD` sailed past layer 0 (it only refuses a non-absolute command) and reached the
+// developer's real crontab. Dropping the default and making the row `required: true` removed the
+// literal from that file entirely — this door needed a scoped exception before and needs none
+// now. If a hardcoded absolute path ever reappears in `cli/crontab.ts`, this door must trip on it
+// like anywhere else.
 const HARDCODED_PATH = /(?<=[=(\[{,:\s])(["'`])[/~]/;
 
-/** N3 F2: decode \uXXXX and \xXX escapes so no respelling hides a literal from door 1. */
+/** Decode \uXXXX and \xXX escapes so no respelling hides a literal from door 1. */
 function decodeEscapes(src: string): string {
   return src
     .replace(/\\u([0-9a-fA-F]{4})/g, (_, h: string) => String.fromCharCode(parseInt(h, 16)))
     .replace(/\\x([0-9a-fA-F]{2})/g, (_, h: string) => String.fromCharCode(parseInt(h, 16)));
 }
 
-/** The signed door-1 exception table (N3 F2). One row per allowed slash-leading literal that is
- *  not a path. `count` is exact: a second copy of the same literal anywhere in the file is an
- *  offender, which is the hole N2's whole-file `split(allowed).join("")` had. */
+/** The signed door-1 exception table. One row per allowed slash-leading literal that is not a
+ *  path. `count` is exact: a second copy of the same literal anywhere in the file is an offender —
+ *  a whole-file allow-and-strip pass would miss that. */
 const DOOR1_EXCEPTIONS: readonly { file: string; literal: string; count: number; why: string }[] = [
   { file: "host/run.ts", literal: '"/bin/false"', count: 1,
     why: "GIT_SSH_COMMAND push gate - a command the agent execs, not a write path (INS-02 does not reach it)" },
@@ -186,7 +185,7 @@ const SKIPPED: Record<string, string> = {
   "<NAME>_DB":
     "the knob FAMILY row — no single key a child can set; dbPath('probe') is checked below instead",
   ENGINE_ROOT:
-    "IS the probe — asserting it starts with itself is a tautology; J1.4 assertion 6 checks it moves STATE_DIR/dbPath together",
+    "IS the probe — asserting it starts with itself is a tautology; a companion check elsewhere verifies it moves STATE_DIR/dbPath together",
 };
 
 test("2. door 2 — every EnvSpec row ending _DB/_DIR/_ROOT resolves inside a probe ENGINE_ROOT", () => {
@@ -263,15 +262,15 @@ const REGISTER: Record<string, RegisterEntry> = {
   },
   "host/runner.ts": {
     category: "project-relative",
-    reason: "mkdirSync for GIT_CONFIG_GLOBAL's parent directory — a fresh checkout must not die on 'could not lock config file' (ruling 6, J3.3)",
+    reason: "mkdirSync for GIT_CONFIG_GLOBAL's parent directory — a fresh checkout must not die on 'could not lock config file'",
   },
   "cli/skills.ts": {
     category: "project-relative",
-    reason: "sync writes/rewrites a rendered SKILL.md and prunes an orphan directory, all under .claude/skills (SKL-04, J3.9)",
+    reason: "sync writes/rewrites a rendered SKILL.md and prunes an orphan directory, all under .claude/skills (SKL-04)",
   },
   "host/jobs/nightly-sandcastle.ts": {
     category: "project-relative",
-    reason: "symlinks node_modules into the pass worktree, all under the project-relative worktree root (J3.12)",
+    reason: "symlinks node_modules into the pass worktree, all under the project-relative worktree root",
   },
 };
 
@@ -343,10 +342,10 @@ test("4. the registers' category column accepts exactly two words", () => {
 // QUOTED command-name literal against a small, deliberate set of externally-mutating commands.
 //
 // What it cannot see: a name built by concatenation ("cron" + "tab") or read from a variable set
-// elsewhere. That is the honest limit (LOOP.md: "a gate that pattern-matches ONE spelling of an
-// import is not a gate") — J2.16's isAbsolute guard is the real enforcement; this text scan is the
-// cheap second line. `gh` and `git` are deliberately not in this set: kernel/runtime/exec.ts names
-// both and they are read-mostly wrappers whose write paths are JOB-G's (N5) to register.
+// elsewhere. That is the honest limit — a pattern that matches only ONE spelling of a command is
+// not a gate. The isAbsolute guard is the real enforcement; this text scan is the cheap second
+// line. `gh` and `git` are deliberately not in this set: kernel/runtime/exec.ts names both and
+// they are read-mostly wrappers whose write paths are JOB-G's (N5) to register.
 const EXTERNAL_COMMANDS = ["crontab", "systemctl", "docker", "at"];
 
 interface CommandRegisterEntry {
@@ -380,7 +379,7 @@ test("5. door 5 — every file naming an externally-mutating command signs COMMA
 });
 
 // ---------------------------------------------------------------------------------------------
-// Door 6 — no module-scope side-effect path in host/ or cli/ (ruling 2)
+// Door 6 — no module-scope side-effect path in host/ or cli/
 // ---------------------------------------------------------------------------------------------
 //
 // Every path and every external command in host/ and cli/ arrives through a REQUIRED `deps`
@@ -399,13 +398,12 @@ test("5. door 5 — every file naming an externally-mutating command signs COMMA
 // spread across a multi-line top-level declaration's continuation lines. Accepted — the
 // required-deps typing is the real enforcement; this door is the cheap second line.
 //
-// F4 (N2 VERIFY): this door used to match the SIX MEMBER NAMES themselves at the call site, so
+// This door used to match the SIX MEMBER NAMES themselves at the call site, so
 // `import { readFileSync as rfs } from "node:fs"` plus a module-scope `rfs(...)` matched nothing —
-// the call site never spells `readFileSync` at all. LOOP.md's standing rule ("one spelling is not
-// a gate"), fifth occurrence. Fixed by resolving each file's own LOCAL name for each member FIRST
-// (following `as`, the same alias syntax door 3 already strips in the other direction), then
-// building that file's call/decl patterns from the LOCAL names actually in scope there, aliased or
-// not — never from the fixed member-name list directly.
+// the call site never spells `readFileSync` at all. Fixed by resolving each file's own LOCAL name
+// for each member FIRST (following `as`, the same alias syntax door 3 already strips in the other
+// direction), then building that file's call/decl patterns from the LOCAL names actually in scope
+// there, aliased or not — never from the fixed member-name list directly.
 const MODULE_SCOPE_MEMBERS = "projectPath|dbPath|mkdirSync|createWriteStream|readFileSync|writeFileSync";
 const MODULE_SCOPE_MEMBER_RE = new RegExp(`^(${MODULE_SCOPE_MEMBERS})$`);
 

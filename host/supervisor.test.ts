@@ -1,5 +1,3 @@
-// J2.11 (SUP-03, SUP-04, SUP-11, SUP-13, SUP-16, GAT-08, GAT-09) — runEntry, end to end.
-//
 // Every test builds `deps` from `makeHarness(overrides, onChild)`. `spawnStaggerMs: 0` is
 // load-bearing (matches gate.test.ts's own precedent): `spawnChain` in kernel/runtime/pool.ts is
 // module-global and never resets, and `node --test` runs one file in one process, so every
@@ -7,8 +5,8 @@
 // tests would serialise into over a minute. Group 7, which is about the stagger, is the only test
 // that sets a non-zero value (30ms).
 //
-// Fixtures (`entry`, `program`) are built locally, not imported from host/schedule.test.ts — the
-// same reason as J2.9/J2.10: importing a .test.ts file re-runs every test() it registers.
+// Fixtures (`entry`, `program`) are built locally, not imported from host/schedule.test.ts —
+// importing a .test.ts file re-runs every test() it registers.
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -145,8 +143,8 @@ function stubJobFiles(root: string, jobs: readonly string[]): void {
   for (const job of jobs) writeFileSync(join(dir, `${job}.ts`), "export {};\n");
 }
 
-/** J4.6 (LSE-09) — a real, dead-owner `held` claim, written directly (bypassing acquire()'s own
- *  owner generation, the same shape kernel/runtime/lease-reap.test.ts's own seed() uses) so
+/** (LSE-09) — a real, dead-owner `held` claim, written directly (bypassing acquire()'s own owner
+ *  generation, the same shape kernel/runtime/lease-reap.test.ts's own seed() uses) so
  *  `realReapOnBoot`'s real `reapDead()` sweep has something genuine to find. `LEASE_DB` must
  *  already be redirected before this is called. */
 function seedDeadLease(scope: string, key: string): number {
@@ -167,7 +165,7 @@ function seedDeadLease(scope: string, key: string): number {
 }
 
 /** A schedule-entry fixture whose `log` sits under one of main()'s own logRoots for `root`
- *  (`<root>/.doppelganger/logs`), so a J2.13 test's schedule validates without extra plumbing. */
+ *  (`<root>/.doppelganger/logs`), so a boot test's schedule validates without extra plumbing. */
 function bootEntry(root: string, over: Partial<ScheduleEntry> = {}): ScheduleEntry {
   return {
     name: "watch-probe",
@@ -321,8 +319,8 @@ test("2. the order, proved by a recording gate", async () => {
   }
 });
 
-/** J4.10: redirects `QUOTA_DB` to a fresh temp file for the duration of `fn`, restoring the prior
- *  value afterwards — the LEASE_DB precedent (test 19/43) applied to quota.ts. */
+/** Redirects `QUOTA_DB` to a fresh temp file for the duration of `fn`, restoring the prior value
+ *  afterwards — the LEASE_DB precedent (test 19/43) applied to quota.ts. */
 async function withQuotaDb<T>(fn: () => Promise<T>): Promise<T> {
   const quotaDbPath = join(mkdtempSync(join(tmpdir(), "dg-supervisor-quota-")), "quota.db");
   const previous = process.env.QUOTA_DB;
@@ -472,7 +470,7 @@ test("5. GAT-06 / GAT-09", async () => {
     const eA = entry({ name: "watch-a", job: "probe", gateWait: true, cron: "*/10 15-21 * * *" });
     const pA = runEntry(eA, { ...h.deps, programs: { probe: program({ gate: "excl", resources: ["a"] }) } }); // NOT awaited
     // give the synchronous acquireSelf + acquire enqueue a chance to run (acquireSelf is
-    // synchronous; the gate enqueue inside acquire() is synchronous too, per J2.4/J2.5).
+    // synchronous; the gate enqueue inside acquire() is synchronous too).
     await Promise.resolve();
     await Promise.resolve();
 
@@ -484,11 +482,11 @@ test("5. GAT-06 / GAT-09", async () => {
     await pA;
     other();
   }
-  // c. F3 (N2 VERIFY): step 5's failure path — gate.acquire refuses — releases the self-lock it
-  // already holds from step 4. The `finally` in runEntry does this today, but nothing asserted it:
-  // the verifier deleted the `releaseSelf()` call and the suite stayed green. Without the release,
-  // this program's self-lock is held for the life of the process and no later tick of it ever runs
-  // again — worse than the tick just failing once.
+  // c. Step 5's failure path — gate.acquire refuses — releases the self-lock it already holds
+  // from step 4. The `finally` in runEntry does this, and a mutation that deletes the
+  // `releaseSelf()` call must turn this red. Without the release, this program's self-lock is
+  // held for the life of the process and no later tick of it ever runs again — worse than the
+  // tick just failing once.
   {
     const h = makeHarness(undefined, () => {});
     const held = await h.deps.gate.acquire("excl", ["a"], 0); // takes what "probe" wants, no wait
@@ -508,8 +506,8 @@ test("6. GAT-08: the derived wait", async () => {
   // lock-held line carries waited (in seconds).
   {
     // A FULLY FAKE gate here, not a spy wrapping the real one: the real gate would genuinely wait
-    // out the derived 600_000ms budget before returning null, which is J2.5's own concern (already
-    // exhaustively tested there). This test's concern is narrower — what runEntry HANDS the gate,
+    // out the derived 600_000ms budget before returning null — already exhaustively tested in
+    // gate.test.ts. This test's concern is narrower — what runEntry HANDS the gate,
     // and what it LOGS when the gate refuses — so the fake refuses immediately while recording the
     // call.
     const h = makeHarness(undefined, () => {});
@@ -604,10 +602,10 @@ test("8. SUP-03: the recorded spawn options", async () => {
     assert.deepEqual(call.args, []);
     assert.deepEqual([call.cmd, call.args], scriptCommandOf(h.root, "scripts/probe.sh"));
   }
-  // J4.11: a .ts script: entry ALSO goes through scriptCommandOf, not an inline reimplementation
-  // that only happens to agree with it on the .sh arm — this is what actually discriminates
-  // spawnChild's own script dispatch from a hand-inlined `[join(root, script), []]` (AC3), which
-  // the .sh case above cannot: both shapes render identically for a .sh script.
+  // A .ts script: entry ALSO goes through scriptCommandOf, not an inline reimplementation that
+  // only happens to agree with it on the .sh arm — this is what actually discriminates
+  // spawnChild's own script dispatch from a hand-inlined `[join(root, script), []]`, which the
+  // .sh case above cannot: both shapes render identically for a .sh script.
   {
     const h = makeHarness();
     const e = entry({ job: undefined, script: "scripts/probe.ts", log: join(h.root, "t.log") });
@@ -774,13 +772,11 @@ test("16. GAT-10: job= is the PROGRAM, not the entry — splitting the counter w
 });
 
 // -------------------------------------------------------------------------------------------
-// J2.13 (SUP-06, SUP-14, SUP-15, SUP-18) — main(): boot, timers, heartbeat, drain, the loud
-// refusal.
+// main(): boot, timers, heartbeat, drain, the loud refusal.
 // -------------------------------------------------------------------------------------------
 
 test("17. one newTimer per supervised entry", async () => {
-  // DEVIATION from plan/N2-uac.md's literal fixture ("two supervised: false"), recorded here:
-  // SUP-09 (validate() rule 22, J2.9) refuses more than one entry with supervised: false — a
+  // SUP-09 (validate() rule 22) refuses more than one entry with supervised: false — a
   // five-entry fixture with two would never pass validate() at all. Four supervised, one
   // bootstrap still proves the same point: newTimer fires for the supervised ones and never for
   // the bootstrap one.
@@ -1122,7 +1118,7 @@ test("29. the argv guard exists", () => {
 });
 
 // -------------------------------------------------------------------------------------------
-// J2.14 (SUP-17) — list(): a pure function, so these tests call it directly with a local
+// (SUP-17) — list(): a pure function, so these tests call it directly with a local
 // six-entry fixture and pin the whole string. `resourceNames` is a local ["a","b","c"], not
 // host/config.ts's real RESOURCE_NAMES — the same reasoning as gate.test.ts's own NAMES fixture:
 // these tests must not go red because an unrelated plugin adds a resource.
@@ -1320,21 +1316,20 @@ function scriptedIsDraining(script: readonly boolean[]): { fn: () => boolean; ca
 }
 
 test("38. step 6's drain-skipped fires between the gate and spawnSlot, never reaching spawn", { timeout: 5000 }, async () => {
-  // WHY A spawnSlot PROBE, NOT JUST CALL-COUNTING (F7, N2 VERIFY — the first draft of this test
-  // had exactly this hole): with a 2-element script, a DELETED step 6 does not skip the
-  // drain-skipped log at all — it just shifts step 8 into consuming the same 2nd `true` value,
-  // AFTER first really awaiting spawnSlot. spawnCalls stays 0 and drain-skipped still logs once
-  // EITHER way, so neither assertion tells step 6 firing apart from step 8 firing in its place.
+  // WHY A spawnSlot PROBE, NOT JUST CALL-COUNTING: with a 2-element script, a DELETED step 6 does
+  // not skip the drain-skipped log at all — it just shifts step 8 into consuming the same 2nd
+  // `true` value, AFTER first really awaiting spawnSlot. spawnCalls stays 0 and drain-skipped
+  // still logs once EITHER way, so neither assertion tells step 6 firing apart from step 8 firing
+  // in its place.
   //
   // What a deleted step 6 cannot hide: `spawnSlot` (kernel/runtime/pool.ts) delays its NEXT
   // caller, not itself — `spawnSlot(300)` returns almost immediately but queues a real 300ms wait
   // for whoever calls `spawnSlot` after it. So probing with our OWN `spawnSlot(0)` call right
   // after `runEntry` returns tells us whether `runEntry` called `spawnSlot` at all: if step 6 fired
   // (never reached step 7), the probe resolves at once; if step 6 was skipped and step 7 really
-  // ran, the probe inherits its queued 300ms wait. Upper bound; listed in plan/N2-uac.md's
-  // exceptions table (F7 row). `maxRunMin` is dropped to a fraction of a second too, so a mutation
-  // that DOES fall through to a real spawn (this harness's child never closes on its own) fails in
-  // well under a second, not 180 minutes.
+  // ran, the probe inherits its queued 300ms wait. `maxRunMin` is dropped to a fraction of a
+  // second too, so a mutation that DOES fall through to a real spawn (this harness's child never
+  // closes on its own) fails in well under a second, not 180 minutes.
   await spawnSlot(0); // drain any pending stagger left by an earlier test, so the probe starts clean
   const h = makeHarness(undefined, () => {}); // spawn must never be called
   const script = scriptedIsDraining([false, true]); // 1 (pre-flight step 1): not draining · 2 (step 6): draining
@@ -1444,8 +1439,8 @@ test("42. N3 F1: the real jobRunner spawns host/run.ts, and main() uses it (SUP-
   const { realJobRunner } = await import("./supervisor.ts");
   const { projectPath } = await import("../kernel/paths.ts");
   // The value, pinned with the path spelled HERE — not read from JOB_ENTRYPOINT — so pointing the
-  // constant (or realJobRunner) at the job file goes red. This is the silent-no-op regression the
-  // first N3 review performed with the whole suite staying green.
+  // constant (or realJobRunner) at the job file goes red, rather than a silent no-op passing with
+  // the whole suite green.
   const [cmd, args] = realJobRunner("probe");
   assert.equal(cmd, process.execPath);
   assert.deepEqual([...args], [projectPath("host/run.ts"), "probe"]);
@@ -1463,9 +1458,9 @@ test("42. N3 F1: the real jobRunner spawns host/run.ts, and main() uses it (SUP-
 test("43. J4.6: the argv block names the real reapOnBoot predicate, never an inline literal", async () => {
   const { projectPath } = await import("../kernel/paths.ts");
   // The child-driver test (44) proves main() + realReapOnBoot; it cannot reach the argv block,
-  // which is untestable by construction (N2 ruling 1). A source-text assertion pins the other
-  // half — the realJobRunner precedent (N3 F1, test 42), because an inline arrow literal there
-  // regressed once with the whole suite green.
+  // which is untestable by construction. A source-text assertion pins the other half — the same
+  // realJobRunner precedent as test 42 — because an inline arrow literal there could regress with
+  // the whole suite green.
   const src = readFileSync(projectPath("host/supervisor.ts"), "utf8");
   const assignments = src
     .split("\n")
@@ -1480,9 +1475,9 @@ test("43. J4.6: the argv block names the real reapOnBoot predicate, never an inl
 });
 
 test("44. J4.6: main() + realReapOnBoot in a real child process — this IS the phase gate", async () => {
-  // The first draft's version could not run, and both faults are named rather than quietly fixed
-  // (plan/N4-uac.md J4.6): (a) spawnSync on a supervisor that never exits blocks forever — this
-  // uses `spawn` with a stderr reader and kills the child on the line it is waiting for. (b) an
+  // Both faults are named rather than quietly fixed: (a) spawnSync on a supervisor that never
+  // exits blocks forever — this uses `spawn` with a stderr reader and kills the child on the line
+  // it is waiting for. (b) an
   // ENGINE_ROOT pointed at a fixture makes ROOT the fixture, so validate() looks for
   // <fixture>/host/jobs/nightly-sandcastle.ts, throws, and no lease-reaped line is ever emitted —
   // AND keeping ROOT real is not the answer either, because the real argv block imports the real
