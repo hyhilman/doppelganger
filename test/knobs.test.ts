@@ -464,3 +464,65 @@ test("7. envDynamic has exactly three call sites (paths.ts's <NAME>_DB, gate.ts'
   const configSrc = readFileSync(join(ROOT, "kernel/config.ts"), "utf8");
   assert.match(configSrc, /<NAME>_DB/); // the comment naming the family, beside the definition
 });
+
+/**
+ * `.env.example` is the fourth render target ADO-09 names, and the only one with no `render`
+ * verb yet — so this assertion is its `check` verb, written where the row list already lives.
+ * Hand-writing the file and gating it here costs one test and adds no command outside M0's fixed
+ * shape; a `cli/env.ts` would be a new operator surface, which is ADO-04's milestone, not N5's.
+ *
+ * What it holds:
+ *   - the same SET of keys as ROWS — a knob added with no row here fails the build, and a row for
+ *     a knob that no longer exists fails it too;
+ *   - a REQUIRED row is uncommented and carries a value (it has no default to fall back on);
+ *   - a DEFAULTED row is commented out and shows exactly `spec.default`, so the file cannot claim
+ *     a default the code does not have;
+ *   - each key's `why` verbatim on the line above it — KRN-06 says the `why` IS the knob doc, so
+ *     the copy in this file is checked against the source rather than maintained beside it.
+ */
+function parseEnvExample(): { key: string; commented: boolean; value: string; why: string }[] {
+  const lines = readFileSync(join(ROOT, ".env.example"), "utf8").split("\n");
+  const ROW = /^(# )?([A-Z0-9_<>]+)=(.*)$/;
+  const out: { key: string; commented: boolean; value: string; why: string }[] = [];
+  for (let i = 0; i < lines.length; i++) {
+    const m = ROW.exec(lines[i]!);
+    if (!m) continue;
+    const prev = lines[i - 1] ?? "";
+    out.push({
+      key: m[2]!,
+      commented: m[1] !== undefined,
+      value: m[3]!,
+      why: prev.startsWith("# ") ? prev.slice(2) : "",
+    });
+  }
+  return out;
+}
+
+test("8. .env.example names exactly the ROWS keys, with each row's real default and its own `why` (ADO-09, KRN-06)", () => {
+  const rows = parseEnvExample();
+
+  assert.deepEqual(
+    rows.map((r) => r.key).sort(),
+    ROWS.map((r) => r.spec.key).sort(),
+    ".env.example and the curated ROWS list name different knobs",
+  );
+  assert.equal(new Set(rows.map((r) => r.key)).size, rows.length, "a key appears twice in .env.example");
+
+  const byKey = new Map(rows.map((r) => [r.key, r]));
+  for (const row of ROWS) {
+    const entry = byKey.get(row.spec.key)!;
+    assert.equal(entry.why, row.spec.why, `.env.example's comment above ${row.spec.key} is not the row's own why`);
+
+    if (row.spec.required === true) {
+      assert.equal(entry.commented, false, `${row.spec.key} is required, so .env.example must not comment it out`);
+      assert.notEqual(entry.value, "", `${row.spec.key} is required and has no default, so .env.example must carry a value`);
+      continue;
+    }
+    assert.equal(entry.commented, true, `${row.spec.key} has a default, so .env.example must show it commented out`);
+    assert.equal(
+      entry.value,
+      row.spec.default ?? "",
+      `.env.example shows ${row.spec.key}=${entry.value}, but the row's default is ${row.spec.default ?? "(none)"}`,
+    );
+  }
+});
