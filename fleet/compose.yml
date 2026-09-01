@@ -1,0 +1,79 @@
+# SUP-19's restart policy and DKR-01's `standalone` role, in one service.
+#
+# EVERY `${VAR:?}` BELOW IS DELIBERATE. Compose refuses to start without it, and `fleet/fleet.sh`
+# is what resolves each one from the host it runs on. A default would be a guess about the host —
+# DKR-05's uid and DKR-06's path are exactly the two guesses that fail silently and late.
+#
+# RUN THE SUPERVISOR HERE **OR** ON THE HOST, NEVER BOTH. Both would be one INSTANCE (INS-01)
+# opening one lease database, and the second one's ticks would refuse at the self-lock rather than
+# do anything useful. The container is the supported way; the host way is `node host/supervisor.ts`
+# under whatever you already trust to restart it.
+#
+# THE WATCHDOG IS NOT HERE, ON PURPOSE. JOB-O10 says a liveness probe scheduled by the process it
+# probes reports nothing in the one case that matters — and a watchdog inside this container shares
+# its fate exactly. It stays on the HOST crontab (`npm run crontab sync`), reading
+# `.doppelganger/supervisor.heartbeat` through the same bind mount this service writes it into. Host
+# bash, host node, host cron: it shares nothing with the toolchain it watches, which is the whole
+# row.
+
+name: doppelganger
+
+services:
+  standalone:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        NODE_VERSION: ${NODE_VERSION:?fleet.sh reads this from .nvmrc}
+        CLAUDE_VERSION: ${CLAUDE_VERSION:-latest}
+        HOST_USER: ${HOST_USER:?fleet.sh reads this from `id -un`}
+        HOST_UID: ${HOST_UID:?fleet.sh reads this from `id -u`}
+        HOST_GID: ${HOST_GID:?fleet.sh reads this from `id -g`}
+        HOST_HOME: ${HOST_HOME:?fleet.sh reads this from $HOME}
+    image: doppelganger-standalone:node${NODE_VERSION}
+
+    # SUP-19. `unless-stopped`, not `always`: a container you stopped on purpose must stay stopped
+    # across a daemon restart, or `fleet.sh down` is a suggestion rather than a command.
+    restart: unless-stopped
+
+    # SUP-13's SIGTERM -> grace -> SIGKILL happens INSIDE the supervisor, for its own children.
+    # This is the outer version of the same thing, and it must OUTLAST the inner one:
+    # SUPERVISOR_DRAIN_MS defaults to 30000, so 45s leaves the supervisor room to drain and still
+    # exit on its own rather than being killed mid-release. test/fleet.test.ts asserts the
+    # inequality against the knob's real default, so raising the knob without raising this fails
+    # the build.
+    stop_grace_period: 45s
+
+    # The supervisor spawns a child per firing (SUP-03). Without an init, those children reparent
+    # to pid 1 — the supervisor itself — which is not a reaper, and zombies accumulate for as long
+    # as the container lives.
+    init: true
+
+    user: "${HOST_UID:?}:${HOST_GID:?}"
+    working_dir: ${HOST_ROOT:?fleet.sh reads this from the checkout it lives in}
+
+    volumes:
+      # DKR-04 + DKR-06 — one tree, bind-mounted read-write at the SAME absolute path it has on the
+      # host. Every worktree path, every log path and every path handed to an agent in a prompt is
+      # then valid on both sides with no translation.
+      - ${HOST_ROOT:?}:${HOST_ROOT:?}
+      # DKR-09 — the agent's OAuth token survives a rebuild, so `fleet.sh token` is one manual login
+      # ever, not one per boot. Both entries: the CLI keeps credentials in the directory and its
+      # trust/settings state in the JSON file beside it.
+      - ${HOST_HOME:?}/.claude:${HOST_HOME:?}/.claude
+      - ${HOST_HOME:?}/.claude.json:${HOST_HOME:?}/.claude.json
+
+    # Every knob, from the file the operator edits. `.env.example` is its template and
+    # test/knobs.test.ts assertion 8 holds that template to the code.
+    env_file:
+      - ../.env
+
+    environment:
+      # DKR-16 — the per-container identity. ENGINE_ROOT is stated rather than inferred from cwd
+      # (kernel/paths.ts would take cwd) because a `docker compose exec` from another directory must
+      # resolve the same root.
+      ENGINE_ROOT: ${HOST_ROOT:?}
+      HOME: ${HOST_HOME:?}
+      FLEET_ROLE: standalone
+
+    command: ["node", "host/supervisor.ts"]

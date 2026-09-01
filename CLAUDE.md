@@ -57,7 +57,10 @@ M0 fixed what they must be — do not introduce anything outside this shape. Liv
 
 Operator CLIs that the roadmap requires and that arrive with their milestone: `supervisor --list`
 (SUP-17), `skills render|sync|check` (SKL-04), `lease-clear` (LSE-10), the crontab bootstrap block
-`render|sync|check|sync --adopt` (SUP-08). Deferred to v1: `dlq list|show|revive` (DLQ-14), `fleet`.
+`render|sync|check|sync --adopt` (SUP-08). `fleet`'s standalone verbs (`build`, `up`, `down`, `logs`,
+`shell`, `status`/`list`, `token`) land at N5 (DKR-18) — run as `fleet/fleet.sh <verb>`, not an `npm run`
+script. Its worker verbs (`add`, `serve`, `rm`) still need the queue, so they and the rest of the
+compose stack stay v1. Deferred to v1: `dlq list|show|revive` (DLQ-14).
 
 ## Architecture
 
