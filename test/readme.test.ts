@@ -92,10 +92,41 @@ function looksLikeBareRepoFile(token: string): boolean {
   return /^\.[A-Za-z0-9]/.test(token) || /^[A-Za-z0-9][A-Za-z0-9._-]*\.[a-z]{2,6}$/.test(token);
 }
 
-test("2. every backticked repo path or root file in README.md exists on disk", () => {
-  const paths = backtickSpans(readme()).filter((t) => looksLikeRepoPath(t) || looksLikeBareRepoFile(t));
-  assert.ok(paths.length > 0, "README.md names no repo path at all — nothing for this assertion to check");
-  for (const p of paths) {
+/**
+ * Paths this repo deliberately does not ship, read from the file that OWNS that fact.
+ *
+ * CI caught this and the local run could not: `.env` is the first thing README.md tells a reader
+ * to make, and it is gitignored, so it exists on every developer's box and on none of the runners.
+ * Requiring it turned "green here, red on the runner" into a real build break (run 33558575543).
+ *
+ * The fix reads `.gitignore` rather than hard-coding an exception, so the two can never disagree:
+ * a token this repo ignores is not required to exist, and everything else still is. It stays tight
+ * because git's own semantics are tight — the `.env` line does NOT match `.env.example`, so the
+ * file the reader actually copies is still checked, and a typo like `.nvmcr` or `.env.exampl`
+ * matches no ignore rule and still fails.
+ */
+function gitIgnored(): ReadonlySet<string> {
+  const lines = readFileSync(join(ROOT, ".gitignore"), "utf8").split("\n");
+  const out = new Set<string>();
+  for (const line of lines) {
+    const t = line.trim();
+    if (t === "" || t.startsWith("#")) continue;
+    out.add(t.replace(/\/$/, ""));
+  }
+  return out;
+}
+
+test("2. every backticked repo path or root file in README.md exists on disk, unless .gitignore says it should not", () => {
+  const ignored = gitIgnored();
+  const named = backtickSpans(readme()).filter((t) => looksLikeRepoPath(t) || looksLikeBareRepoFile(t));
+  assert.ok(named.length > 0, "README.md names no repo path at all — nothing for this assertion to check");
+
+  const checked = named.filter((t) => !ignored.has(t));
+  assert.ok(
+    checked.length > 0,
+    "every path README.md names is gitignored — this assertion would pass over an empty set, which checks nothing",
+  );
+  for (const p of checked) {
     assert.ok(existsSync(join(ROOT, p)), `README.md names \`${p}\`, which does not exist on disk`);
   }
 });
