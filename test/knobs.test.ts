@@ -526,3 +526,47 @@ test("8. .env.example names exactly the ROWS keys, with each row's real default 
     );
   }
 });
+
+/**
+ * J3 — root README.md gets the same treatment .env.example already gets: assertion 6's precedent,
+ * run the other direction. A knob reference in README.md is written `KEY` or `KEY=value` inside
+ * backticks. "Looks like a knob" is a whole backtick span whose key half is uppercase
+ * letters/digits/underscore/angle-brackets — the family placeholder shape too, e.g. `<NAME>_DB`.
+ * The span is anchored, so a shell line (`set -a; . ./.env; set +a`) and a lowercase word never
+ * reach the lookup at all.
+ *
+ * DENY BY DEFAULT, and that is the whole design. An earlier draft let a token through unchecked
+ * when it carried no "_", on the reasoning that every real ROWS key has one. That reasoning is
+ * true of the KEYS and false of the TYPOS: `CRONTABCMD` is one dropped underscore away from
+ * `CRONTAB_CMD`, is exactly the mistake a hand-typed README makes, and the underscore rule waved
+ * it through in silence. So every ALL-CAPS span must be a ROWS key unless it is listed in
+ * NOT_KNOBS below with a reason. A new ALL-CAPS word in README.md fails loudly and costs one line
+ * here — the trade this repo takes every time (KRN-02).
+ */
+
+/** Backticked ALL-CAPS spans README.md may use that are deliberately not knobs. Empty of anything
+ *  README.md uses today; these two are the realistic candidates — `SCHEDULE` is the exported
+ *  const in host/schedule.ts, `MAILTO` is cron's own variable, and neither is an EnvSpec row. */
+const NOT_KNOBS: ReadonlySet<string> = new Set(["SCHEDULE", "MAILTO"]);
+
+test("9. every backticked ALL_CAPS knob reference in README.md is a ROWS key", () => {
+  const readmePath = join(ROOT, "README.md");
+  const readme = readFileSync(readmePath, "utf8");
+  const knownKeys = new Set(ROWS.map((r) => r.spec.key));
+
+  const re = /`([^`]+)`/g;
+  let m: RegExpExecArray | null;
+  let checked = 0;
+  while ((m = re.exec(readme)) != null) {
+    const keyMatch = /^([A-Z<][A-Z0-9_<>]*)(?:=.*)?$/.exec(m[1]!);
+    if (!keyMatch) continue;
+    const key = keyMatch[1]!;
+    if (NOT_KNOBS.has(key)) continue;
+    checked++;
+    assert.ok(
+      knownKeys.has(key),
+      `README.md backtick-references ${JSON.stringify(key)}, which is not a ROWS key and is not in NOT_KNOBS`,
+    );
+  }
+  assert.ok(checked > 0, "README.md names no knob-shaped backticked token at all — nothing for this assertion to check");
+});

@@ -330,3 +330,29 @@ test("12. restart: unless-stopped and init: true", () => {
   );
   assert.equal(scalarValue(compose(), "init"), "true", "compose must set init: true so the supervisor's spawned children get reaped (SUP-03)");
 });
+
+/**
+ * J3 — root README.md documents fleet.sh by writing `fleet/fleet.sh <verb>` (or `fleet.sh <verb>`)
+ * inside a single backtick span. This assertion pulls every verb README.md names that way and
+ * checks it against the SAME dispatchable-verb set assertion 9 above already parses out of the
+ * real file — so a verb README.md documents that fleet.sh does not actually dispatch (a typo, or a
+ * worker verb like `restart` that was never wired) fails the build here rather than at 3am.
+ */
+test("13. every `fleet.sh <verb>` named in README.md is in the verb set this file already parses", () => {
+  const readmePath = join(ROOT, "README.md");
+  const readme = readFileSync(readmePath, "utf8");
+  const verbs = caseArmVerbs(fleetSh());
+
+  const re = /`(?:fleet\/)?fleet\.sh\s+([^`\s]+)[^`]*`/g;
+  const named = new Set<string>();
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(readme)) != null) named.add(m[1]!);
+
+  assert.ok(named.size > 0, "README.md names no `fleet.sh <verb>` at all — nothing for this assertion to check");
+  for (const verb of named) {
+    assert.ok(
+      verbs.has(verb),
+      `README.md documents \`fleet.sh ${verb}\`, which is not one of fleet.sh's dispatchable verbs {${[...verbs].sort().join(", ")}}`,
+    );
+  }
+});
