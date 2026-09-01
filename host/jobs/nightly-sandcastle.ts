@@ -10,6 +10,7 @@ import { spawnSync } from "node:child_process";
 import { existsSync, symlinkSync } from "node:fs";
 import { join } from "node:path";
 import { envStr, envNum, envOptional, type EnvSpec } from "../../kernel/config.ts";
+import { isKilled } from "../../kernel/plugin.ts";
 import { INSTANCE } from "../../kernel/instance.ts";
 import type { Db } from "../../kernel/runtime/db.ts";
 import type { Logger } from "../../kernel/runtime/log/emit.ts";
@@ -492,8 +493,9 @@ function landOrDiscard(deps: PassDeps, wt: Worktree, base: string, branch: strin
 export async function execPass(deps: PassDeps): Promise<void> {
   const log = deps.log;
 
-  // 1. KRN-07 kill switch.
-  if (envStr(NIGHTLY_NO_SANDCASTLE_ENV) === "1") {
+  // 1. KRN-07 kill switch — isKilled, not envStr(...) === "1": an unrecognised value (a typo like
+  // "true") throws naming the key rather than silently reading as "not killed" (kernel/plugin.ts).
+  if (isKilled(NIGHTLY_NO_SANDCASTLE_ENV)) {
     log.info("killed", {});
     return;
   }

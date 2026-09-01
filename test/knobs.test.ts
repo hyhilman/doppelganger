@@ -222,7 +222,9 @@ const ROWS: readonly RowMeta[] = [
     spec: NIGHTLY_NO_SANDCASTLE_ENV,
     file: "host/jobs/nightly-sandcastle.ts",
     constName: "NIGHTLY_NO_SANDCASTLE_ENV",
-    readers: ["envStr"],
+    // KRN-07: migrated from envStr(...) === "1" to isKilled(...) — kernel/plugin.ts's
+    // safest-verdict reader (J8).
+    readers: ["isKilled"],
   },
   {
     spec: NIGHTLY_SANDCASTLE_BASE_ENV,

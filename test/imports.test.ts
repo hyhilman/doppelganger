@@ -170,10 +170,11 @@ test("every relative module specifier in every .ts file resolves to a file that 
 // `parentEnv()` and is the one file in this repo that names `process.env` directly — handing a
 // plugin that file hands it more than a type. The chosen fix instead: `kernel/plugin.ts`
 // RE-EXPORTS the `EnvSpec` type, so the allowlist stays `kernel/ports/*` + `kernel/plugin.ts` and
-// never has to grow to `config.ts`. **`kernel/plugin.ts` DOES NOT EXIST as of this commit** — it
-// is J8's job in `plan/N5-tonight-uac.md`. The allowlist below names the file now, ahead of its
-// own creation, because the decision belongs with the rule that enforces it; the re-export itself
-// is J8's work, not this commit's.
+// never has to grow to `config.ts`. The allowlist below named the file BEFORE it existed, because
+// the decision belongs with the rule that enforces it. `kernel/plugin.ts` exists as of J8 and
+// carries that re-export, and it is a TYPE-ONLY one (`export type { EnvSpec }`): the file's
+// runtime exports are `definePlugin`, `killSwitch` and `isKilled` and nothing else, so a plugin
+// naming it still cannot reach `parentEnv()` or any other reader of `process.env`.
 //
 // THE TRAP THAT WOULD SINK A TEXT-BASED GATE, measured here rather than taken on faith from the
 // plan: `grep -rlE "host/|plugins/" kernel --include="*.ts"` hits exactly 14 files, ALL of them
