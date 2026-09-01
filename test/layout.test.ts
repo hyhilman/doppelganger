@@ -382,6 +382,7 @@ test("13. no stray *.db*/*.db-wal/*.db-shm file anywhere in the checkout", () =>
 //   - a plain ID:            TST-21      -> also JOB-C15's shape: a JOB- id carries one infix
 //                                            letter before its digits (JOB-B/C/G/J/O/P/R/S/T)
 //   - a zero-padded range:   SUP-01…18   -> SUP-01 .. SUP-18, same digit width as the start
+//                            JOB-G01…14  -> the same infix letter the plain-ID arm allows
 //   - a family wildcard:     DBS-*       -> not expanded; every WORK.md ID under that PREFIX is
 //                                            excluded from BOTH sides instead — the wildcard's
 //                                            whole point is "however many there turn out to be"
@@ -426,21 +427,36 @@ function shipsTokens(phase: string): string[] {
 
 /** `shipsTokens(phase)`, classified and expanded per the rule above. */
 function expandShipsIds(phase: string): { ids: Set<string>; wildcardPrefixes: Set<string> } {
+  return expandShipsTokens(shipsTokens(phase), phase);
+}
+
+/** The classifier itself, over a token list rather than over roadmap.md, so test 17 can drive every
+ *  id shape without editing the doc — and so that gate holds in CI, where roadmap.md is absent.
+ *  `phase` only names the phase in the throw message. */
+function expandShipsTokens(
+  tokens: readonly string[],
+  phase: string,
+): { ids: Set<string>; wildcardPrefixes: Set<string> } {
   const ids = new Set<string>();
   const wildcardPrefixes = new Set<string>();
-  for (const token of shipsTokens(phase)) {
+  for (const token of tokens) {
     if (/^D\d+(–D?\d+)?$/.test(token)) continue; // a decision reference, never a WORK.md item
     const wildcard = /^([A-Z]+)-\*$/.exec(token);
     if (wildcard) {
       wildcardPrefixes.add(wildcard[1]!);
       continue;
     }
-    const range = /^([A-Z]+)-(\d+)…(\d+)$/.exec(token);
+    // R5 — a range's prefix carries the same optional infix letter the plain-ID arm below allows.
+    // R4 taught that arm about JOB-C15 and left this one reading pure digits, so `JOB-G01…14` and
+    // `JOB-O01…06` — both already on §3's N5 Ships line — matched NEITHER arm and the classifier
+    // threw. Test 14 walks shipped phases only and N5 is current, so it would have gone off on the
+    // day N5 closed. `prefix` now carries the dash, so the id is joined without one.
+    const range = /^([A-Z]+-[A-Z]?)(\d+)…(\d+)$/.exec(token);
     if (range) {
       const [, prefix, startStr, endStr] = range;
       const width = startStr!.length;
       for (let n = Number(startStr); n <= Number(endStr); n++) {
-        ids.add(`${prefix}-${String(n).padStart(width, "0")}`);
+        ids.add(`${prefix}${String(n).padStart(width, "0")}`);
       }
       continue;
     }
@@ -620,5 +636,35 @@ test("16. WORK.md's header item counts match the checkbox bullets actually under
     mvpActual,
     mvpBannerDeclared,
     `the MVP READY banner claims ${mvpBannerDeclared} items but the phases before it total ${mvpActual}`,
+  );
+});
+
+// R5 — `expandShipsIds`'s range arm carried R4's exact defect, one arm over. R4 taught the plain-ID
+// arm that a JOB- id has one infix letter before its digits (JOB-C15) and left the range arm reading
+// pure digits after the dash, so `JOB-G01…14` and `JOB-O01…06` — both already on roadmap.md §3's N5
+// Ships line — matched neither arm and the classifier THREW:
+//   roadmap.md N5's Ships line has a token this drift gate cannot classify: "JOB-G01…14"
+// Nothing caught it, because test 14 only walks SHIPPED phases and N5 is still current. It would
+// have gone off on the day N5 closed — the third time this shape has bitten.
+//
+// This drives the classifier over tokens, not over roadmap.md, so it also runs in CI where the doc
+// is absent. It pins BOTH arms: delete `[A-Z]?` from either regex and this test goes red.
+test("17. the Ships-line classifier expands both id shapes, plain and range, with an infix letter (TST-06)", () => {
+  const pad = (prefix: string, n: number): string => `${prefix}${String(n).padStart(2, "0")}`;
+  const jobG = Array.from({ length: 14 }, (_, i) => pad("JOB-G", i + 1));
+  const jobO = Array.from({ length: 6 }, (_, i) => pad("JOB-O", i + 1));
+
+  // the range arm, with an infix letter — the shape that threw
+  assert.deepEqual([...expandShipsTokens(["JOB-G01…14"], "N5").ids].sort(), jobG);
+  assert.deepEqual([...expandShipsTokens(["JOB-O01…06"], "N5").ids].sort(), jobO);
+  // the range arm, pure digits — unchanged by the fix
+  assert.deepEqual([...expandShipsTokens(["SUP-01…03"], "N2").ids].sort(), ["SUP-01", "SUP-02", "SUP-03"]);
+  // the plain-ID arm, with and without an infix letter — R4's half, pinned here too
+  assert.deepEqual([...expandShipsTokens(["JOB-C15", "TST-21"], "N3").ids].sort(), ["JOB-C15", "TST-21"]);
+  // and the classifier still refuses a token it cannot classify, rather than comparing wrong
+  assert.throws(
+    () => expandShipsTokens(["DKR-01 (standalone only)"], "N5"),
+    /cannot classify/,
+    "a qualified token must still throw by name",
   );
 });
