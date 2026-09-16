@@ -9,8 +9,15 @@ import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, copyFileSync, utimesSync, existsSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { WATCHDOG_SUPERVISOR_STALE_M_ENV, WATCHDOG_DRY_RUN_ENV } from "./config.ts";
+import { join, basename } from "node:path";
+import {
+  WATCHDOG_SUPERVISOR_STALE_M_ENV,
+  WATCHDOG_DRY_RUN_ENV,
+  NTFY_URL_ENV,
+  NTFY_TOPIC_ENV,
+  NTFY_TOKEN_ENV,
+  WATCHDOG_NO_NOTIFY_ENV,
+} from "./config.ts";
 import { DELIVERY_STAMPS } from "../kernel/runtime/delivery.ts";
 import { parseLine } from "../kernel/runtime/log/parse.ts";
 
@@ -69,7 +76,35 @@ function extractDefault(src: string, name: string): string | null {
   return null;
 }
 
-const ROWS = [WATCHDOG_SUPERVISOR_STALE_M_ENV, WATCHDOG_DRY_RUN_ENV];
+const ROWS = [
+  WATCHDOG_SUPERVISOR_STALE_M_ENV,
+  WATCHDOG_DRY_RUN_ENV,
+  NTFY_URL_ENV,
+  NTFY_TOPIC_ENV,
+  NTFY_TOKEN_ENV,
+  WATCHDOG_NO_NOTIFY_ENV,
+];
+
+/** Signed list of knobs whose default is COMPUTED, so no string on the EnvSpec row can express it
+ *  and `default` is legitimately absent. Same shape and same discipline as EXCLUDED_READS above:
+ *  the value here is the script's own default TEXT, asserted exactly, so the escape hatch cannot
+ *  be used to hide a row that simply forgot its default.
+ *
+ *  `kernel/instance.ts`'s INSTANCE_ENV is the precedent and states the rule in its own comment:
+ *  "No `default`: the fallback is the project directory's basename, which is *computed* and no
+ *  string can express it. A row claiming a default it does not have would be a lie J1.18 could
+ *  not catch." */
+const COMPUTED_DEFAULTS: Record<string, string> = {
+  NTFY_URL: "$(dotenv_get NTFY_URL)",
+  NTFY_TOKEN: "$(dotenv_get NTFY_TOKEN)",
+  NTFY_TOPIC: "$(dotenv_get NTFY_TOPIC)",
+};
+
+/** The LAST resort under the computed default above: with neither the environment nor `.env`
+ *  naming a topic, the checkout's own directory name is it (INS-01). Signed separately because
+ *  `extractDefault` only ever sees the FIRST `:-` form, so this line would otherwise be invisible
+ *  to test 1 — and it is the line the whole per-repo derivation rests on. */
+const TOPIC_LAST_RESORT = '[ -n "$topic" ] || topic="$(basename "$ROOT")"';
 
 test("1. every knob in the script has a matching EnvSpec row, and the defaults agree — membership decided by reads-never-assigns, not by a spelling", () => {
   const reads = readNames(SCRIPT_SRC);
@@ -86,7 +121,18 @@ test("1. every knob in the script has a matching EnvSpec row, and the defaults a
   const rowKeys = new Set(ROWS.map((r) => r.key));
   assert.deepEqual(knobs.sort(), [...rowKeys].sort(), "the script's own knob set and host/config.ts's WATCHDOG_* rows must be exactly the same set");
 
+  // The computed-default list is exact too — every name in it is a real ROW that really does omit
+  // `default`, so a row that merely forgot one cannot be parked here.
+  for (const [key, text] of Object.entries(COMPUTED_DEFAULTS)) {
+    const row = ROWS.find((r) => r.key === key);
+    assert.ok(row, `COMPUTED_DEFAULTS names ${key}, which is not a ROW at all`);
+    assert.equal(row.default, undefined, `${key} is in COMPUTED_DEFAULTS but its row DOES carry a literal default — drop one or the other`);
+    assert.equal(extractDefault(SCRIPT_SRC, key), text, `${key}: the script's computed default drifted from the text signed here`);
+  }
+  assert.ok(SCRIPT_SRC.includes(TOPIC_LAST_RESORT), "the topic's INSTANCE last-resort line is gone — every breach would post to an empty topic");
+
   for (const row of ROWS) {
+    if (row.key in COMPUTED_DEFAULTS) continue; // asserted above, against its own signed text
     const found = extractDefault(SCRIPT_SRC, row.key);
     assert.equal(found, row.default, `${row.key}: script default ${JSON.stringify(found)} must equal the row's default ${JSON.stringify(row.default)}`);
   }
@@ -163,6 +209,7 @@ interface Fixture {
   readonly root: string;
   readonly heartbeat: string;
   readonly stamp: string;
+  readonly ntfyStamp: string;
   readonly breach: string;
 }
 
@@ -182,9 +229,15 @@ function makeFixture(): Fixture {
     root,
     heartbeat,
     stamp: join(root, ".doppelganger/heartbeat.fail"),
+    ntfyStamp: join(root, ".doppelganger/ntfy.fail"),
     breach: join(root, ".doppelganger/watchdog.breach"),
   };
 }
+
+/** Only the fault lines. Every breaching run now also emits ONE notify-* line (the third channel),
+ *  and a test about probes should not have to count it. */
+const breachLines = (stderr: string): string[] =>
+  stderr.trim().split("\n").filter((l) => l.includes("event=breach"));
 
 function ageFile(path: string, minutesAgo: number): void {
   const t = new Date(Date.now() - minutesAgo * 60_000);
@@ -221,12 +274,16 @@ test("6. it runs, breaching — the heartbeat aged past the stale window", () =>
   ageFile(f.heartbeat, 10);
   const r = run(f.root);
   assert.equal(r.status, 1);
-  const lines = r.stderr.trim().split("\n").filter((l) => l.length > 0);
+  const lines = breachLines(r.stderr);
   assert.equal(lines.length, 1);
   assert.match(lines[0]!, /level=error/);
   assert.match(lines[0]!, /event=breach/);
   assert.match(lines[0]!, /heartbeat/);
   assert.ok(existsSync(f.breach));
+  // The fixture sets no NTFY_URL, so the third channel stands down QUIETLY — and, crucially,
+  // leaves no stamp: declining to send is not a delivery failure.
+  assert.match(r.stderr, /event=notify-unconfigured/);
+  assert.ok(!existsSync(f.ntfyStamp));
 });
 
 test("7. the next healthy tick removes the breach file", () => {
@@ -246,7 +303,7 @@ test("8. probe 4 corrects probe 3 — the alive-but-cannot-stamp line prints BEF
   writeFileSync(f.stamp, "2026-08-26T20:00:00Z boom\n");
   const r = run(f.root);
   assert.equal(r.status, 1);
-  const lines = r.stderr.trim().split("\n").filter((l) => l.length > 0);
+  const lines = breachLines(r.stderr);
   assert.equal(lines.length, 2);
   assert.match(lines[0]!, /ALIVE but cannot write its heartbeat/);
   assert.match(lines[1]!, /heartbeat stale/);
@@ -327,4 +384,175 @@ test("12. exit 1 is asserted as a status, never as a delivery", () => {
   ageFile(f.heartbeat, 10);
   const r = run(f.root);
   assert.equal(r.status, 1);
+});
+
+
+// ---------------------------------------------------------------------------------------------
+// Tests 13-17: the third channel (2026-09-16), driven through a `curl` SHIM on PATH.
+// ---------------------------------------------------------------------------------------------
+//
+// A shim, not a real socket, and the reason is not convenience. What can actually break in this
+// path is the ARGV the script builds — a header spelled wrong, the topic pasted onto the URL
+// without its separator, the body passed as a flag instead of data. The shim captures that argv
+// verbatim, which is the thing under test; a real listener would additionally assert curl's own
+// HTTP behaviour, which is not this repo's code. It also keeps `npm test` free of a bound port and
+// of any network at all, which matters for a suite CI runs on every push.
+
+/** Writes a `curl` onto PATH that records its argv NUL-separated and prints `code` on stdout —
+ *  exactly what `-w '%{http_code}'` would have printed. Returns the capture path and the PATH the
+ *  script must run with. */
+function curlShim(root: string, code: string): { capture: string; path: string } {
+  const bin = join(root, "shimbin");
+  mkdirSync(bin, { recursive: true });
+  const capture = join(root, "curl.argv");
+  // The values are BAKED IN rather than read from the environment: the shim must not be steerable
+  // by the very env the script under test is handed, or a knob leaking into it would read as a
+  // passing test.
+  writeFileSync(
+    join(bin, "curl"),
+    `#!/usr/bin/env bash\nprintf '%s\\0' "$@" >> ${JSON.stringify(capture)}\nprintf '%s' ${JSON.stringify(code)}\n`,
+    { mode: 0o755 },
+  );
+  return { capture, path: `${bin}:${process.env.PATH ?? ""}` };
+}
+
+/** The shim's capture as a flat argv array; `[]` when curl was never called. */
+function argv(capture: string): string[] {
+  if (!existsSync(capture)) return [];
+  return readFileSync(capture, "utf8").split("\0").filter((s) => s.length > 0);
+}
+
+/** The value following `flag` in an argv array — how the header assertions read below. */
+function after(args: string[], flag: string): string[] {
+  return args.filter((_, i) => i > 0 && args[i - 1] === flag);
+}
+
+test("13. a breach is POSTed: the topic is the checkout's own basename, and the faults are the body", () => {
+  const f = makeFixture();
+  ageFile(f.heartbeat, 10);
+  const shim = curlShim(f.root, "200");
+  const r = run(f.root, { NTFY_URL: "https://ntfy.example/", NTFY_TOKEN: "tk_test", PATH: shim.path });
+  const args = argv(shim.capture);
+
+  assert.equal(r.status, 1, "the POST does not change the exit status — it is still PATH 2");
+  assert.ok(args.length > 0, "curl was invoked exactly once on a breaching tick");
+
+  // INS-01, end to end: nothing told the script its topic, it derived one from the root it was
+  // pointed at. This is the assertion that fails if the INSTANCE derivation is ever dropped. The
+  // trailing slash on NTFY_URL above is deliberate — `${url%/}` must not produce a double slash.
+  assert.equal(args.at(-1), `https://ntfy.example/${basename(f.root)}`);
+
+  const headers = after(args, "-H");
+  assert.ok(headers.includes("Authorization: Bearer tk_test"), `headers were ${JSON.stringify(headers)}`);
+  assert.ok(headers.includes("Priority: 4"));
+  assert.ok(headers.some((h) => /^Title: .*watchdog: 1 fault\(s\)$/.test(h)));
+  assert.match(after(args, "--data-binary")[0]!, /heartbeat stale/);
+
+  assert.match(r.stderr, /event=notify-sent/);
+  assert.ok(!existsSync(f.ntfyStamp), "a delivered alarm leaves no delivery stamp");
+});
+
+test("14. a non-2xx answer stamps the delivery failure and still exits 1 with the breach file written", () => {
+  const f = makeFixture();
+  ageFile(f.heartbeat, 10);
+  const shim = curlShim(f.root, "403");
+  const r = run(f.root, { NTFY_URL: "https://ntfy.example", NTFY_TOKEN: "tk_wrong", PATH: shim.path });
+
+  assert.equal(r.status, 1);
+  assert.ok(existsSync(f.breach), "the pull channels are written BEFORE the push is attempted");
+  assert.match(r.stderr, /event=notify-failed/);
+  assert.match(r.stderr, /http=403/);
+  assert.match(readFileSync(f.ntfyStamp, "utf8"), /http=403/);
+});
+
+test("15. probe 5 — a present ntfy.fail is itself a fault, so a broken alarm channel is reported once it recovers", () => {
+  const f = makeFixture();                                  // heartbeat FRESH: nothing else is wrong
+  writeFileSync(f.ntfyStamp, "2026-09-16T10:00:00Z http=000\n");
+  const shim = curlShim(f.root, "200");
+  const r = run(f.root, { NTFY_URL: "https://ntfy.example", NTFY_TOKEN: "tk_test", PATH: shim.path });
+
+  const lines = breachLines(r.stderr);
+  assert.equal(lines.length, 1);
+  assert.match(lines[0]!, /ntfy delivery failing since/);
+  // The recovery case, which is the whole point of the circularity: the send now works, so the
+  // first thing the phone hears after an outage is that the alarm channel had been down.
+  assert.match(after(argv(shim.capture), "--data-binary")[0]!, /alarms raised since then were LOST/);
+  assert.ok(!existsSync(f.ntfyStamp), "a delivered alarm clears the stamp, so the next tick is quiet");
+});
+
+test("16. WATCHDOG_NO_NOTIFY=1 skips the POST and leaves the stamp alone — standing down is not a delivery failure", () => {
+  const f = makeFixture();
+  ageFile(f.heartbeat, 10);
+  const shim = curlShim(f.root, "200");
+  const r = run(f.root, {
+    NTFY_URL: "https://ntfy.example",
+    NTFY_TOKEN: "tk_test",
+    WATCHDOG_NO_NOTIFY: "1",
+    PATH: shim.path,
+  });
+
+  assert.equal(r.status, 1);
+  assert.deepEqual(argv(shim.capture), [], "the kill switch means curl is never invoked at all");
+  assert.match(r.stderr, /event=notify-disabled/);
+  assert.ok(existsSync(f.breach), "the other two channels are untouched by the kill switch");
+  assert.ok(!existsSync(f.ntfyStamp));
+});
+
+test("17. WATCHDOG_DRY_RUN=1 posts nothing — SAF-01 stays fully inert now that a network path exists", () => {
+  const f = makeFixture();
+  ageFile(f.heartbeat, 10);
+  const shim = curlShim(f.root, "200");
+  const r = run(f.root, {
+    NTFY_URL: "https://ntfy.example",
+    NTFY_TOKEN: "tk_test",
+    WATCHDOG_DRY_RUN: "1",
+    PATH: shim.path,
+  });
+
+  assert.equal(r.status, 0);
+  assert.deepEqual(argv(shim.capture), [], "a dry run that pages someone is not a dry run");
+  assert.ok(!existsSync(f.breach));
+  assert.ok(!existsSync(f.ntfyStamp));
+});
+
+test("18. the bare cron environment still sends: NTFY_URL and NTFY_TOKEN are read from .env, never sourced from it", () => {
+  const f = makeFixture();
+  ageFile(f.heartbeat, 10);
+  const shim = curlShim(f.root, "200");
+  // A realistic .env: comments, a commented-out copy of the very key being read, quoting, and a
+  // line that would DELETE this fixture if the file were ever `.`-sourced instead of parsed.
+  writeFileSync(
+    join(f.root, ".env"),
+    [
+      "# NTFY_URL=https://decoy.example",
+      "NTFY_URL=https://ntfy.example",
+      `NTFY_TOKEN="tk_from_dotenv"`,
+      "NTFY_TOPIC=from-dotenv",
+      `rm -rf ${JSON.stringify(f.root)}`,
+      "",
+    ].join("\n"),
+  );
+
+  // env deliberately carries NOTHING but PATH and ENGINE_ROOT — exactly what cron hands it.
+  const r = run(f.root, { PATH: shim.path });
+  const args = argv(shim.capture);
+
+  assert.ok(existsSync(f.heartbeat), "the .env line was EXECUTED — it must only ever be read");
+  assert.match(r.stderr, /event=notify-sent/);
+  assert.equal(args.at(-1), "https://ntfy.example/from-dotenv", "commented-out decoy won, or the topic was not read");
+  assert.ok(after(args, "-H").includes("Authorization: Bearer tk_from_dotenv"), "the surrounding quotes were not stripped");
+});
+
+test("19. an environment value BEATS .env — the operator file is a fallback, not an override", () => {
+  const f = makeFixture();
+  ageFile(f.heartbeat, 10);
+  const shim = curlShim(f.root, "200");
+  writeFileSync(join(f.root, ".env"), "NTFY_URL=https://dotenv.example\nNTFY_TOKEN=tk_dotenv\n");
+
+  const r = run(f.root, { NTFY_URL: "https://env.example", NTFY_TOKEN: "tk_env", PATH: shim.path });
+  const args = argv(shim.capture);
+
+  assert.match(r.stderr, /event=notify-sent/);
+  assert.equal(args.at(-1), `https://env.example/${basename(f.root)}`);
+  assert.ok(after(args, "-H").includes("Authorization: Bearer tk_env"));
 });

@@ -39,7 +39,14 @@ import {
   QUOTA_DARK_GAP_MS_ENV,
 } from "../kernel/runtime/quota.ts";
 import { QUOTA_SHED_WINDOW_MS_ENV } from "../kernel/runtime/shed.ts";
-import { WATCHDOG_SUPERVISOR_STALE_M_ENV, WATCHDOG_DRY_RUN_ENV } from "../host/config.ts";
+import {
+  WATCHDOG_SUPERVISOR_STALE_M_ENV,
+  WATCHDOG_DRY_RUN_ENV,
+  NTFY_URL_ENV,
+  NTFY_TOPIC_ENV,
+  NTFY_TOKEN_ENV,
+  WATCHDOG_NO_NOTIFY_ENV,
+} from "../host/config.ts";
 import {
   NIGHTLY_NO_SANDCASTLE_ENV,
   NIGHTLY_SANDCASTLE_BASE_ENV,
@@ -274,6 +281,32 @@ const ROWS: readonly RowMeta[] = [
     spec: WATCHDOG_DRY_RUN_ENV,
     file: "host/config.ts",
     constName: "WATCHDOG_DRY_RUN_ENV",
+    readers: [],
+  },
+  // The watchdog's ntfy path (2026-09-16) — same `readers: []` reasoning as the two above: bash
+  // reads them, TypeScript never does, and host/watchdog.test.ts is what binds them to the script.
+  {
+    spec: NTFY_URL_ENV,
+    file: "host/config.ts",
+    constName: "NTFY_URL_ENV",
+    readers: [],
+  },
+  {
+    spec: NTFY_TOPIC_ENV,
+    file: "host/config.ts",
+    constName: "NTFY_TOPIC_ENV",
+    readers: [],
+  },
+  {
+    spec: NTFY_TOKEN_ENV,
+    file: "host/config.ts",
+    constName: "NTFY_TOKEN_ENV",
+    readers: [],
+  },
+  {
+    spec: WATCHDOG_NO_NOTIFY_ENV,
+    file: "host/config.ts",
+    constName: "WATCHDOG_NO_NOTIFY_ENV",
     readers: [],
   },
 ];

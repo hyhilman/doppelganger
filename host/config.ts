@@ -33,6 +33,56 @@ export const WATCHDOG_DRY_RUN_ENV: EnvSpec = {
   why: "the watchdog logs and prints its faults, writes no breach file and exits 0 (SAF-01, for a tool)",
 };
 
+/**
+ * THE WATCHDOG'S ONE OUTBOUND PATH — ntfy, and the four knobs that aim it.
+ *
+ * The header of host/watchdog.sh used to state "no network" as a deliberate property, and this is
+ * the change that takes it away. The reasoning it replaces stands on its own (measured on this
+ * host, 2026-08-26): there is no MTA, so cron writes "No MTA installed, discarding output" to
+ * syslog and THROWS THE FAULT TEXT AWAY. `exit 1` was never a delivery and the breach file is a
+ * file nobody opens, so every alarm this script raised was, in practice, silent.
+ *
+ * ntfy is the cheapest dependency that fixes that: ONE `curl` POST, no model, no CLI, no auth
+ * dance beyond a bearer token, and nothing under node_modules — so it keeps the property that
+ * actually matters, which is that the alarm shares NOTHING with the toolchain it watches. It is
+ * not the hub xenith's watchdog posts to: that would make this repo depend on another checkout's
+ * infrastructure, which D12 (two instances never coordinate) forbids.
+ *
+ * ALL FOUR DEGRADE TOWARD SILENCE, NOT TOWARD A CRASH. An unset URL or token means the send is
+ * skipped and logged, never that the script dies — a watchdog that exits on its own reporting
+ * failure reports nothing, which is precisely the failure it exists to catch (the same rule probe
+ * 0 already follows). The breach file and the log stay authoritative; the POST is a courtesy on
+ * top of them.
+ */
+/** No `default`, for the COMPUTED reason `NTFY_TOPIC` gives below: the fallback is whatever
+ *  `.env` names, read at run time by the script itself. Empty is what you get when neither
+ *  answers, and that is an outcome, not a default a string could state up front. */
+export const NTFY_URL_ENV: EnvSpec = {
+  key: "NTFY_URL",
+  why: "base URL of the ntfy server the watchdog POSTs a breach to; unset in BOTH the environment and .env means no send at all — a real default would be a guess about someone else's host, the same reason CRONTAB_CMD has none",
+};
+
+/** No `default` here on purpose, and the ONLY row in this file without one. The fallback is
+ *  `basename $ROOT` — the same value `kernel/instance.ts` resolves `INSTANCE` to, and its own row
+ *  gives the reason verbatim: "the fallback is *computed* and no string can express it". A row
+ *  claiming a literal default it does not have would be a lie the drift gate could not catch, so
+ *  host/watchdog.test.ts signs this one in COMPUTED_DEFAULTS instead. */
+export const NTFY_TOPIC_ENV: EnvSpec = {
+  key: "NTFY_TOPIC",
+  why: "the ntfy topic a breach lands on; defaults to INSTANCE (the checkout's own directory name), so two checkouts on one host never share an alarm channel (INS-01)",
+};
+
+export const NTFY_TOKEN_ENV: EnvSpec = {
+  key: "NTFY_TOKEN",
+  why: "bearer token for NTFY_URL, read from the environment or from .env; unset in both means no send at all — an ntfy server that denies anonymous publish turns a missing token into a silent 403 rather than a delivered alarm",
+};
+
+export const WATCHDOG_NO_NOTIFY_ENV: EnvSpec = {
+  key: "WATCHDOG_NO_NOTIFY",
+  default: "0",
+  why: "KRN-07 kill switch: faults are still logged and still written to the breach file, only the POST is skipped — for someone working on the alarm path who must not page themselves",
+};
+
 export interface GateResource {
   /** What a `lock=` field and `--list` print. Must match the gate's own name
    *  rule, `^[a-z][a-z0-9_-]*$` — re-stated in host/config.test.ts rather than imported, because

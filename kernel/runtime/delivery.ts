@@ -45,6 +45,15 @@ export const DELIVERY_STAMPS: readonly StampRow[] = [
     writer: "host/supervisor.ts beat()",
     why: "the supervisor is alive and scheduling but could not write its liveness stamp — without this, probe 3 reports a healthy scheduler as dead",
   },
+  {
+    name: "ntfy-send",
+    path: ".doppelganger/ntfy.fail",
+    // The one row whose writer is bash, not TypeScript. The seam above says a send path "adds a
+    // row here" and the drift gate "then FORCES the script to grow the matching probe" — that is
+    // exactly what happened: this row is what made probe 5 mandatory, not the other way round.
+    writer: "host/watchdog.sh notify()",
+    why: "the ntfy POST is failing, so every alarm raised since is being LOST — the one fault that cannot report itself through the channel it is about",
+  },
 ];
 
 /**
