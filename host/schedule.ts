@@ -15,7 +15,7 @@
 // same call N1 made for EnvSpec: ship the shape the port will carry, in the module that
 // needs it, and re-home it later without rewriting it.
 import { existsSync, statSync, readFileSync } from "node:fs";
-import { isAbsolute, join, sep } from "node:path";
+import { isAbsolute, join, sep, dirname } from "node:path";
 import type { Mode } from "../kernel/runtime/gate.ts";
 import { projectPath, ROOT } from "../kernel/paths.ts";
 import { stageOf, MISC, STAGES } from "../kernel/stages.ts";
@@ -169,12 +169,31 @@ export function scriptCommandOf(root: string, script: string): readonly [cmd: st
   return script.endsWith(".sh") ? [abs, []] : [process.execPath, [abs]];
 }
 
+/**
+ * THE LOG DIRECTORY IS CREATED BY THE LINE ITSELF, and this is not belt-and-braces — it is the
+ * whole line working at all. `>>` opens the file BEFORE the command runs, so a missing parent
+ * directory fails in the SHELL: the script never starts, nothing is written to the log (there is
+ * no log), and the error goes to cron's mail, which this host discards ("No MTA installed,
+ * discarding output" — the same measurement host/watchdog.sh's header records).
+ *
+ * Measured on this host 2026-09-16, and it is exactly the failure this repo exists to refuse: the
+ * crontab was installed at 18:44, cron fired the entry at 18:48 and 19:03, and BOTH ticks were
+ * dropped in silence because `.doppelganger/logs/` did not exist yet. A liveness probe that
+ * cannot start is worse than no liveness probe, because the crontab says it is there.
+ *
+ * `mkdir -p` and not a one-off `mkdir` in a setup step: a setup step is a thing someone has to
+ * remember on a fresh checkout, and the first person not to remember gets a watchdog that is
+ * installed, scheduled, and has never once run.
+ */
+const withLog = (body: string, log: string): string =>
+  `mkdir -p ${dirname(log)} && ${body} >> ${log} 2>&1`;
+
 export function commandOf(e: ScheduleEntry): string {
   if (e.job !== undefined) {
-    return `cd ${ROOT} && node ${JOB_ENTRYPOINT} ${e.job} >> ${e.log} 2>&1`;
+    return `cd ${ROOT} && ${withLog(`node ${JOB_ENTRYPOINT} ${e.job}`, e.log)}`;
   }
   const [cmd, args] = scriptCommandOf(ROOT, e.script ?? "");
-  return `cd ${ROOT} && ${[cmd, ...args].join(" ")} >> ${e.log} 2>&1`;
+  return `cd ${ROOT} && ${withLog([cmd, ...args].join(" "), e.log)}`;
 }
 
 /** A `%` not preceded by `\` — cron reads an unescaped `%` as a newline, and everything after it

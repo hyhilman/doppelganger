@@ -13,6 +13,7 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { dirname } from "node:path";
 import {
   markers,
   legacyRange,
@@ -356,7 +357,11 @@ test("21. render's exact output over a one-entry bootstrap fixture, pinned liter
       // fixture, since J4.11 — validate()'s rule 12a) has no shebang and IS handed to `node`
       // explicitly. This hand-built line reflects that, independent of scriptCommandOf itself —
       // see the test's own header comment for why that independence matters.
-      `${e.cron} cd ${ROOT} && ${process.execPath} ${ROOT}/${e.script} >> ${e.log} 2>&1`,
+      // The `mkdir -p` is the line's own precondition, not decoration: `>>` opens the log BEFORE
+      // the command runs, so a missing parent directory fails in the SHELL and the entry never
+      // starts. Measured on this host 2026-09-16 — two ticks dropped in silence because
+      // `.doppelganger/logs/` did not exist. Pinned literally here so it cannot be dropped again.
+      `${e.cron} cd ${ROOT} && mkdir -p ${dirname(e.log)} && ${process.execPath} ${ROOT}/${e.script} >> ${e.log} 2>&1`,
       "# <<< doppelganger:alpha managed block <<<",
     ];
     assert.deepEqual(out, expected);
