@@ -194,14 +194,11 @@ test("every relative module specifier in every .ts file resolves to a file that 
 // and never over raw file text: a specifier is a thing the parser recognises as an import: a
 // comment or a doc-string mentioning `host/` is not, and preProcessFile never sees it as one.
 //
-// WHICH RULES HAVE A SUBJECT TONIGHT, stated rather than implied by a passing count: `plugins/`
-// holds exactly `plugins/nightly/package.json` and `plugins/nightly/skills/nightly-sandcastle/SKILL.md`
-// (confirmed by listing the directory for this commit, not taken from the plan) — no `.ts` file
-// exists anywhere under `plugins/` yet. Rules 2, 3 and 4 therefore have NO subject in the
-// repo-wide run below: they ship table-tested, in the exhaustive synthetic table above, and
-// UN-EXERCISED on real code. Rule 1 does have a subject — every file under `kernel/` exists
-// today, so the repo-wide run is a real gate for rule 1 and a shipped-but-idle gate for 2-4. An
-// untrue claim of coverage is worse than a stated gap.
+// WHICH RULES HAVE A SUBJECT, stated rather than implied by a passing count: `kernel/` holds real
+// code, and so does more than one plugin under `plugins/`. So the repo-wide run below is a real
+// gate for all four rules — rule 2 needs at least two plugins with code. The synthetic table above
+// still covers the shapes no real file has yet. An untrue claim of coverage is worse than a
+// stated gap.
 //
 // A TABLE IS ONLY AS GOOD AS ITS ROWS, so this function was attacked directly on 2026-09-01 with
 // 32 hand-built inputs — trailing slashes, bare directory names, `..` climbs out of a plugin and
@@ -640,7 +637,7 @@ test("workspacePackageMap derives every workspace package from the workspace glo
   assert.deepEqual([...workspacePackageMap(ROOT).entries()].sort(), expected.sort());
 });
 
-test("deepImportViolation over the real tree: the layering law holds today (TST-03) — reuses the walk() above; rule 1 has a subject, rules 2-4 do not (plugins/ holds only package.json and SKILL.md)", () => {
+test("deepImportViolation over the real tree: the layering law holds today (TST-03) — reuses the walk() above; every rule has a subject, since kernel/ and plugins/ both hold real .ts files", () => {
   const files: string[] = [];
   walk(ROOT, files);
   const pkgMap = workspacePackageMap(ROOT);
