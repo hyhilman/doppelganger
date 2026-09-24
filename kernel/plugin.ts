@@ -1,5 +1,4 @@
-// KRN-04/05/07 — the Plugin manifest, definePlugin, and the one kill switch this repo has a
-// subject for.
+// KRN-04/05/07 — the Plugin manifest, definePlugin, and the kill switch helpers.
 //
 // KRN-04: the manifest ships EXACTLY FIVE members — `name`, `kill`, `jobs`, `schedule`, `env`.
 // `sources`, `routes`, `relays` and `lanes` are ABSENT, not optional (D9): an optional member is
@@ -43,14 +42,14 @@
 // ever read at `boot()`, then one bad value costs more than one tick and "non-`0` is killed"
 // becomes the safer read. Neither exists today.
 //
-// `isKilled` has EXACTLY ONE subject: `NIGHTLY_NO_SANDCASTLE`. `killSwitch` has none yet — that
-// row is still an object literal, because test/knobs.test.ts finds EnvSpec rows by scanning
-// source text for a typed object literal and for the key's literal spelling, and a row built by a
-// call has neither. `WATCHDOG_NO_NOTIFY` is a second kill switch in this repo, but a bash-read
-// one, so it cannot call `isKilled`. `NIGHTLY_SANDCASTLE_NO_MERGE` looks similar and is NOT one
-// either — it is a SAF-02 shadow mode ("commit inside the worktree, never move the base branch"),
-// never a switch that stops the pass outright. Do not widen `killSwitch`/`isKilled` to cover
-// either; a one-subject helper generalised ahead of a second subject is the same D9 mistake
+// `isKilled` has two subjects, both in plugin `nightly`: `NIGHTLY_NO_SANDCASTLE` and
+// `NIGHTLY_NO_POLISH`. Only `NIGHTLY_NO_POLISH` is built with `killSwitch`; the sandcastle row is
+// still written out by hand. test/knobs.test.ts reads a killSwitch call (plugin and feature names)
+// as the row's key, so a built row is scanned like a literal one. `WATCHDOG_NO_NOTIFY` is a kill
+// switch too, but a bash-read one, so it cannot call `isKilled`. `NIGHTLY_SANDCASTLE_NO_MERGE`
+// and `NIGHTLY_POLISH_NO_MERGE` look similar and are NOT subjects — they are SAF-02 shadow modes
+// ("commit inside the worktree, never move the base branch"), never switches that stop a pass
+// outright. Do not widen `killSwitch`/`isKilled` to cover them; that is the same D9 mistake
 // KRN-04's five members refuse above.
 
 import { envStr, type EnvSpec } from "./config.ts";
