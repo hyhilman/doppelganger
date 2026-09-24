@@ -172,3 +172,21 @@ test("12. JOB-G04: an empty scope logs one line and touches nothing", () => {
   assert.equal(subject(ws.repo("api")), "first");
   assert.deepEqual(scopeFrom(reader({})).repos, [], "and empty is the default");
 });
+
+test("13. JOB-G04: the checkout itself is refused before any fetch, so a bot's unpushed landing on main survives", () => {
+  // The project root IS a clone here, one commit behind origin, with a landing by another identity
+  // on top. Unrefused, the sync reads that commit as an upstream rewrite and throws it away.
+  const ws = workspace(["api"]);
+  const root = ws.repo("api");
+  writeFileSync(join(root, "landed.txt"), "a nightly landing nobody pushed\n");
+  git(root, "add", "-A");
+  git(root, "-c", "user.email=bot@nightly", "-c", "user.name=bot", "commit", "-qm", "nightly: landed");
+  const before = head(root);
+  for (const self of [".", "./"]) {
+    const r = run(root, { RESET_REPOS: self });
+    assert.equal(r.result.exitCode, 1, "a refusal of the whole scope is a failure to look at");
+    assert.match(r.out(), /is this checkout itself/);
+    assert.equal(head(root), before, "main did not move");
+    assert.equal(subject(root), "nightly: landed");
+  }
+});

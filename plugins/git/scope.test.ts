@@ -1,6 +1,9 @@
 // JOB-G04/05 — scope parsing and the rules that keep a reset away from the wrong repo.
-import { test } from "node:test";
+import { test, after } from "node:test";
 import assert from "node:assert/strict";
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type { EnvSpec } from "../../kernel/plugin.ts";
 import {
   SCOPE_ENV,
@@ -11,6 +14,7 @@ import {
   branchProblem,
   repoSlug,
   parseFlag,
+  isCheckoutItself,
   RESET_REPOS_ENV,
   type GitScope,
 } from "./scope.ts";
@@ -99,4 +103,28 @@ test("12. every scope row has a one-line why and a default", () => {
     assert.ok(row.why.length > 0 && !row.why.includes("\n"), row.key);
     assert.notEqual(row.default, undefined, row.key);
   }
+});
+
+test("13. JOB-G04: a repo entry that is this checkout itself is refused, in both repo lists", () => {
+  for (const self of [".", "./", "./.", ".//"]) {
+    const p = scopeProblems(ROOT, scope({ RESET_REPOS: `api ${self}`, RECUT_REPOS: self }));
+    assert.ok(p.includes("RESET_REPOS: '.' is this checkout itself; its own branches are never synced or re-cut"), `${self}: ${p.join("\n")}`);
+    assert.ok(p.includes("RECUT_REPOS: '.' is this checkout itself; its own branches are never synced or re-cut"), `${self}: ${p.join("\n")}`);
+  }
+  assert.deepEqual(scopeProblems(ROOT, scope({ RESET_REPOS: "api" })), [], "a real sub-repo is still fine");
+});
+
+const tmp = mkdtempSync(join(tmpdir(), "git-scope-"));
+after(() => rmSync(tmp, { recursive: true, force: true }));
+
+test("14. JOB-G04: a link inside the root that points back at the root is the checkout itself too", () => {
+  const root = join(tmp, "proj");
+  mkdirSync(join(root, "api"), { recursive: true });
+  symlinkSync(root, join(root, "self"));
+  assert.equal(isCheckoutItself(root, "self"), true);
+  assert.equal(isCheckoutItself(root, "api"), false);
+  assert.equal(isCheckoutItself(root, "missing"), false, "a missing path is a missing repo, reported by the job");
+  assert.deepEqual(scopeProblems(root, scope({ RESET_REPOS: "api self" })), [
+    "RESET_REPOS: 'self' is this checkout itself; its own branches are never synced or re-cut",
+  ]);
 });

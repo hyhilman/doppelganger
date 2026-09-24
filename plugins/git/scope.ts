@@ -12,6 +12,11 @@
 //
 // The default scope is EMPTY. A job with nothing in scope logs one line and does nothing, so
 // installing the plugin never resets anything by surprise.
+//
+// A repo entry may never be this checkout itself (`.`, `./`, or a link back to the root). Its own
+// `main` carries unpushed nightly landings made by a bot identity, and the "yours" guard only
+// spares commits by this repo's user.email, so a sync would throw those landings away.
+import { realpathSync } from "node:fs";
 import { basename, join, posix } from "node:path";
 import type { EnvSpec } from "../../kernel/plugin.ts";
 
@@ -147,6 +152,7 @@ export function scopeProblems(root: string, s: GitScope): string[] {
     for (const e of list) {
       const p = pathProblem(e);
       if (p) out.push(`${key}: '${e}' ${p}`);
+      else if (isCheckoutItself(root, e)) out.push(`${key}: '${e}' is this checkout itself; its own branches are never synced or re-cut`);
     }
     for (const d of dupes(list)) out.push(`${key}: '${d}' is listed twice`);
   }
@@ -187,6 +193,18 @@ export function scopeProblems(root: string, s: GitScope): string[] {
     if (!repos.has(r)) out.push(`${RECUT_REPOS_ENV.key}: '${r}' is not in ${RESET_REPOS_ENV.key}`);
   }
   return out;
+}
+
+/** True when a repo entry lands on the root: `.` once normalized, or a path whose real location
+ *  is the root (a symlink back to it). A path that does not exist is not the root; the job reports
+ *  it as a missing repo. */
+export function isCheckoutItself(root: string, entry: string): boolean {
+  if (normalizeEntry(entry) === ".") return true;
+  try {
+    return realpathSync(join(root, entry)) === realpathSync(root);
+  } catch {
+    return false;
+  }
 }
 
 function dupes(list: readonly string[]): string[] {
