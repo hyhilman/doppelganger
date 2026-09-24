@@ -92,6 +92,12 @@ import {
   RECUT_FORCE_ENV,
   RECUT_DATE_ENV,
 } from "../plugins/git/jobs/ops-reset-env-to-main.ts";
+import {
+  LOG_REPORT_COOLDOWN_M_ENV,
+  LOG_REPORT_MAX_KEYS_ENV,
+  LOG_REPORT_DRY_RUN_ENV,
+} from "../plugins/ops/jobs/ops-log-report.ts";
+import { RETENTION_LEASE_DAYS_ENV, RETENTION_DRY_RUN_ENV } from "../plugins/ops/jobs/ops-retention.ts";
 
 const ROOT = new URL("..", import.meta.url).pathname.replace(/\/$/, "");
 
@@ -412,6 +418,38 @@ const ROWS: readonly RowMeta[] = [
   { spec: RECUT_DRY_RUN_ENV, file: "plugins/git/jobs/ops-reset-env-to-main.ts", constName: "RECUT_DRY_RUN_ENV", readers: ["envStr"] },
   { spec: RECUT_FORCE_ENV, file: "plugins/git/jobs/ops-reset-env-to-main.ts", constName: "RECUT_FORCE_ENV", readers: ["envStr"] },
   { spec: RECUT_DATE_ENV, file: "plugins/git/jobs/ops-reset-env-to-main.ts", constName: "RECUT_DATE_ENV", readers: ["envStr"] },
+  // host/notify.ts reads the three NTFY_* rows above too, for the log report's own POST. Their
+  // `readers: []` stays: test 4 looks for the reader in the row's own file, host/config.ts.
+  {
+    spec: LOG_REPORT_COOLDOWN_M_ENV,
+    file: "plugins/ops/jobs/ops-log-report.ts",
+    constName: "LOG_REPORT_COOLDOWN_M_ENV",
+    readers: ["envNum"],
+  },
+  {
+    spec: LOG_REPORT_MAX_KEYS_ENV,
+    file: "plugins/ops/jobs/ops-log-report.ts",
+    constName: "LOG_REPORT_MAX_KEYS_ENV",
+    readers: ["envNum"],
+  },
+  {
+    spec: LOG_REPORT_DRY_RUN_ENV,
+    file: "plugins/ops/jobs/ops-log-report.ts",
+    constName: "LOG_REPORT_DRY_RUN_ENV",
+    readers: ["envStr"],
+  },
+  {
+    spec: RETENTION_LEASE_DAYS_ENV,
+    file: "plugins/ops/jobs/ops-retention.ts",
+    constName: "RETENTION_LEASE_DAYS_ENV",
+    readers: ["envNum"],
+  },
+  {
+    spec: RETENTION_DRY_RUN_ENV,
+    file: "plugins/ops/jobs/ops-retention.ts",
+    constName: "RETENTION_DRY_RUN_ENV",
+    readers: ["envStr"],
+  },
 ];
 
 test("1. assertSpecShape passes over every real row", () => {

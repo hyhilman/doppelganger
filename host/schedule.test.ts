@@ -48,14 +48,17 @@ export function program(over: Partial<Program> = {}): Program {
   };
 }
 
-test("1. the schedule carries six entries, nightly-sandcastle first (J3.15's the first non-vacuous validate(SCHEDULE); JOB-C16 adds nightly-polish, J4.12 ops-cron-check, J4.14 ops-watchdog, the git plugin its two)", () => {
-  assert.equal(SCHEDULE.length, 6);
+test("1. the schedule carries its entries in order, nightly-sandcastle first (J3.15's the first non-vacuous validate(SCHEDULE); JOB-C16 adds nightly-polish, J4.12 ops-cron-check, J4.14 ops-watchdog, the git and ops plugins theirs)", () => {
+  assert.equal(SCHEDULE.length, 9);
   assert.equal(SCHEDULE[0]!.name, "nightly-sandcastle");
   assert.equal(SCHEDULE[1]!.name, "nightly-polish");
   assert.equal(SCHEDULE[2]!.name, "ops-cron-check");
   assert.equal(SCHEDULE[3]!.name, "ops-watchdog");
   assert.equal(SCHEDULE[4]!.name, "ops-reset-branches");
   assert.equal(SCHEDULE[5]!.name, "ops-reset-env-to-main");
+  assert.equal(SCHEDULE[6]!.name, "ops-lease-reap");
+  assert.equal(SCHEDULE[7]!.name, "ops-log-report");
+  assert.equal(SCHEDULE[8]!.name, "ops-retention");
   assert.doesNotThrow(() => validate(SCHEDULE, { jobNames: JOBS.map((j) => j.name) }));
 
   for (const e of SCHEDULE) {
@@ -193,4 +196,19 @@ test("9. a .ts script names its interpreter — process.execPath, then the absol
   assert.deepEqual([...args], [join(ROOT, "host/x.ts")]);
   // Never exec'd bare — a .ts has no shebang of its own.
   assert.notEqual(cmd, join(ROOT, "host/x.ts"));
+});
+
+test("10. a job entry that fires more than once an hour keys its run lease on the minute (LSE-04)", () => {
+  // A single-number minute field fires at most once an hour; anything else (`*`, a list, a range,
+  // a step) fires more often, and an hourly run lease would refuse every tick after the first.
+  let checked = 0;
+  for (const e of SCHEDULE) {
+    if (e.job === undefined) continue; // a script entry never passes through runNamed's lease
+    const minute = e.cron.trim().split(/\s+/)[0]!;
+    if (/^\d+$/.test(minute)) continue;
+    const job = JOBS.find((j) => j.name === e.job);
+    assert.equal(job?.leaseWindow, "minute", `${e.name} fires more than once an hour (${e.cron}) but its job keys the run lease on the hour`);
+    checked++;
+  }
+  assert.ok(checked > 0, "precondition: at least one frequent job entry, or this checks nothing");
 });

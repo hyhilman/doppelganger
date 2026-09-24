@@ -81,6 +81,28 @@ export const PROGRAMS: Readonly<Record<string, Program>> = {
   // `repo`. dotenv: the scope (RESET_REPOS, RECUT_REPOS) lives in `.env`.
   "ops-reset-branches": { self: true, gate: "excl", resources: ["services"], dotenv: true },
   "ops-reset-env-to-main": { self: true, gate: "excl", resources: ["services"], dotenv: true },
+  "ops-lease-reap": {
+    self: true,
+    gate: "none",
+    dotenv: false,
+    whyNoGate:
+      "touches only lease.db and /proc, which the gate does not protect; a lease is its own lock. Gating it would leave a dead worker's claim wedged for as long as a writer holds the gate",
+  },
+  // dotenv: the POST reads NTFY_URL/NTFY_TOPIC/NTFY_TOKEN, which live in .env.
+  "ops-log-report": {
+    self: true,
+    gate: "none",
+    dotenv: true,
+    whyNoGate:
+      "reads log files and writes only log.db's cursors and stamps, which the gate does not protect. A fault reporter queued behind a stuck writer would be silent exactly while the fault is happening",
+  },
+  "ops-retention": {
+    self: true,
+    gate: "none",
+    dotenv: false,
+    whyNoGate:
+      "deletes only settled lease rows (never a held one) and cursors for files that are gone, then runs a WAL checkpoint, never VACUUM. lease.db and log.db are not gate resources, and a held lease is its own lock",
+  },
 };
 
 /**
@@ -156,6 +178,27 @@ export const SCHEDULE: readonly ScheduleEntry[] = [
     log: projectPath(".doppelganger/logs/ops-reset-env-to-main.log"),
     gateWait: true,
     why: "Weekly, Saturday 00:40 UTC (07:40 WIB): push a dated backup of each env branch, then force it back to origin/main (JOB-G09…12). The one git job that writes the remote. :40 keeps it off reset-branches' :45, so the two never queue on the same minute. GIT_NO_RECUT=1 stops it; an empty RECUT_REPOS logs one no-scope line.",
+  },
+  {
+    name: "ops-lease-reap",
+    cron: "* * * * *",
+    job: "ops-lease-reap",
+    log: projectPath(".doppelganger/logs/ops-lease-reap.log"),
+    why: "Every minute: delete leases whose owner process is dead, so a killed run does not wedge its key until the TTL runs out (JOB-O03). SQLite and /proc only, so a one-minute cadence is cheap; one swept line every run.",
+  },
+  {
+    name: "ops-log-report",
+    cron: "1-56/5 * * * *",
+    job: "ops-log-report",
+    log: projectPath(".doppelganger/logs/ops-log-report.log"),
+    why: "Every 5 minutes at :01, :06 … :56, clear of the watchdog's 3,18,33,48: read both log roots and post level=error lines to ntfy, grouped per job/event, with a per-key cooldown (JOB-O02). Silent when healthy; one tick line every run. Needs NTFY_URL and NTFY_TOKEN in .env, or it logs report-send-failed.",
+  },
+  {
+    name: "ops-retention",
+    cron: "17 3 * * *",
+    job: "ops-retention",
+    log: projectPath(".doppelganger/logs/ops-retention.log"),
+    why: "Once a day at 03:17 UTC (10:17 WIB), outside the nightly window: delete done/failed leases older than RETENTION_LEASE_DAYS and log cursors whose file is gone, then checkpoint both WALs (JOB-O06). The only job that deletes durable state; a held lease is never touched. One swept line every run.",
   },
 ];
 

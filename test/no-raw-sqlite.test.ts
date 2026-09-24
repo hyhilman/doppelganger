@@ -1,7 +1,7 @@
 // nobody can reach the driver.
 //
 // The set of files under the repo (outside node_modules/, .git/) that import "node:sqlite" must
-// equal this four-entry allowlist, each with its own reason. A new module importing the driver
+// equal this allowlist, each with its own reason. A new module importing the driver
 // directly goes red here — it means a write path exists that `instrument`'s busy-context proxy
 // cannot see.
 
@@ -18,6 +18,7 @@ const ALLOWED: Record<string, string> = {
   "kernel/runtime/db-sharing.test.ts": "TST-20's trap-2 fixture holds a lock from a SEPARATE process",
   "test/node.test.ts": "N0's capability probe — proves type stripping runs at all",
   "kernel/runtime/quota.test.ts": "QUOTA_FIXTURE_RECHECK's opt-in read of the reference's own quota.db, read-only, never run by default (J4.8)",
+  "plugins/ops/jobs/ops-retention.test.ts": "proves the sweep's DELETEs against a real store; a plugin test cannot reach kernel/runtime/db.ts (TST-03)",
 };
 
 function walk(dir: string, out: string[]): void {

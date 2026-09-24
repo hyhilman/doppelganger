@@ -149,19 +149,22 @@ const LIVE_FIXTURE_WINDOW: RefreshWindow = {
   why: "fixture: covers nightly-sandcastle's whole 16:38-21:38 firing range, every day",
 };
 
-test("8. entriesInWindow over the real SCHEDULE and PROGRAMS — six entries, a real discrimination (TST-17)", () => {
+test("8. entriesInWindow over the real SCHEDULE and PROGRAMS — a real discrimination (TST-17)", () => {
   // Six entries make this a genuine split: nightly-sandcastle (38 16-21 * * *) and nightly-polish
   // (39 16-21 * * *) fire inside this 16:00-22:00 window; ops-watchdog (3,18,33,48 * * * *) and
   // ops-reset-branches (45 * * * *) fire round the clock, so they fire inside ANY window and join
   // it; ops-cron-check (15 22 * * *) fires at 22:15, fifteen minutes past this window's half-open
   // close at 22:00, and stays OUT; ops-reset-env-to-main (40 0 * * 6) fires at 00:40 and stays OUT.
   // The exact name set is the discriminating claim — a set that silently admitted or dropped
-  // ops-cron-check would go unnoticed by a looser assertion.
+  // ops-cron-check would go unnoticed by a looser assertion. ops-lease-reap (* * * * *) and
+  // ops-log-report (1-56/5 * * * *) fire every few minutes, so they join any window too.
   const result = entriesInWindow(SCHEDULE, LIVE_FIXTURE_WINDOW, PROGRAMS);
   assert.deepEqual(result, [
     { name: "nightly-sandcastle", gate: "excl" },
     { name: "nightly-polish", gate: "excl" },
     { name: "ops-watchdog", gate: "none" },
     { name: "ops-reset-branches", gate: "excl" },
+    { name: "ops-lease-reap", gate: "none" },
+    { name: "ops-log-report", gate: "none" },
   ]);
 });

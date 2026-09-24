@@ -73,12 +73,12 @@ test("2. GAT-03 live: the concurrency the split buys is the concurrency the sche
   assert.deepEqual(disagreements, []);
 });
 
-test("3. GAT-07 live: every gate:\"none\" program has a non-empty whyNoGate, and there are exactly two", () => {
+test("3. GAT-07 live: every gate:\"none\" program has a non-empty whyNoGate, and there are exactly five", () => {
   const noneProgs = Object.entries(PROGRAMS).filter(([, p]) => p.gate === "none");
   for (const [name, p] of noneProgs) {
     assert.ok(p.whyNoGate && p.whyNoGate.trim().length > 0, `${name}: gate: "none" requires a non-empty whyNoGate (GAT-07)`);
   }
-  assert.equal(noneProgs.length, 2, `expected exactly 2 gate:"none" programs, found ${noneProgs.length}: ${noneProgs.map(([n]) => n).join(", ")}`);
+  assert.equal(noneProgs.length, 5, `expected exactly 5 gate:"none" programs, found ${noneProgs.length}: ${noneProgs.map(([n]) => n).join(", ")}`);
 });
 
 test("4. GAT-06 live: acquireSelf is keyed on the PROGRAM, not the entry", () => {

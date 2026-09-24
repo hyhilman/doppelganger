@@ -33,6 +33,10 @@ export const WATCH: readonly string[] = [
   // they are never shed.
   "ops-reset-branches",
   "ops-reset-env-to-main",
+  // The ops jobs run no agent and keep the loop itself healthy, so they are never shed.
+  "ops-lease-reap",
+  "ops-log-report",
+  "ops-retention",
 ];
 
 /** An unlisted name defaults to `"watch"` — the safe default: never skipped, downshifted like

@@ -13,11 +13,18 @@ import opsResetBranches from "../../plugins/git/jobs/ops-reset-branches.ts";
 import opsEnsureEnvWorktrees from "../../plugins/git/jobs/ops-ensure-env-worktrees.ts";
 import opsResetEnvToMain from "../../plugins/git/jobs/ops-reset-env-to-main.ts";
 
+import opsLeaseReap from "../../plugins/ops/jobs/ops-lease-reap.ts";
+import opsLogReport from "../../plugins/ops/jobs/ops-log-report.ts";
+import opsRetention from "../../plugins/ops/jobs/ops-retention.ts";
+
 test("1. JOBS lists the registered jobs in registration order", () => {
   assert.deepEqual(JOBS.map((j) => j.name), [
     "nightly-sandcastle",
     "nightly-polish",
     "ops-hello",
+    "ops-lease-reap",
+    "ops-log-report",
+    "ops-retention",
     "ops-reset-branches",
     "ops-ensure-env-worktrees",
     "ops-reset-env-to-main",
@@ -34,4 +41,7 @@ test("2. JOBS holds the same job objects the job files export — registry() doe
   assert.strictEqual(byName("ops-reset-branches"), opsResetBranches);
   assert.strictEqual(byName("ops-ensure-env-worktrees"), opsEnsureEnvWorktrees);
   assert.strictEqual(byName("ops-reset-env-to-main"), opsResetEnvToMain);
+  assert.strictEqual(byName("ops-lease-reap"), opsLeaseReap);
+  assert.strictEqual(byName("ops-log-report"), opsLogReport);
+  assert.strictEqual(byName("ops-retention"), opsRetention);
 });
