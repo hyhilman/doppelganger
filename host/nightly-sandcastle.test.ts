@@ -505,6 +505,20 @@ test("27. MAX=0 is free and complete — zero runner calls, a worktree was prepa
   assert.equal(worktreeCount(repo), 1);
 });
 
+test("27b. the reap stays in sandcastle's own directory — a live nightly-polish tree under the shared worktree root survives, a stranded sandcastle tree does not", async () => {
+  const repo = makeRepo();
+  const { deps } = buildContext(repo);
+  // nightly-polish's layout: <worktree root>/nightly-polish/tree, mid-pass.
+  const polish = prepWorktree(repo, { branch: `nightly-polish/${INSTANCE}`, base: "main" }, join(deps.worktree.root, "nightly-polish", "tree"));
+  // A tree a killed sandcastle pass left behind, under sandcastle's own directory.
+  const stranded = prepWorktree(repo, { branch: "stranded", base: "main" }, join(deps.worktree.root, "nightly-sandcastle", "old"));
+  await withEnv({ NIGHTLY_SANDCASTLE_MAX: "0" }, () => execPass(deps));
+  const listed = git(repo, "worktree", "list", "--porcelain");
+  assert.ok(listed.includes(`worktree ${polish.path}\n`), `the polish tree was reaped:\n${listed}`);
+  assert.ok(existsSync(polish.path), "the polish tree's directory is gone");
+  assert.ok(!listed.includes(`worktree ${stranded.path}\n`), `the stranded sandcastle tree was not reaped:\n${listed}`);
+});
+
 test("28. the happy path lands — one commit on nightly/<INSTANCE>, the base HEAD moved to it, one event=landed carrying the sha and the goal", async () => {
   const repo = makeRepo();
   const before = git(repo, "rev-parse", "HEAD").trim();

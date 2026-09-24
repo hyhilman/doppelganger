@@ -505,10 +505,14 @@ export async function execPass(deps: JobContext): Promise<void> {
   }
 
   const passBranch = `nightly/${deps.instance}`; // INS-06
-  const wtPath = join(deps.worktree.root, "nightly-sandcastle");
+  // The tree sits in this job's own parent directory. The worktree root is shared with
+  // nightly-polish, whose pass may be live right now.
+  const wtParent = join(deps.worktree.root, "nightly-sandcastle");
+  const wtPath = join(wtParent, "tree");
 
-  // 5. reap a stranded sibling before touching our own path.
-  deps.worktree.reap(deps.root, deps.worktree.root, wtPath);
+  // 5. reap a stranded sibling before touching our own path — only under our own parent, so the
+  // reap never tears down another job's live tree.
+  deps.worktree.reap(deps.root, wtParent, wtPath);
 
   // 6. rotation. An unknown ONLY key throws HERE, before anything is prepped.
   const db = deps.db("nightly");
