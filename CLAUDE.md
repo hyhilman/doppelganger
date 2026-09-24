@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Repository state
 
-**N0–N5 are built — all of v0.** N5's separate verify pass has not run yet. `kernel/` holds the
+**N0–N5 are built and verified — all of v0.** `kernel/` holds the
 registry, the manifest, `boot()`, `ports/` (`job.ts`, `context.ts` — the `JobContext` a plugin job's
 `exec` receives — `runner.ts`, `schedule.ts`), `runtime/` and `contracts/` (`contractTests`, TST-01).
 Three builtin plugins live under `plugins/<name>/` — `plugin.ts` (the manifest), `jobs/<job>.ts`,
