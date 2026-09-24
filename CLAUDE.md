@@ -4,16 +4,18 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Repository state
 
-**N0–N2 are done; N3 is built through J3.16** (the harness, the skills renderer, the pass, and the
-first `SCHEDULE` entry), pending only J3.17's one real agent run and J3.18's close. `kernel/` holds
-the framework primitives plus `ports/` (`job.ts`, `runner.ts`) and `runtime/` (`db.ts`, `exec.ts`,
-`gate.ts`, `pool.ts`, `payload.ts`, `runjob.ts`, `worktree.ts`, and `runtime/log/`). `host/` holds
-the supervisor, schedule, cron, window, config, runner and `jobs/nightly-sandcastle.ts`; `cli/`
-holds `crontab.ts` and `skills.ts`. `plugins/nightly/skills/nightly-sandcastle/SKILL.md` and its
-rendered `.claude/skills/` entry are the worked example of SKL-03/04 — the renderer now reproduces
-the rendered file byte-identically. `roadmap.md` is still the complete feature inventory and build
-order for extracting the `xenith/engine` unattended-agent engine into a reusable framework, and
-remains the spec of record as more of it ships (N2 onward).
+**N0–N5 are built — all of v0.** N5's separate verify pass has not run yet. `kernel/` holds the
+registry, the manifest, `boot()`, `ports/` (`job.ts`, `context.ts` — the `JobContext` a plugin job's
+`exec` receives — `runner.ts`, `schedule.ts`), `runtime/` and `contracts/` (`contractTests`, TST-01).
+Three builtin plugins live under `plugins/<name>/` — `plugin.ts` (the manifest), `jobs/<job>.ts`,
+`skills/<job>/SKILL.md`: `nightly` (sandcastle, polish), `ops` (hello, lease-reap, log-report,
+retention) and `git` (reset-branches, ensure-env-worktrees, reset-env-to-main, the PR-head
+worktree). A plugin file imports only `kernel/ports/*` and `kernel/plugin.ts`; every runtime
+capability arrives through `JobContext`. `host/` is the app: supervisor, schedule, config, runner,
+`plugins.ts` (the manifests it registers, plus its own `host` manifest for `jobs/ops-cron-check.ts`
+and the watchdog). `cli/` holds `crontab.ts`, `skills.ts` and `lease-clear.ts`. `roadmap.md` is
+still the complete feature inventory and build order for extracting the `xenith/engine`
+unattended-agent engine into a reusable framework, and remains the spec of record.
 
 The reference corpus is `/home/hyhilman/projects/xenith/` (`engine/**`,
 `compose-data/docker-compose.yml`) — the acceptance criterion for behaviour, not something to copy
