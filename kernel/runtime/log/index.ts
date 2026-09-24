@@ -1,4 +1,5 @@
-// barrel for logging. Consumers import the whole surface from here.
+// barrel for logging: the one surface a package consumer will take as `log` (ADO-03). Code in this
+// repo never imports it — it names the file it needs by path (TST-04, test/barrels.test.ts).
 //
 // Five files, split by role rather than by topic:
 //
