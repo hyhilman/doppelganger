@@ -102,6 +102,10 @@ export const BLOCKED: readonly BlockedRow[] = [
     re: /^\.github\//,
     why: "a green suite says nothing about whether CI still runs it",
   },
+  {
+    re: /^node_modules$/,
+    why: "the pass symlinks it in; committing it replaces the host's real node_modules",
+  },
 ];
 
 /** The reason a path is off-limits, or `null` — a refusal says WHY, not which regex index. */

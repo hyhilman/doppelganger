@@ -1,4 +1,6 @@
-node_modules/
+# No trailing slash: a nightly pass symlinks node_modules into its worktree,
+# and `node_modules/` matches only a real directory, never a symlink.
+node_modules
 dist/
 *.db
 *.db-wal

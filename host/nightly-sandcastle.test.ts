@@ -7,7 +7,7 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, writeFileSync, readFileSync, mkdirSync, existsSync, symlinkSync } from "node:fs";
+import { mkdtempSync, writeFileSync, readFileSync, mkdirSync, existsSync, symlinkSync, copyFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { extractBlock, extractFields } from "../kernel/runtime/payload.ts";
@@ -325,7 +325,9 @@ function makeRepo(branch = "main"): string {
   git(repo, "config", "user.name", "t");
   git(repo, "config", "user.email", "t@example.com");
   writeFileSync(join(repo, "README.md"), "hello\n");
-  writeFileSync(join(repo, ".gitignore"), "node_modules\n.doppelganger/\n"); // the symlinked node_modules and every pass worktree must not read as tree-dirty
+  // The real .gitignore, never an invented one: the symlinked node_modules and every pass
+  // worktree must not read as tree-dirty, and only the real file can prove that.
+  copyFileSync(join(ROOT, ".gitignore"), join(repo, ".gitignore"));
   git(repo, "add", "-A");
   git(repo, "-c", "user.email=t@example.com", "-c", "user.name=t", "commit", "-q", "-m", "init");
   return repo;
@@ -750,4 +752,23 @@ test("41. QTA-08 — under a spend-wall downshift, pass-start's model= is the mo
   assert.equal(runnerCalls.length, 1);
   assert.equal(started!.fields.model, runnerCalls[0]!.model, "pass-start's model must equal the model handed to the runner");
   assert.equal(started!.fields.model, "claude-sonnet-5");
+});
+
+test("42. the real .gitignore ignores a node_modules SYMLINK, the shape both passes put in a worktree", () => {
+  // `node_modules/` (trailing slash) matches only a directory. A pass symlinks the root's
+  // node_modules into its worktree, so that line let `git add -A` commit the link, and the
+  // fast-forward then swapped the host's real node_modules for it.
+  const repo = mkdtempSync(join(tmpdir(), "gitignore-symlink-"));
+  git(repo, "init", "-q");
+  copyFileSync(join(ROOT, ".gitignore"), join(repo, ".gitignore"));
+  mkdirSync(join(repo, "target"));
+  symlinkSync(join(repo, "target"), join(repo, "node_modules"));
+  // check-ignore exits 1 when the path is NOT ignored, and git() throws on that.
+  git(repo, "check-ignore", "-q", "node_modules");
+  assert.equal(git(repo, "status", "--porcelain", "-uall", "--", "node_modules").trim(), "");
+});
+
+test("43. blockedBy refuses node_modules — the second guard if the ignore rule ever breaks", () => {
+  assert.ok(blockedBy("node_modules") !== null);
+  assert.equal(blockedBy("node_modules.md"), null);
 });

@@ -7,7 +7,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Job } from "../../../kernel/ports/job.ts";
@@ -254,7 +254,9 @@ function makeRepo(branch = "main"): string {
   git(repo, "config", "user.email", "t@example.com");
   writeFileSync(join(repo, "README.md"), "hello\n");
   writeFileSync(join(repo, "run.ts"), "export {};\n");
-  writeFileSync(join(repo, ".gitignore"), "node_modules\n.doppelganger/\n");
+  // The real .gitignore, never an invented one: only the real file proves the symlinked
+  // node_modules does not read as a changed path.
+  copyFileSync(new URL("../../../.gitignore", import.meta.url), join(repo, ".gitignore"));
   git(repo, "add", "-A");
   git(repo, "commit", "-q", "-m", "init");
   return repo;
