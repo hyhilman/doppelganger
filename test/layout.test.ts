@@ -156,7 +156,7 @@ interface MapEntry {
   tags: string[];
 }
 
-const PHASE_TAGS = ["N1", "N2", "N3", "N4", "N5"] as const;
+const PHASE_TAGS = ["N1", "N2", "N3", "N4", "N5", "M5"] as const;
 
 /**
  * Phase state derived from WORK.md, which owns it — so this rule need not be hand-edited every
@@ -170,7 +170,8 @@ const PHASE_TAGS = ["N1", "N2", "N3", "N4", "N5"] as const;
  */
 function shippedPhases(): { shipped: Set<string>; current: string | null } {
   const workMd = readFileSync(join(ROOT, "WORK.md"), "utf8");
-  const PHASE_HEADING = /^##\s+(N\d+)\s+—/;
+  // N0–N5 are v0; M5 onward are the v1 phases, and the same rules read them.
+  const PHASE_HEADING = /^##\s+([NM]\d+)\s+—/;
   const BULLET = /^- \[( |x)\]/;
 
   const phases: { name: string; ticked: number; total: number }[] = [];
@@ -225,10 +226,10 @@ function classifyRow(
   return "must-be-absent";
 }
 
-const TAG_RE = /\b(N1|N2|N3|N4|N5|v0|v1)\b/g;
+const TAG_RE = /\b(N1|N2|N3|N4|N5|M5|v0|v1)\b/g;
 
 /** Parse the fenced layout diagram's `<dir>/` block into one entry per named file, each
- *  carrying its milestone tag(s) (N1..N5, v0, v1 — a row can carry more than one, e.g. "v0 · N1").
+ *  carrying its milestone tag(s) (N1..N5, M5, v0, v1 — a row can carry more than one, e.g. "v0 · N1").
  *  Directory-only lines (ports/, runtime/, contracts/, jobs/) update the current prefix and produce
  *  no entry of their own; a bare prose line (contracts/, jobs/) names no files at all. The same
  *  logic reads kernel/, host/ and cli/ — the anchor is the first line beginning `<dir>/`, and the
@@ -581,7 +582,7 @@ test("16. WORK.md's header item counts match the checkbox bullets actually under
   const workMd = readFileSync(join(ROOT, "WORK.md"), "utf8");
   const lines = workMd.split("\n");
 
-  const PHASE_HEADING = /^##\s+(N\d+)\s+—.*\*\*(\d+)\s+items\*\*/;
+  const PHASE_HEADING = /^##\s+([NM]\d+)\s+—.*\*\*(\d+)\s+items\*\*/;
   const BULLET = /^- \[( |x)\]/;
   const MVP_BANNER = /^#\s+✅\s+MVP READY\s+—\s+(\d+)\s+items/;
 
