@@ -54,6 +54,14 @@ export const DELIVERY_STAMPS: readonly StampRow[] = [
     writer: "host/watchdog.sh stamp_ntfy()",
     why: "the ntfy POST is failing, so every alarm raised since is being LOST — the one fault that cannot report itself through the channel it is about",
   },
+  {
+    name: "log-report-send",
+    path: ".doppelganger/log-report.fail",
+    // Its own row, not ntfy-send's: two writers on one stamp means one writer's success clears
+    // the other's failure.
+    writer: "host/notify.ts ntfyPost()",
+    why: "the log report's ntfy POST is failing, so error lines since then reached the log and nobody's phone",
+  },
 ];
 
 /**

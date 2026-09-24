@@ -511,6 +511,20 @@ test("15. probe 5 — a present ntfy.fail is itself a fault, so a broken alarm c
   assert.ok(!existsSync(f.ntfyStamp), "a delivered alarm clears the stamp, so the next tick is quiet");
 });
 
+test("15b. probe 6 — a present log-report.fail is a fault, and a delivered watchdog POST leaves it in place", () => {
+  const f = makeFixture();                                  // heartbeat FRESH: nothing else is wrong
+  const reportStamp = join(f.root, ".doppelganger/log-report.fail");
+  writeFileSync(reportStamp, "2026-09-24T03:00:00Z http=500\n");
+  const shim = curlShim(f.root, "200");
+  const r = run(f.root, { NTFY_URL: "https://ntfy.example", NTFY_TOKEN: "tk_test", PATH: shim.path });
+
+  const lines = breachLines(r.stderr);
+  assert.equal(lines.length, 1);
+  assert.match(lines[0]!, /log report delivery failing since 2026-09-24T03:00:00Z/);
+  // Its writer is host/notify.ts. The watchdog's own send working says nothing about that one.
+  assert.ok(existsSync(reportStamp), "the watchdog's POST must not clear another writer's stamp");
+});
+
 test("16. WATCHDOG_NO_NOTIFY=1 skips the POST and leaves the stamp alone — standing down is not a delivery failure", () => {
   const f = makeFixture();
   ageFile(f.heartbeat, 10);

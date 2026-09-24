@@ -45,6 +45,7 @@ LOCK="$ROOT/.doppelganger/watchdog.lock"
 HEARTBEAT="$ROOT/.doppelganger/supervisor.heartbeat"
 STAMP="$ROOT/.doppelganger/heartbeat.fail"
 NTFYSTAMP="$ROOT/.doppelganger/ntfy.fail"
+REPORTSTAMP="$ROOT/.doppelganger/log-report.fail"
 mkdir -p "$ROOT/.doppelganger" 2>/dev/null || true
 
 # CRON'S PATH IS NOT A LOGIN SHELL'S. Cron hands this script
@@ -286,6 +287,14 @@ fi
 # (engine/watchdog.sh) with every health probe green throughout.
 if [ "$NOTIFY_STATE" = "ready" ] && [ -f "$NTFYSTAMP" ]; then
   fault "ntfy delivery failing since $(head -c 40 "$NTFYSTAMP") — alarms raised since then were LOST"
+fi
+
+# PROBE 6 — the log report's own delivery stamp (host/notify.ts). Same rule as probes 4 and 5:
+# PRESENCE is the fault. It is a separate file from probe 5's on purpose, so a watchdog POST that
+# works never clears a log report that cannot send, and the other way round. This script only
+# reads it; the log report is its one writer.
+if [ -f "$REPORTSTAMP" ]; then
+  fault "log report delivery failing since $(head -c 40 "$REPORTSTAMP") — error lines since then reached the log but no phone"
 fi
 
 if [ ${#faults[@]} -eq 0 ]; then
