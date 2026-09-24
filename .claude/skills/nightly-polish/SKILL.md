@@ -33,9 +33,9 @@ parentheses the first time it appears. Keep every feature ID (`KRN-01`, `JOB-C14
 
 ## What to leave alone
 
-Change only Markdown docs. Leave code, the skill files, the rendered `.claude/` tree and the CI
-config alone. Do not add a new doc, and do not delete, rename or split one — if a doc needs that,
-change nothing and write it as a suggestion.
+Change only Markdown docs. Leave code, the skill files, `CLAUDE.md`, the rendered `.claude/` tree
+and the CI config alone. Do not add a new doc, and do not delete, rename or split one — if a doc
+needs that, change nothing and write it as a suggestion.
 
 ## Report
 

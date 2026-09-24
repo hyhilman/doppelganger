@@ -163,7 +163,7 @@ export function parseReport(stdout: string): Report | null {
 
 // ---------------------------------------------------------------------------------------------
 // The doc gate. Tier 1 (free): every changed path is an edit to an existing Markdown file outside
-// the off-limits trees. Tier 2: `npm test` in the worktree — README claims are gated there.
+// the off-limits paths. Tier 2: `npm test` in the worktree — README claims are gated there.
 // ---------------------------------------------------------------------------------------------
 
 /** One line of `git status --porcelain`: the two-letter code and the path. */
@@ -175,6 +175,7 @@ export interface Change {
 const OFF_LIMITS: readonly { readonly re: RegExp; readonly why: string }[] = [
   { re: /^\.claude\//, why: "rendered or tool-owned, never hand-edited (SKL-04)" },
   { re: /^plugins\/[^/]+\/skills\//, why: "a pass must not rewrite the instructions the next pass reads" },
+  { re: /^CLAUDE\.md$/, why: "every agent reads it first, so a pass must not rewrite its next reader's instructions" },
   { re: /^\.github\//, why: "a green suite says nothing about whether CI still runs it" },
 ];
 

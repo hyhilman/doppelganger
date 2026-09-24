@@ -72,7 +72,7 @@ test("parseReport: no closed block is null; a missing or empty field reads -; CR
 // The doc gate.
 // ---------------------------------------------------------------------------------------------
 
-test("refusal: an edit to a tracked doc passes; code, off-limits trees, new, deleted and renamed files do not", () => {
+test("refusal: an edit to a tracked doc passes; code, off-limits paths, new, deleted and renamed files do not", () => {
   assert.equal(refusal({ code: " M", path: "README.md" }), null);
   assert.equal(refusal({ code: "M ", path: "docs/guide.md" }), null);
   const refused: [string, string][] = [
@@ -80,6 +80,7 @@ test("refusal: an edit to a tracked doc passes; code, off-limits trees, new, del
     [" M", "package.json"],
     [" M", ".claude/skills/nightly-polish/SKILL.md"],
     [" M", "plugins/nightly/skills/nightly-polish/SKILL.md"],
+    [" M", "CLAUDE.md"],
     [" M", ".github/workflows/README.md"],
     ["??", "NEW.md"],
     [" D", "CLAUDE.md"],
