@@ -94,20 +94,24 @@ export interface GateResource {
   readonly why: string;
 }
 
-/** Two resources, not three and not one. One resource makes GAT-03 ("two writers on disjoint
- *  resources run concurrently") unexerciseable against the real list; three would be a guess. Both
- *  of these have a named writer already in the roadmap; a third arrives with the job that needs
- *  it. */
+/** Three resources. Each one has a named writer; a new one arrives only with the job that needs
+ *  it. `docs` came with nightly-polish (JOB-C16): it lets the two nightly passes hold excl at the
+ *  same time, because their resource sets do not overlap. */
 export const RESOURCES: readonly GateResource[] = [
   {
     name: "repo",
     path: ".",
-    why: "the checkout itself — its refs, its worktrees, its working tree. Every job that commits or resets holds excl on it; every job that only reads the tree holds shared.",
+    why: "the checkout itself — its refs, its worktrees, its working tree. Every job that commits or resets holds excl on it (nightly-polish holds docs instead, see below); every job that only reads the tree holds shared.",
   },
   {
     name: "skills",
     path: ".claude/skills",
     why: "the rendered skill tree. skills render/sync (SKL-04, N3) writes it; every spawned agent reads its skills mid-run, so a render under a live agent is the reference's plugin resource with the names changed.",
+  },
+  {
+    name: "docs",
+    path: ".",
+    why: "the tracked Markdown docs nightly-polish rewrites, spread across the checkout. Polish lands on the same base branch as nightly-sandcastle, and --ff-only plus one rebase retry absorbs that, so polish holds docs, not repo, and the two nightlies run side by side (JOB-C16).",
   },
 ];
 

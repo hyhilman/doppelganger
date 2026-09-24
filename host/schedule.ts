@@ -47,6 +47,9 @@ export interface Program {
  *  and no program exists to register until N3, which is when the first row (below) lands. */
 export const PROGRAMS: Readonly<Record<string, Program>> = {
   "nightly-sandcastle": { self: true, gate: "excl", resources: ["repo"], dotenv: true },
+  // `docs`, not `repo`: disjoint from sandcastle's set, so both nightlies can hold excl at once
+  // (JOB-C16). See `docs` in host/config.ts for why sharing the base branch is safe.
+  "nightly-polish": { self: true, gate: "excl", resources: ["docs"], dotenv: true },
   // the first `gate: "none"` row this repo has: the check reads `crontab -l` and
   // renders, racing nothing the gate protects, and it is most useful precisely when a writer is
   // holding the gate and jobs are backing up behind it.
@@ -94,6 +97,11 @@ export const PROGRAMS: Readonly<Record<string, Program>> = {
  * against SUP-13's SIGKILL bound — host/schedule.test.ts's budget assertion pins the relation so
  * the two numbers can never drift apart silently.
  *
+ * `nightly-polish` gets the same 90 by the same sum with two more children: its tracker issue is
+ * one `gh issue create` and one `gh issue close`, and each runs through `runIn` with the same
+ * `GATE_TIMEOUT_MS` cap. 40 + 5 × 4 = 60 min, plus prep and reporting. The budget assertion pins
+ * this one too.
+ *
  * No entry here sets `supervised: false` — `crontab render` still emits a managed block with zero
  * command lines, and nothing starts the supervisor itself yet. That is SUP-09/JOB-O10, N4.
  */
@@ -104,7 +112,15 @@ export const SCHEDULE: readonly ScheduleEntry[] = [
     job: "nightly-sandcastle",
     log: projectPath(".doppelganger/logs/nightly-sandcastle.log"),
     maxRunMin: 90,
-    why: "hourly overnight (23:38–04:38 WIB): one small, verified improvement to this repo, gated on the full suite, an import smoke of every changed file and a dry run of every changed job (JOB-C15). :38 leaves the :08s free for nightly-polish (JOB-C16, N5) so the pair fires every 30 minutes without sharing a minute — both take the gate exclusively, non-blocking, so a shared minute would mean one silently skipping every night.",
+    why: "hourly overnight (23:38–04:38 WIB): one small, verified improvement to this repo, gated on the full suite, an import smoke of every changed file and a dry run of every changed job (JOB-C15). nightly-polish fires one minute later, at :39 (JOB-C16). The two hold excl on disjoint resources (repo, docs), so they run side by side; the one-minute offset exists because two agent starts in one instant race on the git global config lock.",
+  },
+  {
+    name: "nightly-polish",
+    cron: "39 16-21 * * *",
+    job: "nightly-polish",
+    log: projectPath(".doppelganger/logs/nightly-polish.log"),
+    maxRunMin: 90,
+    why: "hourly overnight (23:39–04:39 WIB): one small docs improvement to this repo's own Markdown, gated on a docs-only diff and the full suite, landed by --ff-only (JOB-C14). One minute after nightly-sandcastle, not the same minute: both passes start an agent, and two agent starts in one instant race on the git global config lock. The gate does not separate them — polish holds docs and sandcastle holds repo, so both run at once (JOB-C16).",
   },
   {
     name: "ops-cron-check",

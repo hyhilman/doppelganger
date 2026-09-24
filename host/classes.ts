@@ -8,7 +8,7 @@ import type { JobClass } from "../kernel/runtime/shed.ts";
 /** A job whose failure to run tonight costs nothing but a delay — SKIPPED outright under a recent
  *  spend wall. A value-class decision, not a refactor: host/classes.test.ts pins this
  *  exact list, so widening it is a deliberate edit, never a drive-by. */
-export const CHORE: readonly string[] = ["nightly-sandcastle"];
+export const CHORE: readonly string[] = ["nightly-sandcastle", "nightly-polish"];
 
 /** A job with a human waiting on its output — NEVER skipped, NEVER downshifted. Empty at N4:
  *  nothing in this repo has a human waiting on it yet. The empty list is a CHECKED claim

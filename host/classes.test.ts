@@ -9,7 +9,7 @@ import { JOBS } from "./jobs/index.ts";
 test("8. CHORE and REVIEW are pinned to the assignment table this feature shipped with", () => {
   assert.deepEqual(
     [...CHORE],
-    ["nightly-sandcastle"],
+    ["nightly-sandcastle", "nightly-polish"],
     "a change here is a value-class decision, not a refactor — CHORE moved away from the table J4.9 shipped with",
   );
   assert.deepEqual(

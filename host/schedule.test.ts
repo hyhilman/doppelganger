@@ -24,6 +24,9 @@ import { LOG_ROOTS } from "../kernel/runtime/log/tail.ts";
 import { RUN_TIMEOUT_IMPL_MS } from "../kernel/ports/runner.ts";
 import { GATE_TIMEOUT_MS } from "../plugins/nightly/jobs/nightly-sandcastle.ts";
 import { JOBS } from "./jobs/index.ts";
+import { createGate } from "../kernel/runtime/gate.ts";
+import { RESOURCE_NAMES } from "./config.ts";
+import { CRON_ANCHOR, firings } from "./cron.ts";
 
 export function entry(over: Partial<ScheduleEntry> = {}): ScheduleEntry {
   return {
@@ -45,11 +48,12 @@ export function program(over: Partial<Program> = {}): Program {
   };
 }
 
-test("1. the schedule carries three entries, nightly-sandcastle first (J3.15's the first non-vacuous validate(SCHEDULE); J4.12 adds ops-cron-check, J4.14 adds ops-watchdog)", () => {
-  assert.equal(SCHEDULE.length, 3);
+test("1. the schedule carries four entries, nightly-sandcastle first (J3.15's the first non-vacuous validate(SCHEDULE); JOB-C16 adds nightly-polish, J4.12 ops-cron-check, J4.14 ops-watchdog)", () => {
+  assert.equal(SCHEDULE.length, 4);
   assert.equal(SCHEDULE[0]!.name, "nightly-sandcastle");
-  assert.equal(SCHEDULE[1]!.name, "ops-cron-check");
-  assert.equal(SCHEDULE[2]!.name, "ops-watchdog");
+  assert.equal(SCHEDULE[1]!.name, "nightly-polish");
+  assert.equal(SCHEDULE[2]!.name, "ops-cron-check");
+  assert.equal(SCHEDULE[3]!.name, "ops-watchdog");
   assert.doesNotThrow(() => validate(SCHEDULE, { jobNames: JOBS.map((j) => j.name) }));
 
   for (const e of SCHEDULE) {
@@ -78,6 +82,54 @@ test("2. the budget: RUN_TIMEOUT_IMPL_MS + 2*GATE_TIMEOUT_MS stays under nightly
     `RUN_TIMEOUT_IMPL_MS (${RUN_TIMEOUT_IMPL_MS}) + 2*GATE_TIMEOUT_MS (${GATE_TIMEOUT_MS}) = ${budget}, ` +
       `must be < maxRunMin*60_000 (${maxRunMs})`,
   );
+});
+
+// nightly-polish runs four capped children at most: npm test twice (the ff-miss path gates again),
+// then gh issue create and gh issue close. Each goes through runIn, capped at GATE_TIMEOUT_MS.
+test("2b. the budget: RUN_TIMEOUT_IMPL_MS + 4*GATE_TIMEOUT_MS stays under nightly-polish's maxRunMin (JOB-C14)", () => {
+  const entry = SCHEDULE.find((e) => e.name === "nightly-polish");
+  assert.ok(entry, "nightly-polish must be in SCHEDULE");
+  const maxRunMs = entry!.maxRunMin! * 60_000;
+  const budget = RUN_TIMEOUT_IMPL_MS + 4 * GATE_TIMEOUT_MS;
+  assert.ok(
+    budget < maxRunMs,
+    `RUN_TIMEOUT_IMPL_MS (${RUN_TIMEOUT_IMPL_MS}) + 4*GATE_TIMEOUT_MS (${GATE_TIMEOUT_MS}) = ${budget}, ` +
+      `must be < maxRunMin*60_000 (${maxRunMs})`,
+  );
+});
+
+// JOB-C16: the two nightlies run side by side. The gate must let both hold excl at once, and their
+// starts sit exactly one minute apart — two agent starts in one instant race on the git global
+// config lock.
+test("2c. JOB-C16 — the nightlies' resource sets are disjoint, the real gate lets both hold excl at once, and polish fires exactly one minute after sandcastle", async () => {
+  const sand = PROGRAMS["nightly-sandcastle"]!;
+  const polish = PROGRAMS["nightly-polish"]!;
+  assert.equal(sand.gate, "excl");
+  assert.equal(polish.gate, "excl");
+  // An absent `resources` means every resource, which would overlap everything.
+  assert.ok(sand.resources && sand.resources.length > 0, "nightly-sandcastle must name its resources");
+  assert.ok(polish.resources && polish.resources.length > 0, "nightly-polish must name its resources");
+  const shared = sand.resources.filter((r) => polish.resources!.includes(r));
+  assert.deepEqual(shared, [], `the two nightlies share ${shared.join(", ")}`);
+
+  const gate = createGate(RESOURCE_NAMES);
+  const a = await gate.acquire("excl", sand.resources);
+  assert.ok(a, "sandcastle could not take its excl hold on an idle gate");
+  const b = await gate.acquire("excl", polish.resources);
+  assert.ok(b, "polish could not take excl while sandcastle held its own — the sets must not contend");
+  b!.release();
+  a!.release();
+
+  const byName = (n: string): ScheduleEntry => SCHEDULE.find((e) => e.name === n)!;
+  const week = 7 * 86_400_000;
+  const s = firings(byName("nightly-sandcastle").cron, CRON_ANCHOR, CRON_ANCHOR + week);
+  const p = firings(byName("nightly-polish").cron, CRON_ANCHOR, CRON_ANCHOR + week);
+  assert.ok(s.length > 0, "nightly-sandcastle never fires in a week");
+  assert.equal(p.length, s.length, "the two nightlies fire a different number of times");
+  assert.equal(p[0]! - s[0]!, 60_000, "the first firings are not exactly one minute apart");
+  for (let i = 0; i < s.length; i++) {
+    assert.equal(p[i]! - s[i]!, 60_000, `firing ${i}: polish is not exactly one minute after sandcastle`);
+  }
 });
 
 test("3. programOf prefers job, then script, then name", () => {
