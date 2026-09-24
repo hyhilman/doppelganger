@@ -224,3 +224,48 @@ test("11. logFiles returns only *.log, sorted", () => {
   const files = logFiles([root]);
   assert.deepEqual(files, [join(root, "a.log"), join(root, "b.log")]);
 });
+
+test("12. advance: false moves no cursor — two read-only ticks and then a real one all see the same line", () => {
+  const root = freshRoot();
+  const dbPath = freshDbPath();
+  const logPath = join(root, "a.log");
+  writeFileSync(logPath, "");
+  withLogDb(dbPath, () => tail([root])); // baseline at END=0
+  appendFileSync(logPath, line("seen"));
+  const first = withLogDb(dbPath, () => tail([root], { advance: false }));
+  const second = withLogDb(dbPath, () => tail([root], { advance: false }));
+  const real = withLogDb(dbPath, () => tail([root]));
+  assert.deepEqual(first.lines.map((l) => l.event), ["seen"]);
+  assert.deepEqual(second.lines.map((l) => l.event), ["seen"], "a read-only tick moved the cursor");
+  assert.deepEqual(real.lines.map((l) => l.event), ["seen"], "a read-only tick moved the cursor");
+  closeAll();
+});
+
+test("13. advance: false never rotates, even above LOG_MAX_BYTES", () => {
+  const root = freshRoot();
+  const dbPath = freshDbPath();
+  const logPath = join(root, "a.log");
+  writeFileSync(logPath, "");
+  const code = `
+    process.env.LOG_MAX_BYTES = "50";
+    process.env.LOG_DB = ${JSON.stringify(dbPath)};
+    import('./kernel/runtime/log/tail.ts').then(m => {
+      m.tail([${JSON.stringify(root)}]); // baseline at END=0
+      const fs = require('node:fs');
+      const one = 'ts=2026-01-01T00:00:00Z level=info job=j src=sh event=e\\n';
+      fs.appendFileSync(${JSON.stringify(logPath)}, one.repeat(3)); // > 50 bytes
+      const r = m.tail([${JSON.stringify(root)}], { advance: false });
+      console.log(JSON.stringify({
+        lines: r.lines.length,
+        rotated: r.rotated,
+        liveSize: fs.statSync(${JSON.stringify(logPath)}).size,
+        oldExists: fs.existsSync(${JSON.stringify(logPath)} + '.1'),
+      }));
+    });
+  `;
+  const out = JSON.parse(runChild(code)) as { lines: number; rotated: string[]; liveSize: number; oldExists: boolean };
+  assert.equal(out.lines, 3);
+  assert.deepEqual(out.rotated, []);
+  assert.ok(out.liveSize > 50, "a read-only tick truncated the live file");
+  assert.equal(out.oldExists, false, "a read-only tick wrote a .1 file");
+});

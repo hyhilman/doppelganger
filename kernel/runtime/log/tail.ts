@@ -128,7 +128,7 @@ interface FileStep {
  * ordering the whole module rests on — read first, truncate second, cursor last — is stated once
  * here instead of interleaved with the sweep's bookkeeping.
  */
-function step(path: string, st: Stats, prev: Cursor): FileStep {
+function step(path: string, st: Stats, prev: Cursor, advance: boolean): FileStep {
   const inode = String(st.ino);
   // Replaced under us (new inode) or truncated in place (size < offset) -> re-read from zero. A
   // first sight starts at the file's END, or the very first tick replays history as "new faults".
@@ -157,9 +157,10 @@ function step(path: string, st: Stats, prev: Cursor): FileStep {
     }
   }
 
-  // Rotate AFTER reading, so nothing in the rotated tail is lost to this tick.
+  // Rotate AFTER reading, so nothing in the rotated tail is lost to this tick. A read-only tick
+  // never rotates: the next real tick must still find the same bytes where it left them.
   let rotated = false;
-  if (st.size > MAX_BYTES) {
+  if (advance && st.size > MAX_BYTES) {
     try {
       writeFileSync(`${path}.1`, readFileSync(path));
       truncateSync(path, 0);
@@ -178,8 +179,12 @@ function step(path: string, st: Stats, prev: Cursor): FileStep {
  *
  * `roots` defaults to `LOG_ROOTS`; a test passes a `mkdtempSync` root instead so the suite never
  * touches the real checkout's `.doppelganger/logs/` (TST-20's discipline). The database itself is
- * redirected the ordinary way, through `LOG_DB`. */
-export function tail(roots: readonly string[] = LOG_ROOTS): TailResult {
+ * redirected the ordinary way, through `LOG_DB`.
+ *
+ * `advance: false` is a read-only tick (SAF-01): it reads the same lines, moves no cursor and
+ * rotates nothing, so the next real tick sees exactly what this one saw. */
+export function tail(roots: readonly string[] = LOG_ROOTS, opts: { readonly advance?: boolean } = {}): TailResult {
+  const advance = opts.advance ?? true;
   const db = logDb();
   const h = db.handle();
   const get = h.prepare("SELECT inode, offset FROM logtail_cursor WHERE path = ?");
@@ -197,12 +202,12 @@ export function tail(roots: readonly string[] = LOG_ROOTS): TailResult {
     } catch {
       continue;
     }
-    const s = step(path, st, get.get(path) as Cursor);
+    const s = step(path, st, get.get(path) as Cursor, advance);
     for (const l of s.lines) out.lines.push(l);
     if (s.reset) out.reset.push(path);
     if (s.rotated) out.rotated.push(path);
     out.skipped += s.skipped;
-    put.run(path, s.inode, s.offset, nowIso());
+    if (advance) put.run(path, s.inode, s.offset, nowIso());
   }
   return out;
 }
