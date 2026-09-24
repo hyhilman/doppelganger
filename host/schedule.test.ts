@@ -22,7 +22,8 @@ import {
 import { ROOT } from "../kernel/paths.ts";
 import { LOG_ROOTS } from "../kernel/runtime/log/tail.ts";
 import { RUN_TIMEOUT_IMPL_MS } from "../kernel/ports/runner.ts";
-import { GATE_TIMEOUT_MS } from "./jobs/nightly-sandcastle.ts";
+import { GATE_TIMEOUT_MS } from "../plugins/nightly/jobs/nightly-sandcastle.ts";
+import { JOBS } from "./jobs/index.ts";
 
 export function entry(over: Partial<ScheduleEntry> = {}): ScheduleEntry {
   return {
@@ -49,7 +50,7 @@ test("1. the schedule carries three entries, nightly-sandcastle first (J3.15's t
   assert.equal(SCHEDULE[0]!.name, "nightly-sandcastle");
   assert.equal(SCHEDULE[1]!.name, "ops-cron-check");
   assert.equal(SCHEDULE[2]!.name, "ops-watchdog");
-  assert.doesNotThrow(() => validate());
+  assert.doesNotThrow(() => validate(SCHEDULE, { jobNames: JOBS.map((j) => j.name) }));
 
   for (const e of SCHEDULE) {
     const program = PROGRAMS[programOf(e)];

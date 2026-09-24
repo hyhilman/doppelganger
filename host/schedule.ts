@@ -205,7 +205,11 @@ export interface ValidateOpts {
   readonly resourceNames?: readonly string[];
   readonly refreshWindow?: RefreshWindow | null;
   readonly logRoots?: readonly string[];
-  readonly jobsDir?: string;
+  /** Every registered job name (`JOBS`). Rule 10 checks a `job:` entry against it. Absent means
+   *  rule 10 does not run: this file cannot import the registry, because the registry loads
+   *  `ops-cron-check`, which loads this file. The supervisor passes it at every boot, and
+   *  `boot(PLUGINS)` in `npm test` makes the same check over the real graph. */
+  readonly jobNames?: readonly string[];
   readonly root?: string;
 }
 
@@ -224,7 +228,7 @@ export function validate(entries: readonly ScheduleEntry[] = SCHEDULE, opts: Val
     resourceNames = RESOURCE_NAMES,
     refreshWindow = REFRESH_WINDOW,
     logRoots = LOG_ROOTS,
-    jobsDir = projectPath("host/jobs"),
+    jobNames,
     root = ROOT,
   } = opts;
 
@@ -269,10 +273,9 @@ export function validate(entries: readonly ScheduleEntry[] = SCHEDULE, opts: Val
     if (e.job !== undefined && e.script !== undefined) err(e.name, "both job and script are set");
     if (e.job === undefined && e.script === undefined) err(e.name, "neither job nor script is set");
 
-    // 10. job file exists
-    if (e.job !== undefined) {
-      const p = join(jobsDir, `${e.job}.ts`);
-      if (!existsSync(p)) err(e.name, `job file does not exist: ${p}`);
+    // 10. the job is registered — the list is what exists (SKL-05), wherever its file lives
+    if (e.job !== undefined && jobNames !== undefined && !jobNames.includes(e.job)) {
+      err(e.name, `job ${JSON.stringify(e.job)} is not registered: no manifest lists it`);
     }
 
     // 11/12. script exists, and is project-relative

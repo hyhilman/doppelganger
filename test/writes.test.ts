@@ -9,10 +9,9 @@ import { join } from "node:path";
 
 const ROOT = new URL("..", import.meta.url).pathname.replace(/\/$/, "");
 
-// Every N2 file lands outside kernel/, so the three repo-wide registers must learn about host/
-// and cli/ before the first such file exists. plugins/ stays out: it holds no .ts file until N5,
-// and scanning it now would be a scan with no subject.
-const SCANNED_DIRS = ["kernel", "host", "cli"];
+// The repo-wide registers scan every directory that holds source: kernel/, host/, cli/, and
+// plugins/ since the first plugin job moved there (N5).
+const SCANNED_DIRS = ["kernel", "host", "cli", "plugins"];
 
 function walkTsFiles(dir: string, out: string[]): void {
   for (const entry of readdirSync(dir)) {
@@ -23,8 +22,7 @@ function walkTsFiles(dir: string, out: string[]): void {
   }
 }
 
-/** Every non-test .ts file under kernel/, host/ and cli/ — tolerating a root that does not exist
- *  yet (host/ and cli/ have no .ts file at N2's first commits). */
+/** Every non-test .ts file under SCANNED_DIRS — tolerating a root that does not exist. */
 function allTsFiles(): string[] {
   const out: string[] = [];
   for (const d of SCANNED_DIRS) {
@@ -268,7 +266,7 @@ const REGISTER: Record<string, RegisterEntry> = {
     category: "project-relative",
     reason: "sync writes/rewrites a rendered SKILL.md and prunes an orphan directory, all under .claude/skills (SKL-04)",
   },
-  "host/jobs/nightly-sandcastle.ts": {
+  "plugins/nightly/jobs/nightly-sandcastle.ts": {
     category: "project-relative",
     reason: "symlinks node_modules into the pass worktree, all under the project-relative worktree root",
   },

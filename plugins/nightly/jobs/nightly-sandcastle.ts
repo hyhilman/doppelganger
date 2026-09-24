@@ -12,9 +12,9 @@
 import { spawnSync } from "node:child_process";
 import { existsSync, symlinkSync } from "node:fs";
 import { join } from "node:path";
-import { isKilled, type EnvSpec } from "../../kernel/plugin.ts";
-import type { Db, JobContext, RunIn, Worktree } from "../../kernel/ports/context.ts";
-import { DEFAULTS, defineJob, type Job } from "../../kernel/ports/job.ts";
+import { isKilled, type EnvSpec } from "../../../kernel/plugin.ts";
+import type { Db, JobContext, RunIn, Worktree } from "../../../kernel/ports/context.ts";
+import { DEFAULTS, defineJob, type Job } from "../../../kernel/ports/job.ts";
 
 // ---------------------------------------------------------------------------------------------
 // The verdict — reproduces plugins/nightly/skills/nightly-sandcastle/SKILL.md's report block and
@@ -84,7 +84,7 @@ export const BLOCKED: readonly BlockedRow[] = [
     why: "one process owns every tick",
   },
   {
-    re: /^host\/jobs\/nightly-sandcastle\.ts$/,
+    re: /^plugins\/nightly\/(plugin\.ts|jobs\/nightly-sandcastle\.ts)$/,
     why: "a job that can rewrite its own kill switch does not have one",
   },
   {
@@ -238,6 +238,8 @@ export interface GateResult {
   readonly detail: string;
 }
 
+const JOB_FILE_RE = /^(?:host\/jobs|plugins\/[^/]+\/jobs)\/([^/]+)\.ts$/;
+
 /** `nightly-sandcastle` -> `NIGHTLY_SANDCASTLE` — the derived half of a job's dry-run knob name.
  *  Never used to derive a KILL SWITCH (`*_NO_<FEATURE>`): that shape is plugin+feature,
  *  not derivable from a job name, and this function must not be generalised to try. */
@@ -283,15 +285,16 @@ export function gate(files: readonly string[], deps: GateDeps): GateResult {
   }
 
   // Tier 4 — a dry run of every changed REGISTERED job (SKL-05: an unregistered file is not a
-  // job). Dormant at N3 by construction: BLOCKED forbids a pass touching the only registry job,
-  // so no pass can ever produce a changed job file for this loop to find — it becomes live the
-  // day a second job lands (N5's ops builtins). The DB redirect is the load-bearing half: a
+  // job). BLOCKED forbids a pass touching this job's own file, so this runs over every OTHER
+  // registered job file a pass changed. The DB redirect is the load-bearing half: a
   // dry-run flag is the job's own promise about itself, and this gate exists because tonight's
   // pass may have just edited the code that keeps that promise.
-  const changedJobFiles = files.filter((f) => /^host\/jobs\/[^/]+\.ts$/.test(f) && f !== "host/jobs/index.ts");
   let dryRunCount = 0;
-  for (const f of changedJobFiles) {
-    const jobName = f.slice("host/jobs/".length, -".ts".length);
+  for (const f of files) {
+    // A job file lives in host/jobs/ (the app's own) or plugins/<name>/jobs/.
+    const m = JOB_FILE_RE.exec(f);
+    if (m === null) continue;
+    const jobName = m[1]!;
     const job = deps.jobs.find((j) => j.name === jobName);
     if (!job) continue; // not a registered job — running it would be discovery through the back door
     const env: Record<string, string> = { [`${envPrefixOf(jobName)}_DRY_RUN`]: "1" };

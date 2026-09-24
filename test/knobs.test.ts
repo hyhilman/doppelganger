@@ -55,17 +55,15 @@ import {
   NIGHTLY_SANDCASTLE_MAX_ENV,
   NIGHTLY_SANDCASTLE_ONLY_ENV,
   NIGHTLY_SANDCASTLE_MODEL_ENV,
-} from "../host/jobs/nightly-sandcastle.ts";
+} from "../plugins/nightly/jobs/nightly-sandcastle.ts";
 
 const ROOT = new URL("..", import.meta.url).pathname.replace(/\/$/, "");
 
-// every N2 file lands outside kernel/, so this file's three scans must
-// learn about host/ and cli/ before the first such file exists. plugins/ stays out: it holds no
-// .ts file until N5.
-const SCANNED_DIRS = ["kernel", "host", "cli"];
+// This file's three scans cover every directory that holds source: kernel/, host/, cli/, and
+// plugins/ since the first plugin job moved there (N5).
+const SCANNED_DIRS = ["kernel", "host", "cli", "plugins"];
 
-/** Every non-test .ts file under kernel/, host/ and cli/ — tolerating a root that does not exist
- *  yet (host/ and cli/ have no .ts file at N2's first commits). */
+/** Every non-test .ts file under SCANNED_DIRS — tolerating a root that does not exist. */
 function allNonTestTsFiles(): string[] {
   const out: string[] = [];
   const walk = (dir: string): void => {
@@ -227,7 +225,7 @@ const ROWS: readonly RowMeta[] = [
   },
   {
     spec: NIGHTLY_NO_SANDCASTLE_ENV,
-    file: "host/jobs/nightly-sandcastle.ts",
+    file: "plugins/nightly/jobs/nightly-sandcastle.ts",
     constName: "NIGHTLY_NO_SANDCASTLE_ENV",
     // KRN-07: migrated from envStr(...) === "1" to isKilled(...) — kernel/plugin.ts's
     // safest-verdict reader (J8).
@@ -235,37 +233,37 @@ const ROWS: readonly RowMeta[] = [
   },
   {
     spec: NIGHTLY_SANDCASTLE_BASE_ENV,
-    file: "host/jobs/nightly-sandcastle.ts",
+    file: "plugins/nightly/jobs/nightly-sandcastle.ts",
     constName: "NIGHTLY_SANDCASTLE_BASE_ENV",
     readers: ["envStr"],
   },
   {
     spec: NIGHTLY_SANDCASTLE_DRY_RUN_ENV,
-    file: "host/jobs/nightly-sandcastle.ts",
+    file: "plugins/nightly/jobs/nightly-sandcastle.ts",
     constName: "NIGHTLY_SANDCASTLE_DRY_RUN_ENV",
     readers: ["envStr"],
   },
   {
     spec: NIGHTLY_SANDCASTLE_NO_MERGE_ENV,
-    file: "host/jobs/nightly-sandcastle.ts",
+    file: "plugins/nightly/jobs/nightly-sandcastle.ts",
     constName: "NIGHTLY_SANDCASTLE_NO_MERGE_ENV",
     readers: ["envStr"],
   },
   {
     spec: NIGHTLY_SANDCASTLE_MAX_ENV,
-    file: "host/jobs/nightly-sandcastle.ts",
+    file: "plugins/nightly/jobs/nightly-sandcastle.ts",
     constName: "NIGHTLY_SANDCASTLE_MAX_ENV",
     readers: ["envNum"],
   },
   {
     spec: NIGHTLY_SANDCASTLE_ONLY_ENV,
-    file: "host/jobs/nightly-sandcastle.ts",
+    file: "plugins/nightly/jobs/nightly-sandcastle.ts",
     constName: "NIGHTLY_SANDCASTLE_ONLY_ENV",
     readers: ["envOptional"],
   },
   {
     spec: NIGHTLY_SANDCASTLE_MODEL_ENV,
-    file: "host/jobs/nightly-sandcastle.ts",
+    file: "plugins/nightly/jobs/nightly-sandcastle.ts",
     constName: "NIGHTLY_SANDCASTLE_MODEL_ENV",
     readers: ["envOptional"],
   },

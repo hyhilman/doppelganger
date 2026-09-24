@@ -296,7 +296,7 @@ test("14. the reference's source scan, ported — every registered job with NO s
   for (const job of JOBS) {
     if (job.skill !== undefined) continue;
     assert.ok(job.exec !== undefined, `${job.name}: a job with no skill must set exec (D10)`);
-    const file = projectPath(`host/jobs/${job.name}.ts`);
+    const file = projectPath(job.plugin === "host" ? `host/jobs/${job.name}.ts` : `plugins/${job.plugin}/jobs/${job.name}.ts`);
     const src = readFileSync(file, "utf8");
     assert.ok(!/from\s*["'][^"']*\/quota\.ts["']/.test(src), `${job.name}: a deterministic job must not import quota.ts`);
     assert.ok(!/\brunJob\s*\(/.test(src), `${job.name}: a deterministic job must not call runJob(`);

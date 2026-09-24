@@ -10,7 +10,9 @@ import assert from "node:assert/strict";
 import { boot } from "../kernel/boot.ts";
 import { definePlugin, type Plugin } from "../kernel/plugin.ts";
 import { SCHEDULE } from "../host/schedule.ts";
-import { PLUGINS, ownerOf, UNCLAIMED } from "../host/plugins.ts";
+import { PLUGINS, MANIFESTS, HOST, ownerOf, UNCLAIMED } from "../host/plugins.ts";
+import { existsSync, readdirSync } from "node:fs";
+import { projectPath } from "../kernel/paths.ts";
 import { JOBS } from "../host/jobs/index.ts";
 import type { Job } from "../kernel/ports/job.ts";
 import type { ScheduleEntry } from "../kernel/ports/schedule.ts";
@@ -68,10 +70,10 @@ test("3. ops-watchdog — the entry with no job field at all — is claimed thro
   const watchdog = SCHEDULE.find((e) => e.name === "ops-watchdog");
   assert.ok(watchdog !== undefined, "fixture assumption: host/schedule.ts still names ops-watchdog");
   assert.equal(watchdog!.job, undefined, "fixture assumption: ops-watchdog is still a script: entry with no job field");
-  assert.equal(ownerOf(watchdog!), "ops");
+  assert.equal(ownerOf(watchdog!), "host");
   assert.ok(
-    PLUGINS.find((p) => p.name === "ops")!.schedule.some((e) => e.name === "ops-watchdog"),
-    "the ops plugin's schedule array must include ops-watchdog even though it has no job field",
+    PLUGINS.find((p) => p.name === "host")!.schedule.some((e) => e.name === "ops-watchdog"),
+    "the host manifest's schedule array must include ops-watchdog even though it has no job field",
   );
 });
 
@@ -143,4 +145,19 @@ test("6. ownership is DECLARED, not read off the stage prefix — the case plugi
 
   // And an entry naming a job nothing registers is UNCLAIMED, never silently handed to a plugin.
   assert.equal(ownerOf(entry, []), UNCLAIMED);
+});
+
+test("7. every plugins/<name>/plugin.ts on disk is registered in host/plugins.ts, and nothing else is — a manifest nobody imports is a plugin nothing runs", async () => {
+  const onDisk: string[] = [];
+  for (const dir of readdirSync(projectPath("plugins")).sort()) {
+    const file = projectPath("plugins", dir, "plugin.ts");
+    if (!existsSync(file)) continue;
+    const mod = (await import(file)) as { default?: Plugin };
+    assert.ok(mod.default, `plugins/${dir}/plugin.ts: expected a default-exported manifest`);
+    assert.equal(mod.default!.name, dir, `plugins/${dir}/plugin.ts: the manifest's name must be its directory name`);
+    assert.ok(MANIFESTS.includes(mod.default!), `plugins/${dir}/plugin.ts is not in host/plugins.ts's MANIFESTS`);
+    onDisk.push(dir);
+  }
+  const registered = MANIFESTS.filter((p) => p !== HOST).map((p) => p.name).sort();
+  assert.deepEqual(registered, onDisk, "MANIFESTS must list exactly the plugins on disk, plus the host's own");
 });

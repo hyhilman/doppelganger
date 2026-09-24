@@ -6,7 +6,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync, readdirSync, statSync, existsSync } from "node:fs";
 import { matchesGlob, join, relative } from "node:path";
-import { DB_NAMESPACES } from "../host/jobs/nightly-sandcastle.ts";
+import { DB_NAMESPACES } from "../plugins/nightly/jobs/nightly-sandcastle.ts";
 
 const ROOT = new URL("..", import.meta.url).pathname.replace(/\/$/, "");
 

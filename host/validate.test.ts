@@ -15,10 +15,8 @@ import { join } from "node:path";
 import { validate, type ValidateOpts } from "./schedule.ts";
 import type { ScheduleEntry, Program } from "./schedule.ts";
 
-const jobsDir = mkdtempSync(join(tmpdir(), "dg-jobs-"));
+const jobNames = ["probe", "orphan"];
 const root = mkdtempSync(join(tmpdir(), "dg-root-"));
-writeFileSync(join(jobsDir, "probe.ts"), "export {};\n");
-writeFileSync(join(jobsDir, "orphan.ts"), "export {};\n");
 mkdirSync(join(root, "scripts"), { recursive: true });
 writeFileSync(join(root, "scripts", "probe.sh"), "#!/bin/sh\n");
 
@@ -58,7 +56,7 @@ function baseOpts(over: Partial<ValidateOpts> = {}): ValidateOpts {
     resourceNames: ["repo", "skills"],
     refreshWindow: null,
     logRoots: [LOG_ROOT],
-    jobsDir,
+    jobNames,
     root,
     ...over,
   };
@@ -140,10 +138,10 @@ test("rule 9: neither job nor script is set", () => {
   );
 });
 
-test("rule 10: job set but the job file does not exist", () => {
+test("rule 10: job set but no manifest registers it", () => {
   assert.throws(
     () => validate([baseEntry({ job: "missing-job" })], baseOpts({ programs: { "missing-job": baseProgram() } })),
-    /entry "watch-probe": job file does not exist/,
+    /entry "watch-probe": job "missing-job" is not registered/,
   );
 });
 
@@ -316,6 +314,5 @@ test("the % rule is scoped to bootstrap (supervised: false) entries", () => {
 // this file's own run — node --test runs top-level code once per file, so this executes after
 // every test() above has been registered and (by the time process exit is reached) run.
 process.on("exit", () => {
-  rmSync(jobsDir, { recursive: true, force: true });
   rmSync(root, { recursive: true, force: true });
 });

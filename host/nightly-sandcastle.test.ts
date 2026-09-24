@@ -1,23 +1,27 @@
 // the verdict, the blocked paths, the
-// goals, the import smoke.
+// goals, the import smoke, the pass.
+//
+// This test lives in host/, not beside the job: a file under plugins/ may not import
+// kernel/runtime (TST-03), and the pass tests below run a real git repo and a real store through
+// a test JobContext built from the real runtime pieces.
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, writeFileSync, readFileSync, mkdirSync, existsSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
-import { extractBlock, extractFields } from "../../kernel/runtime/payload.ts";
-import type { Job } from "../../kernel/ports/job.ts";
-import { INSTANCE } from "../../kernel/instance.ts";
-import { openDb } from "../../kernel/runtime/db.ts";
-import type { Logger } from "../../kernel/runtime/log/emit.ts";
-import { git } from "../../kernel/runtime/exec.ts";
-import type { Runner, RunRequest, RunResult } from "../../kernel/ports/runner.ts";
-import { NO_SHED, shedModel } from "../../kernel/runtime/shed.ts";
-import { envStr, envNum, envOptional } from "../../kernel/config.ts";
-import { runJob } from "../../kernel/runtime/runjob.ts";
-import { prepWorktree, teardownWorktree, reapWorktrees, worktreePromptLines } from "../../kernel/runtime/worktree.ts";
-import type { JobContext, RunIn } from "../../kernel/ports/context.ts";
+import { extractBlock, extractFields } from "../kernel/runtime/payload.ts";
+import type { Job } from "../kernel/ports/job.ts";
+import { INSTANCE } from "../kernel/instance.ts";
+import { openDb } from "../kernel/runtime/db.ts";
+import type { Logger } from "../kernel/runtime/log/emit.ts";
+import { git } from "../kernel/runtime/exec.ts";
+import type { Runner, RunRequest, RunResult } from "../kernel/ports/runner.ts";
+import { NO_SHED, shedModel } from "../kernel/runtime/shed.ts";
+import { envStr, envNum, envOptional } from "../kernel/config.ts";
+import { runJob } from "../kernel/runtime/runjob.ts";
+import { prepWorktree, teardownWorktree, reapWorktrees, worktreePromptLines } from "../kernel/runtime/worktree.ts";
+import type { JobContext, RunIn } from "../kernel/ports/context.ts";
 import {
   parseVerdict,
   blockedBy,
@@ -33,11 +37,11 @@ import {
   readState,
   type GateDeps,
   HEAD_MAX_CHARS,
-} from "./nightly-sandcastle.ts";
+} from "../plugins/nightly/jobs/nightly-sandcastle.ts";
 
 const PAYLOAD = { extractBlock, extractFields };
 
-const ROOT = new URL("../..", import.meta.url).pathname.replace(/\/$/, "");
+const ROOT = new URL("..", import.meta.url).pathname.replace(/\/$/, "");
 const SOURCE_FILE = join(ROOT, "plugins/nightly/skills/nightly-sandcastle/SKILL.md");
 
 /** The report template, read from the source SKILL.md AT TEST TIME with placeholders filled —
@@ -115,7 +119,7 @@ test("7. blockedBy covers the four things the markdown names (Off limits:)", () 
     "the schedule file": "host/schedule.ts",
     "the supervisor": "host/supervisor.ts",
     "package.json": "package.json",
-    "this skill's own files": "host/jobs/nightly-sandcastle.ts",
+    "this skill's own files": "plugins/nightly/jobs/nightly-sandcastle.ts",
   };
   for (const [phrase, path] of Object.entries(mapping)) {
     assert.ok(bullet.includes(phrase), `Off limits: bullet no longer names "${phrase}": ${bullet}`);
@@ -698,7 +702,7 @@ test("39. INSTANCE is in the branch name and every path is project-relative", as
 });
 
 test("40. SAF-07 is documented — the dry-run knob's why contains COSTS, the max knob's contains free", async () => {
-  const mod = await import("./nightly-sandcastle.ts");
+  const mod = await import("../plugins/nightly/jobs/nightly-sandcastle.ts");
   const dryRunWhy = (mod as unknown as Record<string, { why: string }>).NIGHTLY_SANDCASTLE_DRY_RUN_ENV.why;
   const maxWhy = (mod as unknown as Record<string, { why: string }>).NIGHTLY_SANDCASTLE_MAX_ENV.why;
   assert.ok(dryRunWhy.includes("COSTS"));

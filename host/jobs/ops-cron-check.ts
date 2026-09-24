@@ -111,7 +111,7 @@ export async function runCheck(deps: CronCheckDeps): Promise<void> {
 export default defineJob({
   name: "ops-cron-check",
   description: "Diff the installed crontab managed block against a fresh render of host/schedule.ts, once a day (JOB-O09).",
-  plugin: "ops",
+  plugin: "host",
   permissionMode: "auto",
   exec: (ctx: JobContext): Promise<void> =>
     runCheck({

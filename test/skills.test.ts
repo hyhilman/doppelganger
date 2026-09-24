@@ -12,7 +12,7 @@ import { skillOf } from "../kernel/ports/job.ts";
 import { STAGES } from "../kernel/stages.ts";
 import { check, render, ownerOf, type SkillsTree } from "../cli/skills.ts";
 import { JOBS } from "../host/jobs/index.ts";
-import { OUTCOMES, DB_NAMESPACES } from "../host/jobs/nightly-sandcastle.ts";
+import { OUTCOMES, DB_NAMESPACES } from "../plugins/nightly/jobs/nightly-sandcastle.ts";
 import { extractBlock } from "../kernel/runtime/payload.ts";
 
 /** JOB-T03's authorization token (N5) — SKL-07 bans it from ever appearing in a skill's OUTPUT

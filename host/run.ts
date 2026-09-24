@@ -26,7 +26,7 @@ import type { JobContext } from "../kernel/ports/context.ts";
 import { sandcastleRunner } from "./runner.ts";
 import { classOf } from "./classes.ts";
 import { JOBS } from "./jobs/index.ts";
-import { GATE_TIMEOUT_MS } from "./jobs/nightly-sandcastle.ts";
+import { GATE_TIMEOUT_MS } from "../plugins/nightly/jobs/nightly-sandcastle.ts";
 import { SUPERVISOR_MAX_RUN_MIN, SUPERVISOR_KILL_GRACE_MS } from "./supervisor.ts";
 
 /** `undefined` names no job at all (bare `npm run job`); an unknown name is a SEPARATE case, so the

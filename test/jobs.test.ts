@@ -1,7 +1,7 @@
-// one name, four consumers: the registry, the
-// host/jobs/ directory, the schedule, and (via test/skills.test.ts, checked separately) the
-// skill tree. This file is the registry/directory/schedule three; test/skills.test.ts already
-// owns the fourth.
+// one name, four consumers: the registry, the job
+// directories (host/jobs/ for the app's own jobs, plugins/<name>/jobs/ for a plugin's), the
+// schedule, and (via test/skills.test.ts, checked separately) the skill tree. This file is the
+// registry/directory/schedule three; test/skills.test.ts already owns the fourth.
 //
 // says the LIST is what exists and the directory is only ever CHECKED against it — so
 // assertion 2 below always reads `JOBS` as truth and the directory as the thing being verified,
@@ -10,23 +10,41 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readdirSync } from "node:fs";
+import { existsSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { projectPath } from "../kernel/paths.ts";
 import { stageOf, MISC, STAGES } from "../kernel/stages.ts";
+import type { Job } from "../kernel/ports/job.ts";
 import { JOBS } from "../host/jobs/index.ts";
 import { SCHEDULE } from "../host/schedule.ts";
 
-const JOBS_DIR = projectPath("host/jobs");
-
-/** Every `host/jobs/*.ts` file that is a JOB module — never `*.test.ts`, never `index.ts` (the
- *  registry itself), matching host/jobs/index.ts's own file-header description of what the
- *  directory holds. */
-function jobFilesOnDisk(): string[] {
-  return readdirSync(JOBS_DIR)
-    .filter((f) => f.endsWith(".ts") && !f.endsWith(".test.ts") && f !== "index.ts")
-    .sort();
+/** Every job directory: host/jobs/ and each plugins/<name>/jobs/ that exists. Repo-relative. */
+function jobDirs(): string[] {
+  const dirs = ["host/jobs"];
+  for (const p of readdirSync(projectPath("plugins")).sort()) {
+    if (existsSync(projectPath("plugins", p, "jobs"))) dirs.push(`plugins/${p}/jobs`);
+  }
+  return dirs;
 }
+
+/** Every job-directory `*.ts` file that is a JOB module — never `*.test.ts`, never
+ *  `host/jobs/index.ts` (the registry itself). Repo-relative paths. */
+function jobFilesOnDisk(): string[] {
+  const out: string[] = [];
+  for (const dir of jobDirs()) {
+    for (const f of readdirSync(projectPath(dir))) {
+      if (!f.endsWith(".ts") || f.endsWith(".test.ts")) continue;
+      if (dir === "host/jobs" && f === "index.ts") continue;
+      out.push(`${dir}/${f}`);
+    }
+  }
+  return out.sort();
+}
+
+/** Where a registered job's file must live: the app's own jobs (plugin `host`) in host/jobs/,
+ *  every other in its own plugin's jobs/ directory. */
+const expectedFile = (j: Job): string =>
+  j.plugin === "host" ? `host/jobs/${j.name}.ts` : `plugins/${j.plugin}/jobs/${j.name}.ts`;
 
 test("1. every registered job's name carries a known SUP-20 stage prefix", () => {
   const offenders = JOBS.filter((j) => stageOf(j.name) === MISC).map((j) => j.name);
@@ -37,29 +55,29 @@ test("1. every registered job's name carries a known SUP-20 stage prefix", () =>
   );
 });
 
-test("2. the registry and the host/jobs/ directory agree, both ways (SKL-05: the list is what exists)", () => {
-  const registered = JOBS.map((j) => j.name).slice().sort();
-  const onDisk = jobFilesOnDisk().map((f) => f.slice(0, -".ts".length));
+test("2. the registry and the job directories agree, both ways (SKL-05: the list is what exists)", () => {
+  const registered = JOBS.map(expectedFile).sort();
+  const onDisk = jobFilesOnDisk();
 
-  const registeredNotOnDisk = registered.filter((n) => !onDisk.includes(n));
+  const registeredNotOnDisk = registered.filter((f) => !onDisk.includes(f));
   assert.deepEqual(
     registeredNotOnDisk,
     [],
-    `registered job(s) with no host/jobs/<name>.ts file — add the file: ${registeredNotOnDisk.join(", ")}`,
+    `registered job(s) with no file where their plugin says — add the file: ${registeredNotOnDisk.join(", ")}`,
   );
 
-  const onDiskNotRegistered = onDisk.filter((n) => !registered.includes(n));
+  const onDiskNotRegistered = onDisk.filter((f) => !registered.includes(f));
   assert.deepEqual(
     onDiskNotRegistered,
     [],
-    `host/jobs/*.ts file(s) with no matching entry in JOBS — register the job: ${onDiskNotRegistered.join(", ")}`,
+    `job file(s) with no matching entry in JOBS — list the job in its manifest: ${onDiskNotRegistered.join(", ")}`,
   );
 });
 
 test("3. every registered job is default-exported by its own file, and the default export's name matches the filename", async () => {
   for (const file of jobFilesOnDisk()) {
-    const base = file.slice(0, -".ts".length);
-    const mod = (await import(join(JOBS_DIR, file))) as { default?: { name?: string } };
+    const base = file.slice(file.lastIndexOf("/") + 1, -".ts".length);
+    const mod = (await import(join(projectPath(), file))) as { default?: { name?: string } };
     assert.ok(mod.default, `${file}: expected a default export`);
     assert.equal(
       mod.default!.name,

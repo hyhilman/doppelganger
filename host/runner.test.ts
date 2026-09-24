@@ -25,7 +25,7 @@ import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { pathToFileURL } from "node:url";
 import { buildAgent } from "./runner.ts";
-import nightlySandcastleJob from "./jobs/nightly-sandcastle.ts";
+import nightlySandcastleJob from "../plugins/nightly/jobs/nightly-sandcastle.ts";
 import type { RunRequest } from "../kernel/ports/runner.ts";
 
 const ROOT = new URL("..", import.meta.url).pathname.replace(/\/$/, "");

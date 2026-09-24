@@ -135,12 +135,13 @@ function makeHarness(
   return { deps, spawnCalls, children, openSinkCalls, sinkContents, root };
 }
 
-/** Creates an empty stub job file for each name, under `<root>/host/jobs/` — validate() (called by
- *  main(), rule 10) refuses a `job:` entry whose file does not exist. */
+/** The job names each fixture root registers — validate() (called by main(), rule 10) refuses a
+ *  `job:` entry no manifest registers. */
+const STUB_JOBS = new Map<string, readonly string[]>();
+
+/** Registers each name as a job for this fixture root (read through `deps.jobNames`). */
 function stubJobFiles(root: string, jobs: readonly string[]): void {
-  const dir = join(root, "host/jobs");
-  mkdirSync(dir, { recursive: true });
-  for (const job of jobs) writeFileSync(join(dir, `${job}.ts`), "export {};\n");
+  STUB_JOBS.set(root, jobs);
 }
 
 /** a real, dead-owner `held` claim, written directly (bypassing acquire()'s own owner
@@ -212,6 +213,8 @@ function makeBootHarness(
     programs: {},
     newTimer,
     reapOnBoot: () => [],
+    jobNames: () => STUB_JOBS.get(h.root) ?? [],
+    boot: () => {},
     heartbeatPath: join(h.root, ".doppelganger/supervisor.heartbeat"),
     statusPath: join(h.root, ".doppelganger/supervisor.status.json"),
     heartbeatFailPath: join(h.root, ".doppelganger/heartbeat.fail"),
@@ -861,6 +864,49 @@ test("20. a throwing reaper does not stop the boot", async () => {
   assert.equal(h.newTimerCalls.length, 1, "the timers must still be registered after a reap failure");
 });
 
+test("20b. KRN-08/11: boot() runs after reapOnBoot and before the first newTimer", async () => {
+  const h = makeBootHarness();
+  stubJobFiles(h.root, ["probe"]);
+  const callOrder: string[] = [];
+  const reapOnBoot = (): Iterable<Record<string, string | number>> => {
+    callOrder.push("reap");
+    return [];
+  };
+  const boot = (): void => {
+    callOrder.push("boot");
+  };
+  const newTimer = (e: ScheduleEntry, fn: () => void): { stop(): void } => {
+    callOrder.push("newTimer");
+    return h.deps.newTimer(e, fn);
+  };
+  await withLog(async () => {
+    const sup = await main([bootEntry(h.root)], { ...h.deps, programs: { probe: program() }, reapOnBoot, boot, newTimer });
+    await sup.stop("SIGTERM");
+  });
+  assert.deepEqual(callOrder, ["reap", "boot", "newTimer"]);
+});
+
+test("20c. KRN-08/11: a boot() problem stops the boot loudly — no timer, exit code 1, one line per problem", async () => {
+  const h = makeBootHarness();
+  stubJobFiles(h.root, ["probe"]);
+  const boot = (): void => {
+    throw new Error('boot() found 1 problem(s) (KRN-08 — one throw, one line each):\n  - plugin "x" [skill]: no skill directory');
+  };
+  const previousExit = process.exitCode;
+  try {
+    const { lines } = await withLog(async () => {
+      await bootOrDie([bootEntry(h.root)], { ...h.deps, programs: { probe: program() }, boot });
+    });
+    assert.equal(process.exitCode, 1);
+    assert.equal(h.newTimerCalls.length, 0, "a boot() problem must stop the boot before a single timer registers");
+    const failed = lines.filter((l) => l.event === "boot-failed");
+    assert.equal(failed.length, 1);
+    assert.match(String(failed[0]!.msg), /plugin "x" \[skill\]/);
+  } finally {
+    process.exitCode = previousExit;
+  }
+});
+
 test("21. SUP-06: bootOrDie sets process.exitCode and writes one stderr line per problem", async () => {
   const h = makeBootHarness();
   stubJobFiles(h.root, ["probe"]);
@@ -900,6 +946,8 @@ test("22. SUP-06 in a real child, so the exit code is real", () => {
       killGraceMs: 20,
       spawnStaggerMs: 0,
       jobRunner: (job) => [process.execPath, ["-e", "1"]],
+      jobNames: () => [],
+      boot: () => {},
       newTimer: () => ({ stop() {} }),
       heartbeatPath: "/tmp/dg-boot-probe.heartbeat",
       statusPath: "/tmp/dg-boot-probe.status.json",
@@ -1474,6 +1522,16 @@ test("43. J4.6: the argv block names the real reapOnBoot predicate, never an inl
   );
 });
 
+test("43b. KRN-11: the argv block passes the real boot(PLUGINS), never an inline no-op", async () => {
+  const { projectPath } = await import("../kernel/paths.ts");
+  const src = readFileSync(projectPath("host/supervisor.ts"), "utf8");
+  const assignments = src
+    .split("\n")
+    .filter((l) => /^\s*boot:/.test(l))
+    .map((l) => l.trim());
+  assert.deepEqual(assignments, ["boot: () => boot(PLUGINS),"], "the supervisor must run boot() over the real graph at every boot");
+});
+
 test("44. J4.6: main() + realReapOnBoot in a real child process — this IS the phase gate", async () => {
   // Both faults are named rather than quietly fixed: (a) spawnSync on a supervisor that never
   // exits blocks forever — this uses `spawn` with a stderr reader and kills the child on the line
@@ -1530,6 +1588,8 @@ test("44. J4.6: main() + realReapOnBoot in a real child process — this IS the 
       `  spawnStaggerMs: 0,`,
       `  jobRunner: (job) => [process.execPath, ["-e", "0"]],`,
       `  reapOnBoot: realReapOnBoot,`,
+      `  jobNames: () => [],`,
+      `  boot: () => {},`,
       `  newTimer: () => ({ stop() {} }),`,
       `  heartbeatPath: ${JSON.stringify(heartbeatPath)},`,
       `  statusPath: ${JSON.stringify(statusPath)},`,

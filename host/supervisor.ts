@@ -348,7 +348,8 @@ export async function runEntry(
 // main(): boot, timers, heartbeat, drain, the loud refusal. The boot sequence, in order: validate
 // (throws → bootOrDie prints every line and sets
 // process.exitCode) → reapOnBoot (non-fatal; SUP-15's whole content is "before the timers", so a
-// sweep never races the ticks it exists to unblock) → one newTimer per SUPERVISED entry
+// sweep never races the ticks it exists to unblock) → boot() over every manifest (KRN-08/11;
+// throws → the same loud refusal as validate) → one newTimer per SUPERVISED entry
 // → beat() once, then every 60s, unref'd → the `supervisor-up` line → SIGTERM/SIGINT ->
 // stop(), and an unhandledRejection handler that logs and does not exit.
 // ---------------------------------------------------------------------------------------------
@@ -374,6 +375,12 @@ export interface BootDeps extends SupervisorDeps {
    *  timers — was asserted with a fake); REQUIRED from N4, when `realReapOnBoot` below gives it
    *  one. An optional field is a field a future argv-block edit can drop in silence. */
   readonly reapOnBoot: () => Iterable<Record<string, string | number>>;
+  /** Every registered job name — validate()'s rule 10 checks each `job:` entry against it. A
+   *  function, so a test can register names after it builds its deps. */
+  readonly jobNames: () => readonly string[];
+  /** KRN-08/11: `boot(PLUGINS)` in production. Throws on any problem in the plugin graph, which
+   *  stops the boot before a single timer registers. REQUIRED, like `reapOnBoot`. */
+  readonly boot: () => void;
   /** Production is `process.exit`; a test supplies a recorder instead — the seam a test needs to
    *  observe `stop()`'s exit call. Required, not defaulted, like every other impure field. */
   readonly exit: (code: number) => void;
@@ -443,7 +450,7 @@ export async function main(schedule: readonly ScheduleEntry[], deps: BootDeps): 
     resourceNames: deps.gate.resources,
     refreshWindow: deps.refreshWindow,
     logRoots: [join(deps.root, ".doppelganger/logs"), join(deps.root, "logs")],
-    jobsDir: join(deps.root, "host/jobs"),
+    jobNames: deps.jobNames(),
     root: deps.root,
   });
 
@@ -455,6 +462,9 @@ export async function main(schedule: readonly ScheduleEntry[], deps: BootDeps): 
   } catch (e) {
     log.warn("lease-reap-failed", { msg: errText(e) });
   }
+
+  // 2b. boot() over every manifest — after the reap, before the timers. A throw here is fatal.
+  deps.boot();
 
   let draining = false;
   const isDraining = (): boolean => draining;
@@ -702,6 +712,9 @@ export function list(schedule: readonly ScheduleEntry[], opts: ListOpts): string
 // ---------------------------------------------------------------------------------------------
 if (import.meta.filename === process.argv[1]) {
   const { SCHEDULE, PROGRAMS } = await import("./schedule.ts");
+  const { PLUGINS } = await import("./plugins.ts");
+  const { JOBS } = await import("./jobs/index.ts");
+  const { boot } = await import("../kernel/boot.ts");
 
   // SUP-17: --list is a read tool, not a boot — it must never reach validate(), a timer, or a
   // heartbeat write. Dispatched before `deps` (and everything `deps` would touch) is assembled.
@@ -725,6 +738,8 @@ if (import.meta.filename === process.argv[1]) {
     spawnStaggerMs: SUPERVISOR_SPAWN_STAGGER_MS,
     jobRunner: realJobRunner,
     reapOnBoot: realReapOnBoot,
+    jobNames: () => JOBS.map((j) => j.name),
+    boot: () => boot(PLUGINS),
     newTimer: realNewTimer,
     heartbeatPath: projectPath(".doppelganger/supervisor.heartbeat"),
     statusPath: projectPath(".doppelganger/supervisor.status.json"),
