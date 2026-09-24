@@ -8,7 +8,7 @@
 // JOB-O11's own text says "written on a failed send" — N4 has no send. The supervisor's heartbeat
 // write is a SIGNAL, not a send, and it is what stands in: a supervisor that is alive and
 // scheduling but cannot write its liveness stamp is, from outside, identical to a dead one (the
-// watchdog's probe 3, host/watchdog.sh, J4.14) — and this stamp is probe 4's correction. The
+// watchdog's probe 3, host/watchdog.sh) — and this stamp is probe 4's correction. The
 // circularity is real and stated once, here: a full disk kills the stamp write too, so this stamp
 // catches every PER-FILE failure (a `chmod 400`, a root-owned file left by a stray `sudo` run, a
 // read-only bind mount, an `ENOSPC` that clears between two writes) and none of the whole-disk
@@ -33,9 +33,9 @@ export interface StampRow {
 }
 
 /**
- * The v1 seam. One row at N4 — the supervisor's own heartbeat, the only real producer this phase
+ * The v1 seam. One row today — the supervisor's own heartbeat, the only real producer this phase
  * has. A `plugins/slack` send path adds a row here, and `host/watchdog.sh`'s own drift gate
- * (J4.14, TST-18's shape one directory over) then FORCES the script to grow the matching probe or
+ * (TST-18's shape one directory over) then FORCES the script to grow the matching probe or
  * the build fails. No edit to the watchdog is needed for the MECHANISM, only for the new row.
  */
 export const DELIVERY_STAMPS: readonly StampRow[] = [

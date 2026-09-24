@@ -104,7 +104,7 @@ export async function runCheck(deps: CronCheckDeps): Promise<void> {
  *
  * `CRONTAB_CMD` is resolved HERE, at run time, never defaulted — a caller who forgets to set it in
  * `.env` (the entry's `dotenv: true` layer) fails loudly with the row's own `why`, which is
- * correct (N2 F1's whole lesson) and is why the entry's own `why` names the one thing an operator
+ * the right failure mode, and is why the entry's own `why` names the one thing an operator
  * must do to turn this job on. `ctx` (PRT-05) gives the log and the instance name; the schedule
  * and the crontab reader come from the app itself, which is why this job stays in `host/`.
  */

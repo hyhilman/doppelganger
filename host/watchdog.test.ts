@@ -97,8 +97,8 @@ const ROWS = [
  *
  *  `kernel/instance.ts`'s INSTANCE_ENV is the precedent and states the rule in its own comment:
  *  "No `default`: the fallback is the project directory's basename, which is *computed* and no
- *  string can express it. A row claiming a default it does not have would be a lie J1.18 could
- *  not catch." */
+ *  string can express it. A row claiming a default it does not have would be a lie this drift
+ *  gate could not catch." */
 const COMPUTED_DEFAULTS: Record<string, string> = {
   NTFY_URL: "$(dotenv_get NTFY_URL)",
   NTFY_TOKEN: "$(dotenv_get NTFY_TOKEN)",
@@ -384,7 +384,7 @@ test("11. probe 0 — a missing log.sh is reported, not swallowed, and neither i
 });
 
 test("12. exit 1 is asserted as a status, never as a delivery", () => {
-  // Measured on this host, 2026-08-26: no sendmail/mail/mailx/postfix/exim4/ssmtp/msmtp, /var/mail
+  // No sendmail/mail/mailx/postfix/exim4/ssmtp/msmtp on this host, /var/mail
   // empty, and `strings /usr/sbin/cron` (3.0pl1-184ubuntu2) contains the line
   // "No MTA installed, discarding output" — cron writes that to syslog and throws the fault text
   // away. So this test asserts the EXIT CODE and asserts NOTHING about mail, on purpose — a future
@@ -397,7 +397,7 @@ test("12. exit 1 is asserted as a status, never as a delivery", () => {
 
 
 // ---------------------------------------------------------------------------------------------
-// Tests 13-17: the third channel (2026-09-16), driven through a `curl` SHIM on PATH.
+// Tests 13-17: the third channel, driven through a `curl` SHIM on PATH.
 // ---------------------------------------------------------------------------------------------
 //
 // A shim, not a real socket, and the reason is not convenience. What can actually break in this

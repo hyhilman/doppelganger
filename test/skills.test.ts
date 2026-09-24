@@ -30,7 +30,7 @@ test("1. TST-23 live — check(JOBS, the real tree) returns []", () => {
 test("2. SKL-06 direction one — every job's skill resolves to a real source directory holding a SKILL.md", () => {
   // An exec: job (job.skill === undefined) names no skill by construction (D10) — it is
   // exempt from every check in this file, the same exemption cli/skills.ts's own check() applies
-  // (J4.12, ops-cron-check is the first such job).
+  // (ops-cron-check is the first such job).
   for (const job of JOBS) {
     if (job.skill === undefined) continue;
     const sourceFile = join(TREE.sourceRoot, job.plugin, "skills", skillOf(job), "SKILL.md");
@@ -175,9 +175,9 @@ test("11. DB_NAMESPACES is derived from the code — every real dbPath( call sit
   const found = new Set<string>();
   for (const f of files) {
     const code = stripComments(readFileSync(f, "utf8"));
-    // N3 F3: resolve import aliases first — `import { dbPath as dp }` + `dp("x")` walked past a
-    // name-anchored regex (the same hole N1 fixed three times; J3.10's model masker already ports
-    // this). Every local name bound to dbPath is scanned, not just the literal spelling.
+    // Resolve import aliases first — `import { dbPath as dp }` + `dp("x")` walked past a
+    // name-anchored regex (the same hole fixed three times elsewhere; the model masker already
+    // ports this). Every local name bound to dbPath is scanned, not just the literal spelling.
     // What this cannot see (stated per the standing rule): a call through a namespace import
     // (`p.dbPath("x")` is caught below), a re-export chain, or a runtime-computed name — none of
     // which exists in this repo, and the first two would be caught by the namespace arm.

@@ -6,9 +6,9 @@
 #
 # `set -uo pipefail`, deliberately NOT `set -e`: each probe is EXPECTED to fail sometimes — that
 # is the signal, not an error. A watchdog that exits on its first failed probe reports nothing,
-# which is precisely the failure it exists to catch (AC5 pins this).
+# which is precisely the failure it exists to catch.
 #
-# THREE CHANNELS, and `exit 1` is STILL not one of them (measured on this host, 2026-08-26): no
+# THREE CHANNELS, and `exit 1` is STILL not one of them: no
 # sendmail/mail/mailx/postfix/exim4/ssmtp/msmtp, /var/mail is empty, and
 # `strings /usr/sbin/cron` (3.0pl1-184ubuntu2) contains the line
 # "No MTA installed, discarding output" — cron writes that to syslog and THROWS THE FAULT TEXT
@@ -16,26 +16,24 @@
 # by hand can read — never assumed to deliver anything.
 #
 # So the three real channels are: the breach file (.doppelganger/watchdog.breach — presence is the
-# alarm), the log (JOB-O02, N5, reads it), and ONE ntfy POST (2026-09-16).
+# alarm), the log, and ONE ntfy POST.
 #
 # THE POST IS WHY THIS HEADER NO LONGER SAYS "no network". That line was true and the alarm was
-# still silent: a file nobody opens and a log nobody tails are both pull channels, so until today
+# still silent: a file nobody opens and a log nobody tails are both pull channels, so
 # every fault this script raised waited for someone to come looking — and the whole point of probe
 # 3 is the case where nobody is at the machine. ntfy is the cheapest thing that fixes it: one
 # `curl`, no model, no CLI, no npm, nothing under node_modules, so the property that actually
 # mattered survives intact — the alarm still shares NOTHING with the toolchain it watches.
 # Deliberately NOT the hub xenith's own watchdog posts to: that is another checkout's
-# infrastructure, and D12 says two instances never coordinate.
+# infrastructure, and two instances never coordinate.
 #
 # THE POST CAN NEVER FAIL THIS SCRIPT. Both places that attempt it (probe 0 below, and the main
 # fault path's own `notify()`) send only after their own breach file write is already on disk, and
 # a send failure is recorded as a delivery stamp (probe 5) rather than raised — a reporting path
 # that exits on its own failure reports nothing, which is the exact fault probe 0 exists to catch.
 #
-# No Slack, no hub, no `claude -p` fallback, no cooldown. Declined with the phase each arrives in
-# (JOB-O02/N5 for the reporter-freshness probe and the Slack/Jira stamps, v1 for
-# WATCHDOG_STALE_M/WATCHDOG_COOLDOWN_M/the claude -p fallback) so the next reader does not think
-# they were forgotten (roadmap.md Gaps item 4). No cooldown is a DECISION, not an omission: this
+# No Slack, no hub, no `claude -p` fallback, no cooldown, each still off for its own reason so the
+# next reader does not think it was forgotten. No cooldown is a DECISION, not an omission: this
 # script only posts on a tick that already breached, breaches are not rate-limited by anything
 # else, and a cooldown stamp would be a fourth file to reason about for a fault that should be
 # rare. If a wedged host ever pages every 15 minutes, that is the alarm working.
@@ -49,7 +47,7 @@ STAMP="$ROOT/.doppelganger/heartbeat.fail"
 NTFYSTAMP="$ROOT/.doppelganger/ntfy.fail"
 mkdir -p "$ROOT/.doppelganger" 2>/dev/null || true
 
-# CRON'S PATH IS NOT A LOGIN SHELL'S. Measured on this host 2026-09-16: cron hands this script
+# CRON'S PATH IS NOT A LOGIN SHELL'S. Cron hands this script
 # `/usr/bin:/bin`, where `node` is v18.19.1 — old enough that it cannot strip types, so probe 2
 # below would fault on EVERY tick and page about a toolchain that is fine. `/usr/local/bin` is
 # where this host's 22.23.1 lives (the version .nvmrc pins), and it is the FHS location for a
@@ -239,7 +237,7 @@ faults=()
 fault() { faults+=("$1"); }
 fault_first() { faults=("$1" "${faults[@]}"); }
 
-# PROBE 1 — node_modules is a real directory. A symlink here IS the reference's 2026-07-30
+# PROBE 1 — node_modules is a real directory. A symlink here IS the reference's real
 # failure: a worktree's link reached master and the main checkout materialized it over its own
 # tree. Two independent checks, not an if/elif: a symlink to a real directory still passes `-d`.
 [ -L "$ROOT/node_modules" ] && fault "node_modules is a SYMLINK -> $(readlink "$ROOT/node_modules")"
@@ -285,7 +283,7 @@ fi
 # always). When the channel has RECOVERED, the post goes out carrying this fault, so the first
 # thing the phone hears after an outage is that the alarm channel was down and for how long. The
 # alternative — staying quiet about a broken alarm — is how xenith lost 185 sends over three days
-# (engine/watchdog.sh, 2026-08-07..09) with every health probe green throughout.
+# (engine/watchdog.sh) with every health probe green throughout.
 if [ "$NOTIFY_STATE" = "ready" ] && [ -f "$NTFYSTAMP" ]; then
   fault "ntfy delivery failing since $(head -c 40 "$NTFYSTAMP") — alarms raised since then were LOST"
 fi

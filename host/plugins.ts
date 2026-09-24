@@ -6,8 +6,8 @@
 // needs `cli/crontab.ts` and `host/schedule.ts`, which a plugin may not import (TST-03).
 //
 // THE OWNERSHIP RULE — how `schedule:` is SELECTED from `host/schedule.ts`'s `SCHEDULE`, never
-// duplicated. A plugin's own manifest ships `schedule: []`; `PLUGINS` below fills it in. `SCHEDULE` stays the live list `host/supervisor.ts` reads (§1: the host owns its own
-// schedule) — this file only PICKS which of its entries each manifest below answers for, so
+// duplicated. A plugin's own manifest ships `schedule: []`; `PLUGINS` below fills it in. `SCHEDULE` stays the live list `host/supervisor.ts` reads — the host owns its own
+// schedule — this file only PICKS which of its entries each manifest below answers for, so
 // `boot()` validates the entries that actually fire, and there is exactly one place a tick is
 // read from either way.
 //
@@ -34,7 +34,7 @@
 // keep working when stage and plugin differ, which no real data can show until `plugins/git`
 // lands.
 //
-// DO NOT ADD CRONTAB_CMD TO ANY MANIFEST'S `env` (ruling 7). It is the one `required: true` env
+// DO NOT ADD CRONTAB_CMD TO ANY MANIFEST'S `env`. It is the one `required: true` env
 // row in this repo with no default, `npm test` runs with it deliberately unset, and it belongs to
 // `cli/crontab.ts`, an operator CLI — never to a plugin. `kernel/boot.ts`'s header names the same
 // trap for check 6; `test/boot.test.ts` asserts the exclusion here directly, with the reason in

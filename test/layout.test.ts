@@ -36,7 +36,7 @@ function walkDirs(): { relPath: string; entries: string[] }[] {
     for (const entry of entries) {
       if (!entry.isDirectory()) continue;
       if (relDir === "" && (entry.name === ".git" || entry.name === "node_modules")) continue;
-      // R2 — a pass worktree under .doppelganger/worktrees/ is a second full
+      // A pass worktree under .doppelganger/worktrees/ is a second full
       // checkout (its own node_modules, package.json, *.test.ts) and is not this repo's source.
       if (relDir === ".doppelganger" && entry.name === "worktrees") continue;
       // An agent's git worktree under .claude/worktrees/ is the same: a second checkout, not this one.
@@ -208,7 +208,7 @@ function shippedPhases(): { shipped: Set<string>; current: string | null } {
 }
 
 /**
- * Whether a §1 row must exist, must be absent, or is exempt, given WORK.md's phase state:
+ * Whether a layout-block row must exist, must be absent, or is exempt, given WORK.md's phase state:
  * - a row naming the CURRENT phase is exempt from both existence clauses (mid-phase it may or may
  *   not be there yet);
  * - a row naming a SHIPPED phase must exist;
@@ -227,7 +227,7 @@ function classifyRow(
 
 const TAG_RE = /\b(N1|N2|N3|N4|N5|v0|v1)\b/g;
 
-/** Parse §1's `<dir>/` block (from the fenced layout diagram) into one entry per named file, each
+/** Parse the fenced layout diagram's `<dir>/` block into one entry per named file, each
  *  carrying its milestone tag(s) (N1..N5, v0, v1 — a row can carry more than one, e.g. "v0 · N1").
  *  Directory-only lines (ports/, runtime/, contracts/, jobs/) update the current prefix and produce
  *  no entry of their own; a bare prose line (contracts/, jobs/) names no files at all. The same
@@ -373,7 +373,7 @@ test("13. no stray *.db*/*.db-wal/*.db-shm file anywhere in the checkout", () =>
   );
 });
 
-// roadmap.md §3's per-phase "Ships:" list must agree with WORK.md's checklist for that phase.
+// roadmap.md's per-phase "Ships:" list must agree with WORK.md's checklist for that phase.
 // roadmap.md's N2 line once said `SUP-01…21, ..., TST-17 (gate half)`; WORK.md — the source of
 // truth — shipped `SUP-01…18` and no `TST-17` at all. Nothing caught the drift. This is the gate
 // that would have.
@@ -397,7 +397,7 @@ test("13. no stray *.db*/*.db-wal/*.db-shm file anywhere in the checkout", () =>
 const ROADMAP_PHASE_HEADING = (phase: string): RegExp => new RegExp(`^###\\s+${phase}\\s+—`);
 const WORK_PHASE_HEADING = (phase: string): RegExp => new RegExp(`^##\\s+${phase}\\s+—`);
 
-/** The raw, comma-separated token text of `phase`'s `**Ships:**` line in roadmap.md §3 — joined
+/** The raw, comma-separated token text of `phase`'s `**Ships:**` line in roadmap.md — joined
  *  across a continuation line (N3's own Ships line wraps onto a second physical line with no
  *  `**` prefix), ending at the first accumulated chunk whose trimmed text ends in `.`. */
 function shipsTokens(phase: string): string[] {
@@ -448,11 +448,9 @@ function expandShipsTokens(
       wildcardPrefixes.add(wildcard[1]!);
       continue;
     }
-    // R5 — a range's prefix carries the same optional infix letter the plain-ID arm below allows.
-    // R4 taught that arm about JOB-C15 and left this one reading pure digits, so `JOB-G01…14` and
-    // `JOB-O01…06` — both already on §3's N5 Ships line — matched NEITHER arm and the classifier
-    // threw. Test 14 walks shipped phases only and N5 is current, so it would have gone off on the
-    // day N5 closed. `prefix` now carries the dash, so the id is joined without one.
+    // A range's prefix carries the same optional infix letter the plain-ID arm below allows, so
+    // `JOB-G01…14` and `JOB-O01…06` are matched too, not just pure-digit ranges. `prefix` now
+    // carries the dash, so the id is joined without one.
     const range = /^([A-Z]+-[A-Z]?)(\d+)…(\d+)$/.exec(token);
     if (range) {
       const [, prefix, startStr, endStr] = range;
@@ -462,10 +460,9 @@ function expandShipsTokens(
       }
       continue;
     }
-    // R4 — a plain ID's suffix is USUALLY pure digits, but a JOB- id carries
-    // one infix letter first (JOB-C15: JOB-B/C/G/J/O/P/R/S/T in roadmap.md's own §2). N3's own
-    // Ships line names JOB-C15 — without this, ticking N3 in WORK.md throws HERE, not merely
-    // fails, the moment this phase's own close commit runs the suite.
+    // A plain ID's suffix is USUALLY pure digits, but a JOB- id carries one infix letter first
+    // (JOB-B/C/G/J/O/P/R/S/T). Without this, a Ships line naming an id like JOB-C15 throws here
+    // instead of comparing.
     if (/^[A-Z]+-[A-Z]?\d+$/.test(token)) {
       ids.add(token);
       continue;
@@ -478,7 +475,7 @@ function expandShipsTokens(
 }
 
 /** Every bold `**PREFIX-NN**` ID on a TICKED (`- [x]`) bullet inside WORK.md's `## <phase>` section.
- *  R4: the same optional-infix-letter shape as expandShipsIds's plain-ID arm, so a
+ *  Uses the same optional-infix-letter shape as expandShipsIds's plain-ID arm, so a
  *  bullet is captured here too — this side of the comparison must never quietly return
  *  fewer ids than the roadmap side finds. */
 function workPhaseIds(phase: string): Set<string> {
@@ -641,13 +638,9 @@ test("16. WORK.md's header item counts match the checkbox bullets actually under
   );
 });
 
-// R5 — `expandShipsIds`'s range arm carried R4's exact defect, one arm over. R4 taught the plain-ID
-// arm that a JOB- id has one infix letter before its digits (JOB-C15) and left the range arm reading
-// pure digits after the dash, so `JOB-G01…14` and `JOB-O01…06` — both already on roadmap.md §3's N5
-// Ships line — matched neither arm and the classifier THREW:
-//   roadmap.md N5's Ships line has a token this drift gate cannot classify: "JOB-G01…14"
-// Nothing caught it, because test 14 only walks SHIPPED phases and N5 is still current. It would
-// have gone off on the day N5 closed — the third time this shape has bitten.
+// The range arm needs the same optional infix letter as the plain-ID arm: without it, `JOB-G01…14`
+// and `JOB-O01…06` match neither arm and the classifier throws instead of comparing. Test 14 only
+// walks SHIPPED phases, so a live phase would not catch this until it closed.
 //
 // This drives the classifier over tokens, not over roadmap.md, so it also runs in CI where the doc
 // is absent. It pins BOTH arms: delete `[A-Z]?` from either regex and this test goes red.
@@ -661,7 +654,7 @@ test("17. the Ships-line classifier expands both id shapes, plain and range, wit
   assert.deepEqual([...expandShipsTokens(["JOB-O01…06"], "N5").ids].sort(), jobO);
   // the range arm, pure digits — unchanged by the fix
   assert.deepEqual([...expandShipsTokens(["SUP-01…03"], "N2").ids].sort(), ["SUP-01", "SUP-02", "SUP-03"]);
-  // the plain-ID arm, with and without an infix letter — R4's half, pinned here too
+  // the plain-ID arm, with and without an infix letter, pinned here too
   assert.deepEqual([...expandShipsTokens(["JOB-C15", "TST-21"], "N3").ids].sort(), ["JOB-C15", "TST-21"]);
   // and the classifier still refuses a token it cannot classify, rather than comparing wrong
   assert.throws(

@@ -1,14 +1,12 @@
-// J2.6 (SUP-10, §5 Q1) — the gate's named resources and the refresh window, each stated
-// once as data. See the spec §5 Q1 for the decision this file makes mechanical.
+// SUP-10 — the gate's named resources and the refresh window, each stated once as data.
 //
-// §5 Q1, settled: the HOST names the resources, not the kernel. INS-05 (declared non-goal: two
-// instances never coordinate) is what turns that leaning into a rule with a test — no named
-// resource may be machine-wide, because the gate cannot exclude across instances. `path` is
-// ROOT-relative and never absolute, so resolving `r.path` against ROOT (kernel/paths.ts's
-// projectPath) landing inside it is the mechanical form of "this resource lives inside its own
-// checkout" (host/config.test.ts test 3).
+// The HOST names the resources, not the kernel. Two instances never coordinate, which turns that
+// leaning into a rule with a test — no named resource may be machine-wide, because the gate cannot
+// exclude across instances. `path` is ROOT-relative and never absolute, so resolving `r.path`
+// against ROOT (kernel/paths.ts's projectPath) landing inside it is the mechanical form of "this
+// resource lives inside its own checkout" (host/config.test.ts test 3).
 //
-// No module-scope `projectPath` call here (J2.3 door 6): RESOURCES carries ROOT-relative strings
+// No module-scope `projectPath` call here: RESOURCES carries ROOT-relative strings
 // and nothing resolves them at this file's load time.
 import type { EnvSpec } from "../kernel/config.ts";
 
@@ -37,8 +35,8 @@ export const WATCHDOG_DRY_RUN_ENV: EnvSpec = {
  * THE WATCHDOG'S ONE OUTBOUND PATH — ntfy, and the four knobs that aim it.
  *
  * The header of host/watchdog.sh used to state "no network" as a deliberate property, and this is
- * the change that takes it away. The reasoning it replaces stands on its own (measured on this
- * host, 2026-08-26): there is no MTA, so cron writes "No MTA installed, discarding output" to
+ * the change that takes it away. The reasoning it replaces stands on its own: there is no MTA, so
+ * cron writes "No MTA installed, discarding output" to
  * syslog and THROWS THE FAULT TEXT AWAY. `exit 1` was never a delivery and the breach file is a
  * file nobody opens, so every alarm this script raised was, in practice, silent.
  *
@@ -136,7 +134,7 @@ export interface RefreshWindow {
 /**
  * `null` at N2. The window exists to keep readers off a corpus refresh; there is no corpus job
  * until v1 and no job at all until N3, so declaring bounds now would be a guess dressed as
- * configuration. `validate()` (J2.9) refuses `clearsRefreshWindow: true` while this is null, so
+ * configuration. `validate()` refuses `clearsRefreshWindow: true` while this is null, so
  * nobody can flag an entry against a window that protects nothing. The mechanism below is fully
  * real and fully tested against a fixture window regardless.
  */

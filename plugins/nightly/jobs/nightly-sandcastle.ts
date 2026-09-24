@@ -1,5 +1,4 @@
-// J3.8/J3.11/J3.12 (JOB-C15, SAF-01…07,
-// INV-1) — nightly-sandcastle: the verdict vocabulary, the blocked paths, the goal rotation, the
+// nightly-sandcastle (JOB-C15) — the verdict vocabulary, the blocked paths, the goal rotation, the
 // import smoke, the three-tier ship gate, and the pass itself.
 //
 // A free-smoke run (NIGHTLY_SANDCASTLE_MAX=0) leaves the `nightly/<INSTANCE>` branch behind after
@@ -161,7 +160,7 @@ export function nextGoal(
 
 // ---------------------------------------------------------------------------------------------
 // DB_NAMESPACES names the FILE argument every kernel/paths.ts path-builder call site passes,
-// never a DBS-02 table namespace — J3.13 assertion 11 derives the required set from every such
+// never a DBS-02 table namespace — a drift gate derives the required set from every such
 // real call site and asserts this constant is a superset, which is the gate that would have
 // caught the pairing ["nightly","logtail"] (a table namespace mistaken for a file:
 // kernel/runtime/log/tail.ts opens the store named "log", not one named "logtail").
@@ -221,7 +220,7 @@ export function tail(out: string, n: number = 20): string {
 // itself — every tier that would otherwise spawn a real process (2, 3, 4) goes through it.
 // ---------------------------------------------------------------------------------------------
 
-/** One tier's child budget — sized in J3.15's budget assertion against `maxRunMin`. */
+/** One tier's child budget — sized against `maxRunMin` in the budget assertion. */
 export const GATE_TIMEOUT_MS = 300_000;
 
 export interface GateDeps {
@@ -248,7 +247,7 @@ const envPrefixOf = (jobName: string): string => jobName.toUpperCase().replace(/
 /**
  * Tier order: blocked paths (free) · `npm test` in the worktree · an import smoke of every
  * changed non-test `.ts` file · a dry run of every changed REGISTERED job, DB redirected into
- * `deps.scratch`. `gate([])` returns `ok: true` without running anything — the caller (J3.12)
+ * `deps.scratch`. `gate([])` returns `ok: true` without running anything — the caller
  * never calls it over an empty change set, but the function itself does not assume that.
  */
 export function gate(files: readonly string[], deps: GateDeps): GateResult {
@@ -287,7 +286,7 @@ export function gate(files: readonly string[], deps: GateDeps): GateResult {
   // Tier 4 — a dry run of every changed REGISTERED job (SKL-05: an unregistered file is not a
   // job). BLOCKED forbids a pass touching this job's own file, so this runs over every OTHER
   // registered job file a pass changed. The DB redirect is the load-bearing half: a
-  // dry-run flag is the job's own promise about itself, and this gate exists because tonight's
+  // dry-run flag is the job's own promise about itself, and this gate exists because a
   // pass may have just edited the code that keeps that promise.
   let dryRunCount = 0;
   for (const f of files) {
@@ -312,7 +311,7 @@ export function gate(files: readonly string[], deps: GateDeps): GateResult {
 }
 
 // ---------------------------------------------------------------------------------------------
-// J3.12 (JOB-C15, SAF-01…07) — the pass: rotate, refuse, prep, run, check
+// nightly-sandcastle (JOB-C15) — the pass: rotate, refuse, prep, run, check
 // both escape routes, gate, land or discard, report — every write path env-gated (the whole
 // safe-run surface is these seven knobs).
 // ---------------------------------------------------------------------------------------------
@@ -496,7 +495,7 @@ export async function execPass(deps: JobContext): Promise<void> {
     return;
   }
 
-  // 4. ruling 6, route two's baseline.
+  // 4. route two's baseline.
   let originBefore = "";
   try {
     originBefore = deps.git(deps.root, "rev-parse", `origin/${base}`).trim();
@@ -573,7 +572,7 @@ export async function execPass(deps: JobContext): Promise<void> {
       log.warn("no-verdict", { goal: goal.key });
     }
 
-    // 12. escape checks, both routes (ruling 6) — detection, not containment.
+    // 12. escape checks, both routes — detection, not containment.
     const porcelainAfter = deps.git(deps.root, "status", "--porcelain").trim();
     if (porcelainAfter !== "") {
       log.error("write-scope-escaped", { reason: "tree-dirty", detail: porcelainAfter });
@@ -630,11 +629,11 @@ const nightlySandcastleJob: Job = defineJob({
   permissionMode: DEFAULTS.permissionMode,
   local: true,
   taskClass: "impl",
-  // R1 — the SKILL.md contract is "one pass, one improvement, report ONCE";
+  // the SKILL.md contract is "one pass, one improvement, report ONCE";
   // `runJob`'s default completionSignal is sandcastle's own `<promise>COMPLETE</promise>`, a string
   // this skill never emits (it emits `<<<SANDCASTLE ... SANDCASTLE>>>` instead). Without this line
   // the mismatch is invisible to sandcastle's own `run()`, which just keeps iterating: the real
-  // 2026-08-26 paid pass burned 6 Opus iterations against the (then-default) 20-iteration cap,
+  // a real paid pass burned 6 Opus iterations against the (then-default) 20-iteration cap,
   // emitting a fresh valid verdict every time. maxIterations: 1 makes ONE verdict end the run,
   // regardless of whether the signal string happens to match — in a dry run and in a real run
   // alike. See host/runner.test.ts test 13 for the gate.
