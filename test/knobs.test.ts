@@ -56,6 +56,17 @@ import {
   NIGHTLY_SANDCASTLE_ONLY_ENV,
   NIGHTLY_SANDCASTLE_MODEL_ENV,
 } from "../plugins/nightly/jobs/nightly-sandcastle.ts";
+import {
+  NIGHTLY_NO_POLISH_ENV,
+  NIGHTLY_POLISH_BASE_ENV,
+  NIGHTLY_POLISH_DRY_RUN_ENV,
+  NIGHTLY_POLISH_NO_MERGE_ENV,
+  NIGHTLY_POLISH_MAX_ENV,
+  NIGHTLY_POLISH_ONLY_ENV,
+  NIGHTLY_POLISH_MODEL_ENV,
+  NIGHTLY_POLISH_TRACKER_ENV,
+} from "../plugins/nightly/jobs/nightly-polish.ts";
+import { killSwitch } from "../kernel/plugin.ts";
 
 const ROOT = new URL("..", import.meta.url).pathname.replace(/\/$/, "");
 
@@ -267,6 +278,56 @@ const ROWS: readonly RowMeta[] = [
     constName: "NIGHTLY_SANDCASTLE_MODEL_ENV",
     readers: ["envOptional"],
   },
+  // Built by killSwitch("nightly", "polish", …), so the key literal never appears in the file.
+  // The scans below read the killSwitch call in its place.
+  {
+    spec: NIGHTLY_NO_POLISH_ENV,
+    file: "plugins/nightly/jobs/nightly-polish.ts",
+    constName: "NIGHTLY_NO_POLISH_ENV",
+    readers: ["isKilled"],
+  },
+  {
+    spec: NIGHTLY_POLISH_BASE_ENV,
+    file: "plugins/nightly/jobs/nightly-polish.ts",
+    constName: "NIGHTLY_POLISH_BASE_ENV",
+    readers: ["envStr"],
+  },
+  {
+    spec: NIGHTLY_POLISH_DRY_RUN_ENV,
+    file: "plugins/nightly/jobs/nightly-polish.ts",
+    constName: "NIGHTLY_POLISH_DRY_RUN_ENV",
+    readers: ["envStr"],
+  },
+  {
+    spec: NIGHTLY_POLISH_NO_MERGE_ENV,
+    file: "plugins/nightly/jobs/nightly-polish.ts",
+    constName: "NIGHTLY_POLISH_NO_MERGE_ENV",
+    readers: ["envStr"],
+  },
+  {
+    spec: NIGHTLY_POLISH_MAX_ENV,
+    file: "plugins/nightly/jobs/nightly-polish.ts",
+    constName: "NIGHTLY_POLISH_MAX_ENV",
+    readers: ["envNum"],
+  },
+  {
+    spec: NIGHTLY_POLISH_ONLY_ENV,
+    file: "plugins/nightly/jobs/nightly-polish.ts",
+    constName: "NIGHTLY_POLISH_ONLY_ENV",
+    readers: ["envOptional"],
+  },
+  {
+    spec: NIGHTLY_POLISH_MODEL_ENV,
+    file: "plugins/nightly/jobs/nightly-polish.ts",
+    constName: "NIGHTLY_POLISH_MODEL_ENV",
+    readers: ["envOptional"],
+  },
+  {
+    spec: NIGHTLY_POLISH_TRACKER_ENV,
+    file: "plugins/nightly/jobs/nightly-polish.ts",
+    constName: "NIGHTLY_POLISH_TRACKER_ENV",
+    readers: ["envOptional"],
+  },
   // read by host/watchdog.sh, never by TypeScript: the <NAME>_DB precedent for a row no
   // TS reader resolves. host/watchdog.test.ts's own drift gate binds these to the script.
   {
@@ -341,8 +402,23 @@ function findEnvSpecKeys(): string[] {
       const keyMatch = /key:\s*"([^"]+)"/.exec(block);
       if (keyMatch) keys.push(keyMatch[1]!);
     }
+    keys.push(...killSwitchKeys(src));
   }
   return keys;
+}
+
+/**
+ * The keys of every `killSwitch("<plugin>", "<feature>", …)` call in `src`. Such a row has no key
+ * literal to find, so the scan reads the call instead. The key comes from the real `killSwitch`,
+ * so this test never restates the `<PLUGIN>_NO_<FEATURE>` rule. The definition in
+ * kernel/plugin.ts takes names, not string literals, so it never matches.
+ */
+function killSwitchKeys(src: string): string[] {
+  const re = /\bkillSwitch\(\s*"([^"]+)"\s*,\s*"([^"]+)"/g;
+  const out: string[] = [];
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(src)) != null) out.push(killSwitch(m[1]!, m[2]!, "").key);
+  return out;
 }
 
 test("2. every scanned EnvSpec row is in ROWS, and every ROWS key is scanned — no duplicates either way", () => {
@@ -383,8 +459,11 @@ test("4. every row is read: the key is named once and a real reader is called wi
   for (const row of ROWS) {
     const src = readFileSync(join(ROOT, row.file), "utf8");
     const keyLiteral = `"${row.spec.key}"`;
-    const count = src.split(keyLiteral).length - 1;
-    assert.equal(count, 1, `${row.file}: expected ${keyLiteral} exactly once, found ${count}`);
+    // A killSwitch-built row names its key through the call, not a literal. Either shape counts,
+    // and the two together must still come to exactly one.
+    const count =
+      src.split(keyLiteral).length - 1 + killSwitchKeys(src).filter((k) => k === row.spec.key).length;
+    assert.equal(count, 1, `${row.file}: expected ${keyLiteral} (or one killSwitch call that builds it) exactly once, found ${count}`);
 
     if (row.readers.length === 0) continue; // the <NAME>_DB family row — envDynamic checked in 7
     // A plugin job reads its rows through `ctx.env` (PRT-05), never kernel/config.ts directly.

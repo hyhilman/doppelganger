@@ -270,6 +270,10 @@ const REGISTER: Record<string, RegisterEntry> = {
     category: "project-relative",
     reason: "symlinks node_modules into the pass worktree, all under the project-relative worktree root",
   },
+  "plugins/nightly/jobs/nightly-polish.ts": {
+    category: "project-relative",
+    reason: "symlinks node_modules into the polish worktree, all under the project-relative worktree root",
+  },
 };
 
 // Shapes that reach node:fs / node:fs/promises WITHOUT naming a member: a namespace import, a

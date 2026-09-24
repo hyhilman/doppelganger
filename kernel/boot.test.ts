@@ -402,7 +402,7 @@ test("13. DEFAULT_BOOT_DEPS resolves the same plugins/<plugin>/skills/<skill> pa
     "an existing FILE must not count as a skill directory",
   );
 
-  assert.deepEqual([...DEFAULT_BOOT_DEPS.listSkillDirs("nightly")].sort(), ["nightly-sandcastle"]);
+  assert.deepEqual([...DEFAULT_BOOT_DEPS.listSkillDirs("nightly")].sort(), ["nightly-polish", "nightly-sandcastle"]);
   assert.deepEqual(DEFAULT_BOOT_DEPS.listSkillDirs("no-such-plugin"), [], "a missing tree lists nothing, it does not throw");
 
   // ONE PART OF THE READER HAS NO SUBJECT HERE, stated rather than left to be assumed:
