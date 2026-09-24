@@ -47,8 +47,8 @@ export const RECUT_BRANCHES_ENV: EnvSpec = {
 };
 export const GIT_WORKTREE_DIR_ENV: EnvSpec = {
   key: "GIT_WORKTREE_DIR",
-  default: ".doppelganger/worktree",
-  why: "project-relative directory for the env and PR-head worktrees; kept under a gitignored path so a tree there never dirties the checkout (INS-02)",
+  default: ".doppelganger/worktrees/git",
+  why: "project-relative directory for the env and PR-head worktrees; its own folder beside the nightly pass trees, gitignored so a tree there never dirties the checkout (INS-02)",
 };
 
 export const SCOPE_ENV: readonly EnvSpec[] = [

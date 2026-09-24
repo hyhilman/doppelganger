@@ -84,7 +84,8 @@ test("8. JOB-G04: a duplicate entry, or two repos sharing one worktree name, is 
 test("9. the worktree dir is project-relative and below the root", () => {
   assert.deepEqual(scopeProblems(ROOT, scope({ GIT_WORKTREE_DIR: "/tmp/wt" })).length, 1);
   assert.deepEqual(scopeProblems(ROOT, scope({ GIT_WORKTREE_DIR: "." })).length, 1);
-  assert.equal(scope().worktreeDir, ".doppelganger/worktree");
+  // Under .doppelganger/worktrees/, the one tree the layout test lets hold throwaway contents.
+  assert.equal(scope().worktreeDir, ".doppelganger/worktrees/git");
 });
 
 test("10. repoSlug: a nested path joins with '-', '.' takes the root's own name", () => {

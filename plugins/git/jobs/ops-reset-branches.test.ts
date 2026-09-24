@@ -130,7 +130,7 @@ test("8. JOB-G01: a branch not checked out moves by update-ref, a missing one is
 test("9. JOB-G07 + G01: with the worktree step on, the env tree is created and then reset in place", () => {
   const ws = workspace(["api"], ["staging"]);
   run(ws.root, { RESET_REPOS: "api", RESET_BRANCHES: "main staging", ENV_WORKTREE_BRANCHES: "staging", RESET_ENSURE_WORKTREES: "1" });
-  const tree = join(ws.root, ".doppelganger", "worktree", "api-staging");
+  const tree = join(ws.root, ".doppelganger", "worktrees", "git", "api-staging");
   const tip = ws.upstream("staging", "s.txt", "new\n", "staging moved");
   const r = run(ws.root, { RESET_REPOS: "api", RESET_BRANCHES: "main staging", ENV_WORKTREE_BRANCHES: "staging", RESET_ENSURE_WORKTREES: "1" });
   assert.match(r.out(), /✓  api:staging — reset --hard .* \(checked out\)/, r.out());

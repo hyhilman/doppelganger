@@ -20,7 +20,7 @@ function publishPr(ws: Workspace, pr: number, body: string): string {
   return head(ws.seed);
 }
 
-const depsFor = (ws: Workspace): PrWorktreeDeps => ({ root: ws.root, git, worktreeDir: ".doppelganger/worktree" });
+const depsFor = (ws: Workspace): PrWorktreeDeps => ({ root: ws.root, git, worktreeDir: ".doppelganger/worktrees/git" });
 
 test("1. JOB-G14: prep makes a detached tree at the PR head and records it for the reaper", () => {
   const ws = workspace(["api"]);
@@ -28,7 +28,7 @@ test("1. JOB-G14: prep makes a detached tree at the PR head and records it for t
   const runDir = prWorktreeRunDir(join(ws.dir, "state"), ws.root, "api", 7);
   const wt = prepPrWorktree(depsFor(ws), "api", 7, "main", runDir);
   assert.equal(wt.notice, "");
-  assert.equal(wt.path, join(ws.root, ".doppelganger", "worktree", "api-pr-7"));
+  assert.equal(wt.path, join(ws.root, ".doppelganger", "worktrees", "git", "api-pr-7"));
   assert.equal(wt.headSha, sha);
   assert.equal(wt.base, "origin/main");
   assert.equal(wt.canDiffLocally, true);
