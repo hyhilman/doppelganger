@@ -48,14 +48,30 @@ import nightly from "../plugins/nightly/plugin.ts";
 import ops from "../plugins/ops/plugin.ts";
 import git from "../plugins/git/plugin.ts";
 import opsCronCheck from "./jobs/ops-cron-check.ts";
+import {
+  WATCHDOG_SUPERVISOR_STALE_M_ENV,
+  WATCHDOG_DRY_RUN_ENV,
+  NTFY_URL_ENV,
+  NTFY_TOPIC_ENV,
+  NTFY_TOKEN_ENV,
+  WATCHDOG_NO_NOTIFY_ENV,
+} from "./config.ts";
 
-/** The app's own manifest: jobs and scripts that need the app itself (see the header). */
+/** The app's own manifest: jobs and scripts that need the app itself (see the header). It owns
+ *  `ops-watchdog` (SCRIPT_OWNERS below), so the watchdog's knobs are its rows (KRN-06). */
 export const HOST: Plugin = definePlugin({
   name: "host",
-  kill: [],
+  kill: [WATCHDOG_NO_NOTIFY_ENV],
   jobs: [opsCronCheck],
   schedule: [],
-  env: [],
+  // CRONTAB_CMD, which ops-cron-check reads, stays off: see the header.
+  env: [
+    WATCHDOG_SUPERVISOR_STALE_M_ENV,
+    WATCHDOG_DRY_RUN_ENV,
+    NTFY_URL_ENV,
+    NTFY_TOPIC_ENV,
+    NTFY_TOKEN_ENV,
+  ],
 });
 
 /** Every manifest this app registers, in registration order, before the host binds each one's

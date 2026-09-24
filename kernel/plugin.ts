@@ -79,12 +79,17 @@
 // number with no safe direction, while a kill switch has one. Here BOTH directions stop the pass,
 // so the safe direction is already taken by either choice and only findability is left to decide.
 //
-// The repo has EXACTLY ONE subject for this helper: `NIGHTLY_NO_SANDCASTLE` (plugin `nightly`,
-// feature `sandcastle`). `NIGHTLY_SANDCASTLE_NO_MERGE` looks similar and is NOT one — it is
-// job-prefixed, not plugin+feature, and it is a SAF-02 shadow mode ("commit inside the worktree,
-// never move the base branch"), never a switch that stops the pass outright. Do not widen
-// `killSwitch`/`isKilled` to cover it; a one-subject helper generalised ahead of a second subject
-// is the same D9 mistake KRN-04's five members refuse above.
+// `isKilled` has EXACTLY ONE subject: `NIGHTLY_NO_SANDCASTLE` (plugin `nightly`, feature
+// `sandcastle`). `killSwitch` has none yet: that row is still an object literal, because
+// test/knobs.test.ts finds EnvSpec rows by scanning source text for a typed object literal and for
+// the key's literal spelling, and a row built by a call has neither. `WATCHDOG_NO_NOTIFY` is a second kill switch in this repo, but it sits
+// outside this helper — a bash-read kill switch, so it cannot call `isKilled`, and its key is not
+// `<PLUGIN>_NO_<FEATURE>` shaped for the manifest that owns it (`host`). `NIGHTLY_SANDCASTLE_NO_MERGE`
+// looks similar to a kill switch and is NOT one either — it is job-prefixed, not plugin+feature, and
+// it is a SAF-02 shadow mode ("commit inside the worktree, never move the base branch"), never a
+// switch that stops the pass outright. Do not widen `killSwitch`/`isKilled` to cover either of
+// them; a one-subject helper generalised ahead of a second subject is the same D9 mistake KRN-04's
+// five members refuse above.
 
 import { envStr, type EnvSpec } from "./config.ts";
 import type { Job } from "./ports/job.ts";
