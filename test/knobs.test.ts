@@ -40,6 +40,12 @@ import {
 } from "../kernel/runtime/quota.ts";
 import { QUOTA_SHED_WINDOW_MS_ENV } from "../kernel/runtime/shed.ts";
 import {
+  STEP_CAP_ROUTE_ENV,
+  STEP_CAP_WATCH_ENV,
+  STEP_CAP_BRIEF_ENV,
+  STEP_CAP_DEFAULT_ENV,
+} from "../kernel/runtime/steps.ts";
+import {
   WATCHDOG_SUPERVISOR_STALE_M_ENV,
   WATCHDOG_DRY_RUN_ENV,
   NTFY_URL_ENV,
@@ -439,6 +445,30 @@ const ROWS: readonly RowMeta[] = [
     readers: ["envStr"],
   },
   {
+    spec: STEP_CAP_ROUTE_ENV,
+    file: "kernel/runtime/steps.ts",
+    constName: "STEP_CAP_ROUTE_ENV",
+    readers: ["envNum"],
+  },
+  {
+    spec: STEP_CAP_WATCH_ENV,
+    file: "kernel/runtime/steps.ts",
+    constName: "STEP_CAP_WATCH_ENV",
+    readers: ["envNum"],
+  },
+  {
+    spec: STEP_CAP_BRIEF_ENV,
+    file: "kernel/runtime/steps.ts",
+    constName: "STEP_CAP_BRIEF_ENV",
+    readers: ["envNum"],
+  },
+  {
+    spec: STEP_CAP_DEFAULT_ENV,
+    file: "kernel/runtime/steps.ts",
+    constName: "STEP_CAP_DEFAULT_ENV",
+    readers: ["envNum"],
+  },
+  {
     spec: RETENTION_LEASE_DAYS_ENV,
     file: "plugins/ops/jobs/ops-retention.ts",
     constName: "RETENTION_LEASE_DAYS_ENV",
@@ -629,6 +659,10 @@ test("5. every defaulted row's default is the value you get, resolved in a scrub
   assert.equal(
     scrubbedChild("import('./kernel/runtime/shed.ts').then(m=>console.log(m.SHED_WINDOW_MS()))"),
     "86400000",
+  );
+  assert.equal(
+    scrubbedChild("import('./kernel/runtime/steps.ts').then(m=>console.log(m.stepCap('some-unregistered-step')))"),
+    "10",
   );
   // INSTANCE, ENGINE_ROOT and <NAME>_DB carry no `default` — two have computed fallbacks (a
   // basename, cwd), one is a family with no single value — so they are skipped here by name.

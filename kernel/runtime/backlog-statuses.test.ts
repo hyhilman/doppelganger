@@ -31,7 +31,7 @@ after(() => {
 const REPORTED = ["new", "routed", "failed"];
 
 /** The files whose SQL may filter a status negatively. */
-const SOURCES = ["backlog.ts"];
+const SOURCES = ["backlog.ts", "steps.ts"];
 
 const src = (f: string): string => readFileSync(join(import.meta.dirname, f), "utf8");
 const quoted = (s: string): string[] => [...s.matchAll(/'([a-z-]+)'/g)].map((m) => m[1]!);
