@@ -231,12 +231,60 @@ test("every relative module specifier in every .ts file resolves to a file that 
 // TST-05 above resolves that same specifier against disk and goes red when it names nothing. From
 // `kernel/` it is refused anyway — rule 1 allows only `kernel/`, so anything above the root is out.
 
-export function deepImportViolation(fromFile: string, spec: string): string | null {
-  if (!spec.startsWith(".")) return null; // bare (npm) specifiers are not this rule's subject
+// Workspace package name -> repo-relative directory (e.g. "@doppelganger/kernel" -> "kernel"),
+// read from the root package.json's "workspaces" globs and each matched directory's own
+// package.json "name". A workspace package has no "exports" field, so once a plugin is a real
+// npm package it can write `import ... from "@doppelganger/kernel/runtime/db.ts"` and node
+// resolves it straight through node_modules — the same deep reach as a relative path, spelled
+// differently. This has to come from the globs, not a hand-written list, so a new plugin package
+// is covered the day its package.json is added.
+function workspacePackageMap(root: string): Map<string, string> {
+  const rootPkg = JSON.parse(readFileSync(join(root, "package.json"), "utf8")) as {
+    workspaces?: string[];
+  };
+  const map = new Map<string, string>();
+  for (const glob of rootPkg.workspaces ?? []) {
+    const isWildcard = glob.endsWith("/*");
+    const prefix = isWildcard ? glob.slice(0, -2) : glob;
+    const dirs = isWildcard
+      ? readdirSync(join(root, prefix))
+          .filter((entry) => statSync(join(root, prefix, entry)).isDirectory())
+          .map((entry) => `${prefix}/${entry}`)
+      : [prefix];
+    for (const dir of dirs) {
+      const pkgJsonPath = join(root, dir, "package.json");
+      if (!existsSync(pkgJsonPath)) continue;
+      const { name } = JSON.parse(readFileSync(pkgJsonPath, "utf8")) as { name?: string };
+      if (name) map.set(name, dir);
+    }
+  }
+  return map;
+}
 
-  // Normalise, then drop the trailing slash: `kernel/ports` and `kernel/ports/` name one place and
-  // must get one verdict.
-  const target = posix.normalize(posix.join(posix.dirname(fromFile), spec)).replace(/\/+$/, "");
+// A relative specifier resolves against the importer's own directory, same as before. A
+// workspace package name resolves through pkgMap instead: the bare package root maps to the
+// package directory itself, and `<pkg>/<sub>` maps to `<dir>/<sub>`. Anything else (a real
+// third-party specifier, or a package name pkgMap does not know) is not this rule's subject.
+function resolveTarget(fromFile: string, spec: string, pkgMap: ReadonlyMap<string, string>): string | null {
+  if (spec.startsWith(".")) {
+    // Normalise, then drop the trailing slash: `kernel/ports` and `kernel/ports/` name one place
+    // and must get one verdict.
+    return posix.normalize(posix.join(posix.dirname(fromFile), spec)).replace(/\/+$/, "");
+  }
+  for (const [name, dir] of pkgMap) {
+    if (spec === name) return dir;
+    if (spec.startsWith(`${name}/`)) return posix.join(dir, spec.slice(name.length + 1));
+  }
+  return null;
+}
+
+export function deepImportViolation(
+  fromFile: string,
+  spec: string,
+  pkgMap: ReadonlyMap<string, string> = new Map(),
+): string | null {
+  const target = resolveTarget(fromFile, spec, pkgMap);
+  if (target === null) return null;
 
   // "under dir" is the directory itself or anything below it — never a sibling that merely starts
   // with the same letters (`kernelx/`, `pluginsx/`, `hostx/`).
@@ -289,12 +337,24 @@ export function deepImportViolation(fromFile: string, spec: string): string | nu
   return null;
 }
 
+// A synthetic workspace map for the package-specifier rows below. "@doppelganger/plugin-foo" ->
+// "plugins/foo" is invented — that directory does not exist on disk — but deepImportViolation
+// never touches disk, so a made-up second plugin is enough to exercise rule 2 through a package
+// name instead of a relative path.
+const SYNTHETIC_PKG_MAP: ReadonlyMap<string, string> = new Map([
+  ["@doppelganger/kernel", "kernel"],
+  ["@doppelganger/cli", "cli"],
+  ["@doppelganger/plugin-nightly", "plugins/nightly"],
+  ["@doppelganger/plugin-foo", "plugins/foo"],
+]);
+
 test("deepImportViolation table: all four rules, both polarities (TST-03)", () => {
   const rows: ReadonlyArray<{
     readonly desc: string;
     readonly from: string;
     readonly spec: string;
     readonly rule: 1 | 2 | 3 | 4 | null;
+    readonly pkgMap?: ReadonlyMap<string, string>;
   }> = [
     // Rule 1 — kernel/ may name only kernel/
     {
@@ -471,6 +531,73 @@ test("deepImportViolation table: all four rules, both polarities (TST-03)", () =
       spec: "../../pluginsx/y.ts",
       rule: null,
     },
+
+    // Workspace package specifiers — the same four rules, reached through a package name
+    // (`@doppelganger/<pkg>`) instead of a relative path. A published plugin package imports its
+    // neighbours this way, since a relative `../../kernel` path does not survive a publish.
+    {
+      desc: "plugin -> kernel/runtime through the kernel package name, violates rule 3",
+      from: "plugins/nightly/x.ts",
+      spec: "@doppelganger/kernel/runtime/db.ts",
+      rule: 3,
+      pkgMap: SYNTHETIC_PKG_MAP,
+    },
+    {
+      desc: "plugin -> kernel/ports through the kernel package name, permitted",
+      from: "plugins/nightly/x.ts",
+      spec: "@doppelganger/kernel/ports/job.ts",
+      rule: null,
+      pkgMap: SYNTHETIC_PKG_MAP,
+    },
+    {
+      desc: "plugin -> kernel/plugin.ts through the kernel package name, permitted",
+      from: "plugins/nightly/x.ts",
+      spec: "@doppelganger/kernel/plugin.ts",
+      rule: null,
+      pkgMap: SYNTHETIC_PKG_MAP,
+    },
+    {
+      desc: "plugin -> the bare kernel package root, violates rule 3 (the root is the kernel/ directory itself, neither ports/ nor plugin.ts)",
+      from: "plugins/nightly/x.ts",
+      spec: "@doppelganger/kernel",
+      rule: 3,
+      pkgMap: SYNTHETIC_PKG_MAP,
+    },
+    {
+      desc: "plugin -> cli through the cli package name, violates rule 4",
+      from: "plugins/nightly/x.ts",
+      spec: "@doppelganger/cli/skills.ts",
+      rule: 4,
+      pkgMap: SYNTHETIC_PKG_MAP,
+    },
+    {
+      desc: "plugin -> a different plugin through its package name, violates rule 2",
+      from: "plugins/nightly/x.ts",
+      spec: "@doppelganger/plugin-foo/x.ts",
+      rule: 2,
+      pkgMap: SYNTHETIC_PKG_MAP,
+    },
+    {
+      desc: "plugin -> its own package name, permitted (same plugin, spelled through the package name)",
+      from: "plugins/nightly/x.ts",
+      spec: "@doppelganger/plugin-nightly/y.ts",
+      rule: null,
+      pkgMap: SYNTHETIC_PKG_MAP,
+    },
+    {
+      desc: "kernel -> a plugin through its package name, violates rule 1",
+      from: "kernel/x.ts",
+      spec: "@doppelganger/plugin-nightly/y.ts",
+      rule: 1,
+      pkgMap: SYNTHETIC_PKG_MAP,
+    },
+    {
+      desc: "kernel -> a real third-party package name, permitted (not a workspace package, out of scope)",
+      from: "kernel/x.ts",
+      spec: "typescript",
+      rule: null,
+      pkgMap: SYNTHETIC_PKG_MAP,
+    },
   ];
 
   assert.ok(rows.length >= 12, `table must have at least 12 rows, has ${rows.length}`);
@@ -479,8 +606,8 @@ test("deepImportViolation table: all four rules, both polarities (TST-03)", () =
     assert.ok(rulesSeen.has(rule), `table must cover rule ${rule === null ? "null (permitted)" : rule}`);
   }
 
-  for (const { desc, from, spec, rule } of rows) {
-    const msg = deepImportViolation(from, spec);
+  for (const { desc, from, spec, rule, pkgMap } of rows) {
+    const msg = deepImportViolation(from, spec, pkgMap);
     if (rule === null) {
       assert.equal(msg, null, `${desc}: expected no violation, got ${JSON.stringify(msg)}`);
     } else {
@@ -495,9 +622,28 @@ test("deepImportViolation table: all four rules, both polarities (TST-03)", () =
   }
 });
 
+test("workspacePackageMap derives every workspace package from the workspace globs, not a hand-written list (TST-03)", () => {
+  // The expected side is built a second, simpler way — kernel and cli by name, plus every
+  // plugins/<x>/package.json on disk — so a new plugin package needs no edit here, but a break in
+  // the glob reading still fails.
+  const expected: [string, string][] = [
+    ["@doppelganger/cli", "cli"],
+    ["@doppelganger/kernel", "kernel"],
+  ];
+  for (const dir of readdirSync(join(ROOT, "plugins"))) {
+    const pkgJson = join(ROOT, "plugins", dir, "package.json");
+    if (!existsSync(pkgJson)) continue;
+    const { name } = JSON.parse(readFileSync(pkgJson, "utf8")) as { name: string };
+    expected.push([name, `plugins/${dir}`]);
+  }
+  assert.ok(expected.length >= 3, "fixture assumption: at least one plugin package exists");
+  assert.deepEqual([...workspacePackageMap(ROOT).entries()].sort(), expected.sort());
+});
+
 test("deepImportViolation over the real tree: the layering law holds today (TST-03) — reuses the walk() above; rule 1 has a subject, rules 2-4 do not (plugins/ holds only package.json and SKILL.md)", () => {
   const files: string[] = [];
   walk(ROOT, files);
+  const pkgMap = workspacePackageMap(ROOT);
 
   const offenders: string[] = [];
   for (const file of files) {
@@ -505,8 +651,10 @@ test("deepImportViolation over the real tree: the layering law holds today (TST-
     const src = readFileSync(file, "utf8");
     const info = ts.preProcessFile(src, true, true);
     for (const imported of info.importedFiles) {
-      if (!imported.fileName.startsWith(".")) continue;
-      const violation = deepImportViolation(fromFile, imported.fileName);
+      // Every specifier goes through deepImportViolation, relative or not: a bare specifier might
+      // name a workspace package (in scope, via pkgMap) or a real third-party one (out of scope,
+      // returns null) — deepImportViolation itself is what tells those apart now.
+      const violation = deepImportViolation(fromFile, imported.fileName, pkgMap);
       if (violation) offenders.push(violation);
     }
   }
