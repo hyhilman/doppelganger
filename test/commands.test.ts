@@ -23,6 +23,8 @@ function findTestFiles(): string[] {
         // R2 — a pass worktree under .doppelganger/worktrees/ is a second full
         // checkout (its own node_modules, package.json, *.test.ts) and is not this repo's source.
         if (relDir === ".doppelganger" && entry.name === "worktrees") continue;
+        // An agent's git worktree under .claude/worktrees/ is the same: a second checkout, not this one.
+        if (relDir === ".claude" && entry.name === "worktrees") continue;
         walk(join(absDir, entry.name), relDir === "" ? entry.name : `${relDir}/${entry.name}`);
       } else if (entry.name.endsWith(".test.ts")) {
         out.push(relDir === "" ? entry.name : `${relDir}/${entry.name}`);

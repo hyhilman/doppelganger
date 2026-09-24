@@ -14,3 +14,6 @@ plan/
 roadmap.md
 WORK.md
 LOOP.md
+
+# Agent git worktrees: full second checkouts, never this repo's source.
+.claude/worktrees/

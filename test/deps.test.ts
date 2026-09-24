@@ -17,6 +17,8 @@ function walk(dir: string, out: string[]): void {
     // R2 — a pass worktree under .doppelganger/worktrees/ is a second full
     // checkout (its own node_modules, package.json, *.ts files) and is not this repo's source.
     if (dir === join(ROOT, ".doppelganger") && entry === "worktrees") continue;
+    // An agent's git worktree under .claude/worktrees/ is the same: a second checkout, not this one.
+    if (dir === join(ROOT, ".claude") && entry === "worktrees") continue;
     const full = join(dir, entry);
     const st = statSync(full);
     if (st.isDirectory()) walk(full, out);
