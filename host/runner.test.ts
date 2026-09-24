@@ -24,9 +24,9 @@ import { mkdtempSync, writeFileSync, chmodSync, readdirSync, readFileSync, exist
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { pathToFileURL } from "node:url";
-import { buildAgent } from "./runner.ts";
+import { buildAgent, sandcastleRunner, type RunnerDeps } from "./runner.ts";
 import nightlySandcastleJob from "../plugins/nightly/jobs/nightly-sandcastle.ts";
-import type { RunRequest } from "../kernel/ports/runner.ts";
+import type { RunRequest, Runner } from "../kernel/ports/runner.ts";
 
 const ROOT = new URL("..", import.meta.url).pathname.replace(/\/$/, "");
 
@@ -390,4 +390,12 @@ test("13. R1 (HRN-16, JOB-C15) — a fake claude that emits a verdict but never 
   assert.equal(out.result.completionSignal, null, `expected no signal match, got: ${JSON.stringify(out.result)}`);
   assert.equal(out.result.iterations, 1, `expected exactly one iteration (the 2026-08-26 paid run's headline bug: R1), got: ${JSON.stringify(out.result)}`);
   assert.ok(out.result.stdout.includes("<<<SANDCASTLE"), out.result.stdout);
+});
+
+test("14. PRT-08 — sandcastleRunner's return value is the kernel/ports Runner, so M11 swaps one file", () => {
+  // The gate is the type check: this line fails `npm run typecheck` the day sandcastleRunner
+  // returns anything a Runner caller cannot use. test/deps.test.ts test 1 pins the other half —
+  // host/runner.ts is the only file that imports @ai-hero/sandcastle.
+  const asPort: (deps: RunnerDeps) => Runner = sandcastleRunner;
+  assert.equal(typeof asPort, "function");
 });
