@@ -395,6 +395,18 @@ function recordingLogger(): { readonly log: Logger; readonly entries: LogEntry[]
   };
 }
 
+/** The ops jobs' capabilities. The pass never calls them, so each one throws if it ever does. */
+const opsUnused = (what: string) => (): never => {
+  throw new Error(`${what} is unused by the nightly pass`);
+};
+const OPS_UNUSED: Pick<JobContext, "reapDeadLeases" | "tailLogs" | "logMeta" | "notify" | "print"> = {
+  reapDeadLeases: opsUnused("reapDeadLeases"),
+  tailLogs: opsUnused("tailLogs"),
+  logMeta: { get: opsUnused("logMeta.get"), set: opsUnused("logMeta.set") },
+  notify: opsUnused("notify"),
+  print: opsUnused("print"),
+};
+
 interface TestContext {
   readonly deps: JobContext;
   readonly entries: LogEntry[];
@@ -435,6 +447,7 @@ function buildContext(
       promptLines: worktreePromptLines,
     },
     payload: PAYLOAD,
+    ...OPS_UNUSED,
   };
   return { deps, entries, raw, runnerCalls: runnerBundle.calls };
 }

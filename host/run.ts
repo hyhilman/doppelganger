@@ -12,7 +12,8 @@ import { openDb } from "../kernel/runtime/db.ts";
 import { logger } from "../kernel/runtime/log/emit.ts";
 import { git } from "../kernel/runtime/exec.ts";
 import { runJob } from "../kernel/runtime/runjob.ts";
-import { withLease } from "../kernel/runtime/lease.ts";
+import { withLease, reapDead } from "../kernel/runtime/lease.ts";
+import { tail, logDb, LOG_ROOTS, NS as LOGTAIL_NS } from "../kernel/runtime/log/tail.ts";
 import { isLimitError, limitClass, isPaused, pausedUntil, pause, inspect, QUOTA_SCOPE } from "../kernel/runtime/quota.ts";
 import { decideShed, shedModel, NO_SHED } from "../kernel/runtime/shed.ts";
 import { extractBlock, extractFields } from "../kernel/runtime/payload.ts";
@@ -24,6 +25,7 @@ import { parentEnv, errText, envStr, envNum, envOptional } from "../kernel/confi
 import type { Job } from "../kernel/ports/job.ts";
 import type { JobContext } from "../kernel/ports/context.ts";
 import { sandcastleRunner } from "./runner.ts";
+import { realNtfyPost } from "./notify.ts";
 import { classOf } from "./classes.ts";
 import { JOBS } from "./jobs/index.ts";
 import { GATE_TIMEOUT_MS } from "../plugins/nightly/jobs/nightly-sandcastle.ts";
@@ -100,6 +102,17 @@ export function buildContext(job: Job): JobContext {
       promptLines: worktreePromptLines,
     },
     payload: { extractBlock, extractFields },
+    reapDeadLeases: () => reapDead(),
+    tailLogs: (opts) => tail(LOG_ROOTS, opts),
+    logMeta: {
+      get: (key) => logDb().metaGet(LOGTAIL_NS, key),
+      set: (key, value) => logDb().metaSet(LOGTAIL_NS, key, value),
+    },
+    // Built per call, so the NTFY_* knobs are read when a report goes out, not at boot.
+    notify: (body) => realNtfyPost()(body),
+    print: (text) => {
+      process.stdout.write(text.endsWith("\n") ? text : `${text}\n`);
+    },
   };
 }
 

@@ -7,14 +7,16 @@
 // never a path into `kernel/runtime/`.
 import type { EnvSpec } from "../config.ts";
 import type { Db } from "../runtime/db.ts";
+import type { Reaped } from "../runtime/lease.ts";
 import type { Logger } from "../runtime/log/emit.ts";
+import type { TailResult } from "../runtime/log/tail.ts";
 import type { RunJobDeps } from "../runtime/runjob.ts";
 import type { ShedDecision } from "../runtime/shed.ts";
 import type { Worktree } from "../runtime/worktree.ts";
 import type { Job } from "./job.ts";
 import type { Runner, RunResult } from "./runner.ts";
 
-export type { Db, Logger, RunJobDeps, ShedDecision, Worktree };
+export type { Db, Logger, Reaped, RunJobDeps, ShedDecision, TailResult, Worktree };
 
 /** Runs `cmd` in `dir` and never throws: `ok` is the exit status, `out` is stdout then stderr. */
 export type RunIn = (dir: string, cmd: string, args: readonly string[], env?: Record<string, string>) => {
@@ -70,4 +72,18 @@ export interface JobContext {
     readonly extractBlock: (stdout: string, tag: string) => string | null;
     readonly extractFields: (block: string) => Record<string, string>;
   };
+  /** LSE-07: deletes the leases whose owner process is dead. The reaper applies every guard. */
+  readonly reapDeadLeases: () => readonly Reaped[];
+  /** Reads both log roots forward from their cursors. `advance: false` moves no cursor and
+   *  rotates nothing (SAF-01). */
+  readonly tailLogs: (opts: { readonly advance: boolean }) => TailResult;
+  /** The log reader's own key/value store, in log.db's `logtail` namespace. */
+  readonly logMeta: {
+    readonly get: (key: string) => string | null;
+    readonly set: (key: string, value: string) => void;
+  };
+  /** Sends a report over ntfy. Never throws: a failed send is `ok: false`. */
+  readonly notify: (body: string) => Promise<{ readonly ok: boolean; readonly detail: string }>;
+  /** Writes text to stdout. */
+  readonly print: (text: string) => void;
 }

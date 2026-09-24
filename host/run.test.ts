@@ -114,6 +114,11 @@ function fakePassDeps(overrides: Partial<JobContext> = {}): JobContext {
       promptLines: unused("worktree.promptLines"),
     },
     payload: { extractBlock: unused("payload.extractBlock"), extractFields: unused("payload.extractFields") },
+    reapDeadLeases: unused("reapDeadLeases"),
+    tailLogs: unused("tailLogs"),
+    logMeta: { get: unused("logMeta.get"), set: unused("logMeta.set") },
+    notify: unused("notify"),
+    print: unused("print"),
     ...overrides,
   };
 }
