@@ -1,72 +1,55 @@
 // kernel/boot.ts — KRN-08, KRN-09: boot() walks a plugin graph, collects every problem it finds,
 // then throws ONCE, with each line naming the plugin it came from.
 //
-// THE SHAPE (KRN-08). boot() builds a list of `{ plugin, check, detail }` problems as it goes. It
-// never throws on the first one — it keeps checking everything, then throws one error with one
-// line per problem. A boot that reports one fault per restart costs one restart per fault; that
-// is the whole reason this row exists. Before the throw, problems are sorted by plugin, then by
-// check, then by detail — three plain string comparisons, never localeCompare — so two runs over
-// the same graph always print the same message in the same order.
+// THE SHAPE (KRN-08). boot() builds a list of `{ plugin, check, detail }` problems as it goes,
+// never throwing on the first one, so a boot that would otherwise report one fault per restart
+// reports all of them at once. Problems are sorted by plugin, then check, then detail — three
+// plain string comparisons, never localeCompare — so the same graph always prints in the same
+// order regardless of OS locale.
 //
-// THE SIX CHECKS SHIPPED (KRN-09). roadmap.md §2.1 lists more checks than v0 has a real subject
-// for. KRN-09's rule: ship a check only once something real needs it. These six do:
+// THE SIX CHECKS SHIPPED (KRN-09) — ship a check only once something real needs it:
 //   1. duplicate names across registries — two plugins registering the same job name.
 //   2. schedule entry names a registered job — an entry's `job` field must match a real job.
 //   3. job declares a model — resolves through DEFAULTS.model, then assertPinned() (HRN-11's own
 //      runtime check, reused here rather than repeated).
 //   4. job names a skill that resolves to a directory on disk (SKL-06, direction one).
 //   5. every skill directory on disk is named by a registered job (SKL-06, direction two).
-//   6. required env unset with no default — FIXTURE SUBJECT ONLY. See "ruling 7, trap one" below.
+//   6. required env unset with no default — fixture subject only, see CRONTAB_CMD below.
 //
 // WHAT IS NOT SHIPPED, AND WHY. A route needing a watcher, a watcher naming a registered job, and
-// relay gating are ABSENT from this file — not stubbed, not a check that quietly always passes. No
-// v0 plugin emits a source or a route yet (D9: a port designed before it has a real user gets
-// designed wrong), so there is nothing for a check like that to look at. Do not add a stub for
-// these; add the real check the day the first plugin ships a `sources`/`routes`/`relays` member.
-// kernel/boot.test.ts test 12 gates the absence by reading this file's own bytes, and states its
-// own limit: it sees THIS file only, so the same work moved one hop into a kernel module boot()
-// imports would leave it green. What really holds the property is KRN-04 — the `Plugin` interface
-// has no `sources`/`routes`/`relays`/`lanes` member, so no check anywhere has anything to read.
-// A writer naming an unknown gate resource is also absent, but for a different reason: this is
-// already checked, by `host/schedule.ts`'s `validate()` (SUP-05), over the real `SCHEDULE` and the
-// real `PROGRAMS` table. boot() does not repeat that check. Split of ownership, stated plainly:
-// `host/schedule.ts` owns gate-resource validation for schedule entries; `kernel/boot.ts` owns the
-// six plugin-graph checks listed above.
+// relay gating are ABSENT — not stubbed. No v0 plugin emits a source or a route yet (D9: a port
+// designed before it has a real user gets designed wrong), so there is nothing for a check like
+// that to read: the `Plugin` interface (KRN-04) has no `sources`/`routes`/`relays`/`lanes` member.
+// Add the real check the day the first plugin ships one of those members. A writer naming an
+// unknown gate resource is also absent, but for a different reason: `host/schedule.ts`'s
+// `validate()` (SUP-05) already checks that, over the real `SCHEDULE` and `PROGRAMS`. boot() owns
+// the six plugin-graph checks above; `host/schedule.ts` owns gate-resource validation.
 //
-// CHECK 1 IS REACHABLE, and here is the path, because the obvious objection is that
-// kernel/registry.ts already throws on a duplicate AT IMPORT TIME. It does — for names passed to
-// `registry.register`, which today means the two calls in `host/jobs/index.ts`. A `Plugin`
-// manifest's `jobs` member is a plain `readonly Job[]` and never goes through a registry at all,
-// so no registry can see a name that two manifests both list. Measured on this tree (2026-09-01):
-// importing the real `host/jobs/index.ts` succeeds — the graph loads, both jobs register once —
-// and boot() then reports the duplicate. The live subject arrives with `host/plugins.ts` (J10),
-// which imports job objects straight from `host/jobs/*.ts`: listing one job in two manifests, or
-// twice in one, is caught here and nowhere else.
+// CHECK 1 IS REACHABLE even though kernel/registry.ts already throws on a duplicate AT IMPORT
+// TIME — that guards `registry.register` calls only (today, the two in `host/jobs/index.ts`). A
+// `Plugin` manifest's `jobs` member is a plain `readonly Job[]` that never goes through a
+// registry, so no registry can see a name that two manifests both list; `host/plugins.ts` imports
+// job objects straight from `host/jobs/*.ts`, so a copy-paste that lists one job in two manifests,
+// or twice in one, is caught here and nowhere else.
 //
 // CHECK 4 IS WEAKER THAN `skills check`, ON PURPOSE, AND THAT IS SAFE ONLY BECAUSE OF WHERE THE
 // STRONGER GATE LIVES. Both derive the same path — `<ROOT>/plugins/<job.plugin>/skills/<skillOf>`
-// — but this one asks only that the DIRECTORY exist, while `cli/skills.ts` also needs a
-// `SKILL.md` inside it. So an empty skill directory boots green here and fails `skills check`.
-// `test/skills.test.ts` runs `check(JOBS, TREE)` over the real tree in `npm test` and owns that
-// stronger read; boot() states the SKL-06 shape, and does not duplicate it.
+// — but this one asks only that the DIRECTORY exist, while `cli/skills.ts` also needs a `SKILL.md`
+// inside it. `test/skills.test.ts` owns that stronger read; boot() states the SKL-06 shape only.
 //
-// RULING 7, TRAP ONE — CRONTAB_CMD. `CRONTAB_CMD` is the one `required: true` env row in this repo
-// with no default (see `cli/crontab.ts`), and `npm test` runs with it deliberately unset. It
-// belongs to `cli/crontab.ts`, an operator command, never to a plugin's `env` list. If a real
-// plugin manifest ever lists it, check 6 above fails on every `npm test` run. DO NOT add
-// `CRONTAB_CMD` to any plugin's `env` member to "cover" this check — that is the exact mistake this
-// comment exists to stop. Check 6 is real code, but at v0 only a fixture (kernel/boot.test.ts) ever
-// exercises it; no real manifest should ever give it a subject.
+// CRONTAB_CMD IS A TRAP FOR CHECK 6. It is the one `required: true` env row in this repo with no
+// default (see `cli/crontab.ts`), and `npm test` runs with it deliberately unset. It belongs to
+// `cli/crontab.ts`, an operator command, never to a plugin's `env` list — if a real manifest ever
+// lists it, check 6 fails on every `npm test` run. DO NOT add it to a plugin's `env` to "cover"
+// this check; only a fixture (kernel/boot.test.ts) should ever give it a subject.
 //
-// RULING 7, TRAP TWO — no import of cli/skills.ts. `cli/skills.ts` already computes the
-// `plugins/<plugin>/skills/<name>/SKILL.md` path that checks 4 and 5 need, but
-// `test/imports.test.ts`'s TST-03 rule 1 forbids a file under `kernel/` from importing anything
-// under `cli/`. So boot() takes its own small filesystem reader as `deps` — `skillDirExists` and
-// `listSkillDirs` — with a real default defined right here, and a caller (a test) can pass its own
-// instead. This is NOT the directory-scan discovery SKL-05 bans. SKL-05 bans using the filesystem
-// to find out WHAT to register. Here, the job already declares its own skill name in code; the
-// filesystem read only CHECKS that the declared name is real. Declaring stays in code — the disk
-// is only ever checked against it, never scanned to build a list.
+// NO IMPORT OF cli/skills.ts. `cli/skills.ts` already computes the
+// `plugins/<plugin>/skills/<name>/SKILL.md` path checks 4 and 5 need, but `test/imports.test.ts`'s
+// TST-03 rule 1 forbids a file under `kernel/` from importing anything under `cli/`. So boot()
+// takes its own small filesystem reader as `deps` — `skillDirExists` and `listSkillDirs` — with a
+// real default here, and a test passes its own instead. This is not the directory-scan discovery
+// SKL-05 bans: the job already declares its own skill name in code, and the filesystem read only
+// checks that the declared name is real. Declaring stays in code; the disk is only ever checked.
 
 import { existsSync, readdirSync, statSync } from "node:fs";
 import { projectPath } from "./paths.ts";
@@ -82,7 +65,7 @@ export interface Problem {
 }
 
 /**
- * The filesystem half of checks 4 and 5 (ruling 7, trap two — see the header above). The real
+ * The filesystem half of checks 4 and 5 — see "NO IMPORT OF cli/skills.ts" above. The real
  * default reads the disk under `plugins/<plugin>/skills/`; a test passes its own fake instead, so
  * no test in this repo touches a real directory to prove these checks work.
  */
@@ -107,8 +90,8 @@ function defaultListSkillDirs(pluginName: string): readonly string[] {
     .map((e) => e.name);
 }
 
-/** The real reader (ruling 7, trap two). Every plugin boots with this by default; a test passes
- *  its own `BootDeps` instead — kernel/boot.test.ts does, for every fixture in that file. */
+/** The real reader. Every plugin boots with this by default; a test passes its own `BootDeps`
+ *  instead — kernel/boot.test.ts does, for every fixture in that file. */
 export const DEFAULT_BOOT_DEPS: BootDeps = {
   skillDirExists: defaultSkillDirExists,
   listSkillDirs: defaultListSkillDirs,
@@ -213,9 +196,8 @@ export function boot(plugins: readonly Plugin[], deps: BootDeps = DEFAULT_BOOT_D
     }
   }
 
-  // 6. required env unset with no default — FIXTURE SUBJECT ONLY (ruling 7, trap one). No real
-  // plugin manifest should ever carry a row shaped like this; if one does, this is the line that
-  // catches it.
+  // 6. required env unset with no default — fixture subject only. No real plugin manifest should
+  // ever carry a row shaped like this; if one does, this is the line that catches it.
   for (const plugin of plugins) {
     for (const row of plugin.env) {
       if (row.required === true && row.default === undefined) {

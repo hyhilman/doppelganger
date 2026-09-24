@@ -4,7 +4,7 @@
 // itself rejects (`await assert.rejects(import(...))`) — never calls a function directly, since
 // that would only prove the throw happens on demand, not on import.
 //
-// `*.fixture.ts` is excluded from test/layout.test.ts's `realFiles()` (no §1 row needed) and from
+// `*.fixture.ts` is excluded from test/layout.test.ts's `realFiles()` and from
 // test/model.test.ts's walker (`allNonTestTsFiles`) — both confirmed by reading each function
 // before this file was written, not assumed from the naming convention alone.
 import { registry, type Named } from "./registry.ts";

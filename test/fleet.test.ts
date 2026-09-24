@@ -1,37 +1,33 @@
-// J2 — the drift gate for fleet/. Three files (Dockerfile, compose.yml, fleet.sh) keep the
+// The drift gate for fleet/. Three files (Dockerfile, compose.yml, fleet.sh) keep the
 // standalone container's supervisor loop alive; this file is what stops them from silently
 // drifting apart from the code they run and from each other.
 //
-// THIS IS A LINE SCAN, NEVER A YAML PARSER, AND NEVER A `docker compose config` CALL (ruling 4).
-// CI has no docker, and `npm test` must stay hermetic — a job that needs a daemon cannot be part
-// of the suite everyone runs on every commit. The cost of that choice is real and stated rather
-// than hidden: a line scan parses compose.yml the way a careful reader does, not the way the
-// daemon does, so this gate CAN be green on a file docker itself would reject (a duplicate key,
-// a tab where YAML wants a space, anything the indentation-based helpers below don't model).
-// The compensation is AC4's real `fleet/fleet.sh build && up && status && down` — host-only,
-// needs docker, not part of `npm test`, and recorded in the commit body instead.
+// THIS IS A LINE SCAN, NEVER A YAML PARSER, AND NEVER A `docker compose config` CALL. CI has no
+// docker, and `npm test` must stay hermetic — a job that needs a daemon cannot be part of the
+// suite everyone runs on every commit. The cost of that choice is real and stated rather than
+// hidden: a line scan parses compose.yml the way a careful reader does, not the way the daemon
+// does, so this gate CAN be green on a file docker itself would reject (a duplicate key, a tab
+// where YAML wants a space, anything the indentation-based helpers below don't model). The
+// compensation is the real `fleet/fleet.sh build && up && status && down` — host-only, needs
+// docker, not part of `npm test`, and recorded in the commit body instead.
 //
-// TWO PARSING TRAPS, BOTH MEASURED AGAINST THE REAL FILE, BOTH HANDLED BELOW (ruling 5):
+// TWO PARSING TRAPS, BOTH MEASURED AGAINST THE REAL FILE, BOTH HANDLED BELOW:
 //
 // Trap 1 — a bind mount's `${HOST_ROOT:?}:${HOST_ROOT:?}` cannot be split on ":" as-is: the
 // `:?` inside each `${...}` reference is itself a colon. A naive `line.split(":")` yields four
 // fields, and a naive "pick the var-name prefixes" comparison (`parts[0]` vs `parts[2]`) reports
 // them equal ("${HOST_ROOT" === "${HOST_ROOT") NO MATTER what the rest of the destination says —
 // so it stays green even when the destination is mutated to `${HOST_ROOT:?}/workspace`, a mount
-// that no longer satisfies DKR-06's "same absolute path". Measured directly (see the commit body
-// for the exact transcript): the naive parts[0]-vs-parts[2] check reports `eq: true` on BOTH the
-// real file and that mutation. `normalizeVarRefs` collapses `${NAME:?msg}` and `${NAME:-default}`
-// to `${NAME}` FIRST, so there is no surviving ":" except the real src/dst separator, and only
-// then is the line split.
+// that no longer satisfies DKR-06's "same absolute path". `normalizeVarRefs` collapses
+// `${NAME:?msg}` and `${NAME:-default}` to `${NAME}` FIRST, so there is no surviving ":" except
+// the real src/dst separator, and only then is the line split.
 //
 // Trap 2 — compose.yml's own header comment contains the literal text `${VAR:?}` as prose
 // ("EVERY `${VAR:?}` BELOW IS DELIBERATE"). Harvesting `${...:?...}` references from the whole
 // file therefore yields a phantom seventh required variable, "VAR", that no code anywhere
-// exports. Measured directly against the real file: harvesting without stripping comments
-// produces {HOST_GID, HOST_HOME, HOST_ROOT, HOST_UID, HOST_USER, NODE_VERSION, VAR} — seven
-// entries — which does NOT equal fleet.sh's six-name export set, so the comparison fails on the
-// UNMUTATED file. `stripComments` removes every line whose first non-space character is "#"
-// before any harvesting happens.
+// exports — which does NOT equal fleet.sh's six-name export set, so the comparison would fail
+// even on the unmutated file. `stripComments` removes every line whose first non-space character
+// is "#" before any harvesting happens.
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -53,7 +49,7 @@ const fleetSh = (): string => read("fleet/fleet.sh");
 // ---------------------------------------------------------------------------------------------
 
 /** Lines whose first non-space character is "#" are comments. Strip them before harvesting
- *  anything out of compose.yml (ruling 5, trap 2). */
+ *  anything out of compose.yml. */
 function stripComments(text: string): string {
   return text
     .split("\n")
@@ -62,8 +58,8 @@ function stripComments(text: string): string {
 }
 
 /** `${NAME:?msg}` and `${NAME:-default}` both carry a colon INSIDE the reference. Collapse both
- *  forms (and the bare `${NAME}` form) to `${NAME}` before any ":"-based splitting (ruling 5,
- *  trap 1) — otherwise a bind mount's own `:?` looks like the src:dst separator. */
+ *  forms (and the bare `${NAME}` form) to `${NAME}` before any ":"-based splitting — otherwise a
+ *  bind mount's own `:?` looks like the src:dst separator. */
 function normalizeVarRefs(text: string): string {
   return text.replace(/\$\{([A-Za-z_][A-Za-z0-9_]*)(:[?-][^}]*)?\}/g, "${$1}");
 }
@@ -332,7 +328,7 @@ test("12. restart: unless-stopped and init: true", () => {
 });
 
 /**
- * J3 — root README.md documents fleet.sh by writing `fleet/fleet.sh <verb>` (or `fleet.sh <verb>`)
+ * Root README.md documents fleet.sh by writing `fleet/fleet.sh <verb>` (or `fleet.sh <verb>`)
  * inside a single backtick span. This assertion pulls every verb README.md names that way and
  * checks it against the SAME dispatchable-verb set assertion 9 above already parses out of the
  * real file — so a verb README.md documents that fleet.sh does not actually dispatch (a typo, or a

@@ -176,10 +176,8 @@ export function scriptCommandOf(root: string, script: string): readonly [cmd: st
  * no log), and the error goes to cron's mail, which this host discards ("No MTA installed,
  * discarding output" — the same measurement host/watchdog.sh's header records).
  *
- * Measured on this host 2026-09-16, and it is exactly the failure this repo exists to refuse: the
- * crontab was installed at 18:44, cron fired the entry at 18:48 and 19:03, and BOTH ticks were
- * dropped in silence because `.doppelganger/logs/` did not exist yet. A liveness probe that
- * cannot start is worse than no liveness probe, because the crontab says it is there.
+ * Without it, a missing log directory drops every tick in silence — a liveness probe that cannot
+ * start is worse than no liveness probe, because the crontab says it is there.
  *
  * `mkdir -p` and not a one-off `mkdir` in a setup step: a setup step is a thing someone has to
  * remember on a fresh checkout, and the first person not to remember gets a watchdog that is

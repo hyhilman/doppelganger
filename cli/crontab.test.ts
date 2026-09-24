@@ -359,8 +359,7 @@ test("21. render's exact output over a one-entry bootstrap fixture, pinned liter
       // see the test's own header comment for why that independence matters.
       // The `mkdir -p` is the line's own precondition, not decoration: `>>` opens the log BEFORE
       // the command runs, so a missing parent directory fails in the SHELL and the entry never
-      // starts. Measured on this host 2026-09-16 — two ticks dropped in silence because
-      // `.doppelganger/logs/` did not exist. Pinned literally here so it cannot be dropped again.
+      // starts. Pinned literally here so it cannot be dropped again.
       `${e.cron} cd ${ROOT} && mkdir -p ${dirname(e.log)} && ${process.execPath} ${ROOT}/${e.script} >> ${e.log} 2>&1`,
       "# <<< doppelganger:alpha managed block <<<",
     ];

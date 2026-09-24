@@ -1,7 +1,7 @@
-// J3 — the drift gate for the root README.md. Four claims, each derivable from the source and
+// The drift gate for the root README.md. Four claims, each derivable from the source and
 // checked against it (TST-06/07). Every check works over BACKTICKED spans only — the README's
 // narrative prose (why the watchdog is on the host, why never both at once) is never scanned; a
-// gate that pins prose to prose pins nothing (J3's own "Not gated, on purpose" note).
+// gate that pins prose to prose pins nothing.
 //
 // ASSERTION 2's HEURISTIC IS THE INTERESTING HALF. A naive "backticked token containing a slash"
 // rule fires on three shapes that are NOT a path into this repo:

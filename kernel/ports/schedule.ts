@@ -1,18 +1,10 @@
-// PRT-06: the ScheduleEntry shape, re-homed here from host/schedule.ts UNCHANGED — interface
-// only. This is the J1.2 precedent: ship the shape in the module that needs it (host/schedule.ts,
-// at N2, before this port existed), then re-home it later without rewriting it.
+// PRT-06: the ScheduleEntry shape, re-homed here from host/schedule.ts, interface only.
+// `validate()`, `PROGRAMS`, `SCHEDULE` and the rest of the validation logic stay in
+// host/schedule.ts, which re-exports this type.
 //
-// What moved and what did not, so a reader who sees "PRT-06" in the commit does not assume the
-// whole row is done: the SHAPE moved. The VALIDATION did not — `validate()`, `PROGRAMS`,
-// `Program`, `SCHEDULE`, `commandOf`, `scriptCommandOf`, `supervisedEntries`, `bootstrapEntries`
-// and `JOB_ENTRYPOINT` all stay in host/schedule.ts, which re-exports this type so none of its
-// five non-test consumers (host/supervisor.ts, host/cron.ts, host/window.ts, cli/crontab.ts,
-// host/jobs/ops-cron-check.ts) are edited, and neither are the nine test files that import it.
-// `validate()`'s own re-home to kernel/ is not this job.
-//
-// The re-export in host/schedule.ts is two statements, not one, and it has to be: that file uses
-// `ScheduleEntry` in eight of its own signatures, and `export ... from` re-exports a name without
-// binding it locally. Collapsing the pair to one line fails typecheck with TS2304 eight times.
+// The re-export there is two statements, not one: host/schedule.ts uses `ScheduleEntry` in its
+// own signatures, and `export ... from` re-exports a name without binding it locally — one line
+// fails typecheck with TS2304.
 
 export interface ScheduleEntry {
   readonly name: string;
@@ -31,8 +23,8 @@ export interface ScheduleEntry {
   /** Block for one of THIS entry's own ticks, derived by `gateWait(cron)` — never a
    *  hand-picked number. */
   readonly gateWait?: boolean;
-  /** Drop this firing before the self-lock and before the gate, while a refresh window is open
-   *. Refused by `validate()` while `host/config.ts`'s `REFRESH_WINDOW` is null. */
+  /** Drop this firing before the self-lock and before the gate, while a refresh window is open.
+   *  Refused by `validate()` while `host/config.ts`'s `REFRESH_WINDOW` is null. */
   readonly clearsRefreshWindow?: boolean;
   /** SUP-13: the flag bounds where a pass may START, never how long it runs. */
   readonly maxRunMin?: number;

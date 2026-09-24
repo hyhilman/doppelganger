@@ -31,12 +31,11 @@
 // zero-edge claim too. Keep it that way: if this file ever needs an edge, the gate fires and the
 // argument happens then, in review, instead of never.
 //
-// KRN-03, the honest v0 statement: roadmap.md's registries row names five — programs/jobs, entry
-// points, relays, watchers, retro lanes. Checked against this repo before writing this sentence:
-// `host/jobs/index.ts` (programs/jobs) is the only one with a member at v0. Entry points, relays,
-// watchers and retro lanes have none, because no plugin emits a source or a route yet (D9) — a
-// port with no consumer gets designed wrong. One registry collapsed onto this file
-// (`host/jobs/index.ts`), four with nothing to collapse yet.
+// KRN-03, the honest v0 statement: this repo names five registries — programs/jobs, entry
+// points, relays, watchers, retro lanes. `host/jobs/index.ts` (programs/jobs) is the only one
+// with a member at v0. Entry points, relays, watchers and retro lanes have none, because no
+// plugin emits a source or a route yet (D9) — a port with no consumer gets designed wrong. One
+// registry collapsed onto this file (`host/jobs/index.ts`), four with nothing to collapse yet.
 
 /** The one thing `registry()` requires of an item: something to key it by. */
 export interface Named {

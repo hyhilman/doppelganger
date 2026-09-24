@@ -4,14 +4,10 @@
 // KRN-04: the manifest ships EXACTLY FIVE members — `name`, `kill`, `jobs`, `schedule`, `env`.
 // `sources`, `routes`, `relays` and `lanes` are ABSENT, not optional (D9): an optional member is
 // a designed member with a `?` typed onto it, and a port designed against no consumer gets
-// designed wrong. Each comes back with the plugin that needs it, not before:
-//   - `sources` and `routes` — M5, `plugins/jira/` as the reference plugin (PIP-*): the first
-//     manifest to declare a source and a route the switch can assign.
-//   - `relays` — M5, the same `plugins/jira/` row: "source + relay + route + watcher + jobs +
-//     schedule + env, one file answering 'what does Jira contribute'".
-//   - `lanes` — M10, retro (JOB-R*: "retro (lanes, tiers, snapshot, render, threads, backfill)").
-// Widening this interface ahead of any of those four landing is the D9 failure mode this file
-// exists to refuse.
+// designed wrong. `sources`/`routes`/`relays` come back with the first plugin that declares a
+// source and a route the switch can assign (`plugins/jira/`); `lanes` comes back with retro.
+// Widening this interface ahead of either landing is the D9 failure mode this file exists to
+// refuse.
 //
 // KRN-05: `definePlugin` is identity. Its only job is making a type error at a plugin's own
 // literal name the plugin, not the registry that later consumes it — the same reason
@@ -19,12 +15,11 @@
 //
 // The `EnvSpec` RE-EXPORT below is not incidental. `test/imports.test.ts`'s TST-03 rule 3 lets a
 // file under `plugins/` name `kernel/ports/*` and `kernel/plugin.ts`, and nothing else under
-// `kernel/` — a manifest's `env` member is `EnvSpec[]`, and that type is defined one file PAST
-// `ports/`, in `kernel/config.ts`. Widening the allowlist to `config.ts` directly would also hand
-// a plugin `parentEnv()` and the one file in this repo that reads the process environment
-// directly. Re-exporting the
-// TYPE only, from the one file every plugin already imports to declare itself, closes the gap
-// without widening it.
+// `kernel/` — a manifest's `env` member is `EnvSpec[]`, defined one file PAST `ports/`, in
+// `kernel/config.ts`. Widening the allowlist to `config.ts` directly would also hand a plugin
+// `parentEnv()`, the one function in this repo that reads the process environment directly.
+// Re-exporting the type only, from the file every plugin already imports, closes the gap without
+// widening it.
 //
 // KRN-07: `killSwitch(plugin, feature, why)` builds one `EnvSpec` row, key `<PLUGIN>_NO_<FEATURE>`,
 // `default: "0"`. `isKilled(spec)` reads it: `"1"` -> killed, `"0"` or unset or `""` (envStr's own
@@ -32,64 +27,31 @@
 // seen. That is a real behaviour change from the call site it replaces (`envStr(SPEC) === "1"`),
 // which read `NIGHTLY_NO_SANDCASTLE=true` as *not killed*.
 //
-// WHY A THROW IS THE SAFEST VERDICT HERE, AND NOT MERELY THE LOUDEST. KRN-07 says a kill switch
-// degrades toward the safest verdict, and a throw is not a verdict at all, so the rule does not
-// settle this by its wording. The other candidate is "any value that is not `0` means killed" —
-// the operator who typo'd wanted the pass stopped, and stopping costs nothing. The choice was made
-// by tracing the live path instead, measured on this tree (2026-09-01):
+// WHY A THROW, AND NOT "ANY NON-`0` VALUE MEANS KILLED". KRN-07 says a kill switch degrades
+// toward the safest verdict, but on the axis that rule cares about — does an unattended agent run
+// when it must not — the two candidates agree on every value: `"1"` kills both ways, `"0"`/unset
+// run both ways, and a garbage value runs under NEITHER. So "safest verdict" alone does not decide
+// it. What decides it is the operator who typed the bad value: `.env.example` ships the line
+// commented out as `NIGHTLY_NO_SANDCASTLE=0`, so someone who uncomments it and writes a WORD
+// (`false`, `off`, a trailing space) is as likely to be turning the switch OFF as ON. Reading every
+// non-`0` as killed would stop that person's nightly loop silently, at `level=info`; nothing else
+// watches per-job delivery, so the loop would die quietly. The throw stops the same pass but says
+// so at `level=error`, naming the key and the value.
 //
-//   - WHERE THE SWITCH SITS. A tick spawns `host/run.ts nightly-sandcastle`; `runNamed` acquires
-//     the hour lease FIRST (`withLease("job", "<name>@<UTC hour>")`) and only then calls
-//     `execPass`, whose step 1 is this read. So the lease is already held, and the worktree
-//     (step 7) and the runner (step 10) are not yet touched.
-//   - WHAT THE THROW LEAVES. `withLease` catches, settles the claim `failed` — `expires_at` moves
-//     to now, so the key is immediately retryable and still bounded by `maxAttempts` — and
-//     rethrows. Measured row: status `failed`, attempt 1 of a max of 3, and an `expiresAt` equal
-//     to its own `claimedAt`. `runNamed`'s catch rethrows too (the message is not an `isLimitError`), so no quota wall
-//     opens and the breaker records nothing. No worktree is prepped. The child exits 1, and
-//     `spawnChild`'s `finally` releases the gate and the self-lock on ANY exit code. Nothing is
-//     stranded and nothing is held.
-//   - WHAT THE OPERATOR SEES. `causeOf` distils the child's stderr to exactly
-//     `Error: NIGHTLY_NO_SANDCASTLE: kill switch must read "0" or "1", got "true" — …`, which the
-//     supervisor writes as the `msg=` of one `level=error event=job-failed` line. Measured by
-//     feeding the real stderr through `kernel/runtime/log/cause.ts`, not assumed.
-//   - THE COMPARISON. On EVERY value the two readings agree about whether the pass runs: `"1"`
-//     kills both ways, `"0"`/unset/`""` run both ways, and a garbage value runs under NEITHER. The
-//     throw never lets through a pass that "non-`0` is killed" would have stopped, so on the axis
-//     KRN-07 exists for — does an unattended agent that commits to this repo run when it must not
-//     — the two are identical and "safest verdict" does not separate them.
-//   - WHAT DOES SEPARATE THEM. The operator who typed the bad value. `.env.example` ships the line
-//     commented out as `NIGHTLY_NO_SANDCASTLE=0`, so someone who uncomments it and writes a WORD
-//     (`false`, `off`, or `0 ` with a trailing space) is as likely to be turning the switch OFF as
-//     ON. Reading every non-`0` as killed stops that person's nightly loop and says so only at
-//     `level=info event=killed`; `host/watchdog.sh` probes the supervisor heartbeat, not per-job
-//     delivery, so nothing else notices and the loop dies quietly. The throw stops the same pass
-//     and says so at `level=error` with the key and the value in the message. Its whole cost is
-//     one error line per firing (six a night on `38 16-21 * * *`) until `.env` is fixed.
-//   - THE CONDITION THAT FLIPS THIS, so the next person can check it rather than re-argue it: if
-//     this repo ever gains a breaker that disables a job after N `job-failed`s, or if a manifest's
-//     `kill` rows are ever READ at `boot()` (KRN-11 runs `boot()` inside `npm test`), then one bad
-//     value costs more than one tick and "non-`0` is killed" becomes the safer read. Neither
-//     exists today: `job-failed` has no consumer but the log, and no `boot()` check calls
-//     `isKilled`.
+// THE CONDITION THAT FLIPS THIS, so the next person can check it rather than re-argue it: if this
+// repo ever gains a breaker that disables a job after N failures, or a manifest's `kill` rows are
+// ever read at `boot()`, then one bad value costs more than one tick and "non-`0` is killed"
+// becomes the safer read. Neither exists today.
 //
-// The throw also matches the house rule `envNum` already set (kernel/config.ts:
-// `LOG_MAX_BYTES=8MB` throws rather than silently defaulting) — read before citing, not assumed.
-// The difference the objection raises is real and does not change the answer: `envNum` governs a
-// number with no safe direction, while a kill switch has one. Here BOTH directions stop the pass,
-// so the safe direction is already taken by either choice and only findability is left to decide.
-//
-// `isKilled` has EXACTLY ONE subject: `NIGHTLY_NO_SANDCASTLE` (plugin `nightly`, feature
-// `sandcastle`). `killSwitch` has none yet: that row is still an object literal, because
-// test/knobs.test.ts finds EnvSpec rows by scanning source text for a typed object literal and for
-// the key's literal spelling, and a row built by a call has neither. `WATCHDOG_NO_NOTIFY` is a second kill switch in this repo, but it sits
-// outside this helper — a bash-read kill switch, so it cannot call `isKilled`, and its key is not
-// `<PLUGIN>_NO_<FEATURE>` shaped for the manifest that owns it (`host`). `NIGHTLY_SANDCASTLE_NO_MERGE`
-// looks similar to a kill switch and is NOT one either — it is job-prefixed, not plugin+feature, and
-// it is a SAF-02 shadow mode ("commit inside the worktree, never move the base branch"), never a
-// switch that stops the pass outright. Do not widen `killSwitch`/`isKilled` to cover either of
-// them; a one-subject helper generalised ahead of a second subject is the same D9 mistake KRN-04's
-// five members refuse above.
+// `isKilled` has EXACTLY ONE subject: `NIGHTLY_NO_SANDCASTLE`. `killSwitch` has none yet — that
+// row is still an object literal, because test/knobs.test.ts finds EnvSpec rows by scanning
+// source text for a typed object literal and for the key's literal spelling, and a row built by a
+// call has neither. `WATCHDOG_NO_NOTIFY` is a second kill switch in this repo, but a bash-read
+// one, so it cannot call `isKilled`. `NIGHTLY_SANDCASTLE_NO_MERGE` looks similar and is NOT one
+// either — it is a SAF-02 shadow mode ("commit inside the worktree, never move the base branch"),
+// never a switch that stops the pass outright. Do not widen `killSwitch`/`isKilled` to cover
+// either; a one-subject helper generalised ahead of a second subject is the same D9 mistake
+// KRN-04's five members refuse above.
 
 import { envStr, type EnvSpec } from "./config.ts";
 import type { Job } from "./ports/job.ts";

@@ -7,7 +7,7 @@
 // `DEFAULT_BOOT_DEPS` against the real `plugins/` tree, because that reader is the one production
 // uses and a fake can never catch a typo in its path. Measured: with no such test, changing the
 // default reader's `"plugins"` segment to `"plugin"` left all 13 tests green. The real graph (the
-// two manifests this app registers) boots inside `npm test` starting at J10 (`test/boot.test.ts`).
+// two manifests this app registers) boots inside `npm test` too — see `test/boot.test.ts`.
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -104,7 +104,7 @@ test("2. a clean two-plugin graph boots without throwing", () => {
 });
 
 // ---------------------------------------------------------------------------------------------
-// AC2 — KRN-08 is the whole point: collect every problem, throw once.
+// KRN-08 is the whole point: collect every problem, throw once.
 // ---------------------------------------------------------------------------------------------
 
 test("3. AC2 — four distinct faults across two plugins produce ONE throw naming all four, each prefixed by its plugin (KRN-08)", () => {
@@ -168,21 +168,20 @@ test("4. sorting is real, not incidental: a check that runs LATER in code but so
 });
 
 // ---------------------------------------------------------------------------------------------
-// AC3 — each of the six live checks gets its own fixture, its own fault, and a message assertion
-// (not just "it threw").
+// Each of the six live checks gets its own fixture, its own fault, and a message assertion (not
+// just "it threw").
 // ---------------------------------------------------------------------------------------------
 
 // WHY THIS CHECK IS REACHABLE, since kernel/registry.ts already throws on a duplicate AT IMPORT
 // TIME. The registry guards `registry.register` calls — today, the two in `host/jobs/index.ts`. A
 // `Plugin` manifest's `jobs` member is a plain `readonly Job[]` and never passes through a
-// registry at all, so the registry cannot see a name that two manifests both list. Measured on
-// this tree (2026-09-01): importing the real `host/jobs/index.ts` succeeds — the module graph
-// finishes loading, both jobs register once — and boot() then reports the duplicate for all three
-// shapes below. The one that will actually happen is shape (a): J10's `host/plugins.ts` imports
-// job objects straight from `host/jobs/*.ts`, so a copy-paste that lists one job in two manifests
-// is caught HERE and nowhere else.
+// registry at all, so the registry cannot see a name that two manifests both list: importing the
+// real `host/jobs/index.ts` succeeds — both jobs register once — and boot() then reports the
+// duplicate for all three shapes below. The one that will actually happen is shape (a):
+// `host/plugins.ts` imports job objects straight from `host/jobs/*.ts`, so a copy-paste that lists
+// one job in two manifests is caught HERE and nowhere else.
 test("5. AC3 — duplicate names across registries: the SAME job object listed by two manifests, and by one manifest twice", () => {
-  // (a) the J10 path: one job object, two plugins. The registry registered it once and saw nothing.
+  // (a) one job object, two plugins. The registry registered it once and saw nothing.
   const shared = job({ name: "shared-job", plugin: "alpha" });
   const alpha = plugin({ name: "alpha", jobs: [shared] });
   const beta = plugin({ name: "beta", jobs: [shared] });
@@ -260,8 +259,8 @@ test("8. AC3 — job names a skill that resolves to a directory on disk (SKL-06,
 // The plugin carries an EXEC-ONLY job whose name matches the directory. `skillOf` falls back to
 // `job.name`, so a version that built its expected set from `j.name` — or that dropped the
 // `j.skill !== undefined` filter — would let that job "claim" the directory and report nothing.
-// This is the same trap `cli/skills.ts` hit at J4.12 with `ops-cron-check`; the filter is what
-// makes the exempt-an-exec-job claim true, so it needs a subject here rather than a comment.
+// This is the same trap `cli/skills.ts` hit with `ops-cron-check`; the filter is what makes the
+// exempt-an-exec-job claim true, so it needs a subject here rather than a comment.
 test("9. AC3 — every skill directory on disk is named by a registered job (SKL-06, direction two) — an exec-only job does not claim a directory", () => {
   const alpha = plugin({
     name: "alpha",
@@ -294,9 +293,9 @@ test("10. AC3 — required env unset with no default (fixture subject only — r
 });
 
 // ---------------------------------------------------------------------------------------------
-// AC5 — CRONTAB_CMD is proven to be the trap it is: added to a FIXTURE manifest's env, boot()
+// CRONTAB_CMD is proven to be the trap it is: added to a FIXTURE manifest's env, boot()
 // reports it, exactly like any other required-and-unset row. No real manifest ever carries this
-// row (see kernel/boot.ts's own header, "ruling 7, trap one").
+// row (see kernel/boot.ts's own header).
 // ---------------------------------------------------------------------------------------------
 
 test("11. AC5 — CRONTAB_CMD in a fixture manifest's env is reported by boot(), same as any other required-and-unset row", () => {
@@ -320,25 +319,26 @@ test("11. AC5 — CRONTAB_CMD in a fixture manifest's env is reported by boot(),
 });
 
 // ---------------------------------------------------------------------------------------------
-// AC4 — the no-subject checks (route/relay/watcher, D9) are ABSENT from kernel/boot.ts, not
-// stubbed. Reads this file's own source, the kernel/registry.test.ts test 8 precedent.
+// The no-subject checks (route/relay/watcher, D9) are ABSENT from kernel/boot.ts, not stubbed.
+// Reads this file's own source, the kernel/registry.test.ts test 8 precedent.
 // ---------------------------------------------------------------------------------------------
 
 // THE MATCH IS ON SUBSTRINGS, NOT WHOLE WORDS, AND THAT IS THE POINT. A `\broute\b` gate reads
-// well and catches almost nothing: measured 2026-09-01, `plugin.routes`, `const routes = []`,
-// `relays.forEach`, `watchers.map`, `routeOf(x)` and `reRoute(x)` ALL slipped past it, and those
-// are the exact identifiers a route check would use — `routes`, `relays` are the manifest member
-// names KRN-04 leaves out. Only the bare singular tripped it. So the gate matches any occurrence
-// of the three stems. Today's kernel/boot.ts code is clean of all three, so the wider match costs
-// nothing; if it ever fires on an innocent word, narrow it then, with the word in hand.
+// well and catches almost nothing: `plugin.routes`, `const routes = []`, `relays.forEach`,
+// `watchers.map`, `routeOf(x)` and `reRoute(x)` all slip past it, and those are the exact
+// identifiers a route check would use — `routes`, `relays` are the manifest member names KRN-04
+// leaves out. Only the bare singular tripped it. So the gate matches any occurrence of the three
+// stems. Today's kernel/boot.ts code is clean of all three, so the wider match costs nothing; if
+// it ever fires on an innocent word, narrow it then, with the word in hand.
 //
 // THE LIMIT, stated rather than assumed. This reads kernel/boot.ts's OWN bytes. boot() imports
 // four kernel modules (paths, ports/job, plugin, config), so route-like work moved into any of
-// them and called from here would leave this gate green — the same one-hop hole J6 found in
-// kernel/registry.ts's text gate. registry.ts could close it by importing nothing; boot() cannot,
-// because it has to read a Job and an EnvSpec. What actually holds the property here is KRN-04:
-// the `Plugin` interface has no `sources`/`routes`/`relays`/`lanes` member, so there is nothing
-// for a route check anywhere in kernel/ to read. This test is the second lock, not the first.
+// them and called from here would leave this gate green — the same one-hop hole
+// kernel/registry.ts's own text gate has. registry.ts could close it by importing nothing; boot()
+// cannot, because it has to read a Job and an EnvSpec. What actually holds the property here is
+// KRN-04: the `Plugin` interface has no `sources`/`routes`/`relays`/`lanes` member, so there is
+// nothing for a route check anywhere in kernel/ to read. This test is the second lock, not the
+// first.
 test("12. AC4 — kernel/boot.ts contains no route/relay/watcher code path at all, and its header names D9 as why", () => {
   const src = readFileSync(fileURLToPath(new URL("./boot.ts", import.meta.url)), "utf8");
   assert.match(src, /D9/, "the header must name D9 as the reason route/relay/watcher checks are absent");
