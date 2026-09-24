@@ -14,15 +14,19 @@ import { git } from "../kernel/runtime/exec.ts";
 import { runJob } from "../kernel/runtime/runjob.ts";
 import { withLease } from "../kernel/runtime/lease.ts";
 import { isLimitError, limitClass, isPaused, pausedUntil, pause, inspect, QUOTA_SCOPE } from "../kernel/runtime/quota.ts";
-import { decideShed, NO_SHED } from "../kernel/runtime/shed.ts";
+import { decideShed, shedModel, NO_SHED } from "../kernel/runtime/shed.ts";
+import { extractBlock, extractFields } from "../kernel/runtime/payload.ts";
+import { prepWorktree, teardownWorktree, reapWorktrees, worktreePromptLines } from "../kernel/runtime/worktree.ts";
 import { projectPath, ROOT, dbPath } from "../kernel/paths.ts";
+import { INSTANCE } from "../kernel/instance.ts";
 import { byStage } from "../kernel/stages.ts";
-import { parentEnv, errText } from "../kernel/config.ts";
+import { parentEnv, errText, envStr, envNum, envOptional } from "../kernel/config.ts";
 import type { Job } from "../kernel/ports/job.ts";
+import type { JobContext } from "../kernel/ports/context.ts";
 import { sandcastleRunner } from "./runner.ts";
 import { classOf } from "./classes.ts";
 import { JOBS } from "./jobs/index.ts";
-import { GATE_TIMEOUT_MS, type PassDeps } from "./jobs/nightly-sandcastle.ts";
+import { GATE_TIMEOUT_MS } from "./jobs/nightly-sandcastle.ts";
 import { SUPERVISOR_MAX_RUN_MIN, SUPERVISOR_KILL_GRACE_MS } from "./supervisor.ts";
 
 /** `undefined` names no job at all (bare `npm run job`); an unknown name is a SEPARATE case, so the
@@ -51,13 +55,58 @@ export function jobListing(jobs: readonly Job[]): string {
 }
 
 /**
- * D10's two shapes, no third: `job.exec` -> call it with the assembled deps; otherwise the skill
+ * PRT-05: the ONE real `JobContext`. Every field is the real runtime piece; `db` opens a store on
+ * first call only, so a killed pass creates no database file. `shed` is a placeholder here —
+ * `runNamed` computes the real decision and replaces it before a job sees the context.
+ */
+export function buildContext(job: Job): JobContext {
+  const utcStamp = (): string => new Date().toISOString().replace(/[:.]/g, "-");
+  return {
+    instance: INSTANCE,
+    root: ROOT,
+    now: () => new Date(),
+    log: logger(job.name),
+    env: { str: envStr, num: envNum, optional: envOptional },
+    path: projectPath,
+    db: (name: string) => openDb(dbPath(name)),
+    git,
+    runIn: (dir, cmd, args, env) => {
+      const r = spawnSync(cmd, args, {
+        cwd: dir,
+        encoding: "utf8",
+        env: { ...parentEnv(), ...env },
+        timeout: GATE_TIMEOUT_MS,
+        maxBuffer: 16 * 1024 * 1024,
+      });
+      return { ok: r.status === 0, out: `${r.stdout ?? ""}${r.stderr ?? ""}` };
+    },
+    runner: sandcastleRunner({
+      gitConfigGlobal: projectPath(".doppelganger/gitconfig"),
+      // The push gate: a COMMAND, not a write path. Signed in test/writes.test.ts's
+      // DOOR1_EXCEPTIONS; door 1 decodes escapes now, so no spelling hides from it.
+      gitSshCommand: "/bin/false",
+    }),
+    shed: NO_SHED,
+    jobs: JOBS,
+    runLogPath: (name: string) => projectPath(`.doppelganger/runs/${name}-${utcStamp()}.log`),
+    scratchRoot: projectPath(".doppelganger/scratch"),
+    runJob,
+    shedModel,
+    worktree: {
+      root: projectPath(".doppelganger/worktrees"),
+      prep: prepWorktree,
+      teardown: teardownWorktree,
+      reap: reapWorktrees,
+      promptLines: worktreePromptLines,
+    },
+    payload: { extractBlock, extractFields },
+  };
+}
+
+/**
+ * D10's two shapes, no third: `job.exec` -> call it with the context; otherwise the skill
  * runner path -> report `iterations`, `commits.length` and `completionSignal ?? "none"` on STDERR
  * (LOG-06: stdout stays free for the payload).
- *
- * The cast on `job.exec` is the ONE cast this repo performs to call a job's own deps-typed `exec`
- * from a registry that only knows `(deps: never) => Promise<void>` (kernel/ports/job.ts) — every
- * job at N3 shares `PassDeps`' shape, so there is exactly one shape to cast to today.
  *
  * LSE-04 — every registered job claims its hour before it runs, GENERIC, not special-cased: the
  * key is `${job.name}@<UTC hour>`, the clock versioning it for a reason wholly unrelated to
@@ -81,14 +130,14 @@ export function jobListing(jobs: readonly Job[]): string {
  *
  * QTA-08/SUP-16 — the downshift half. `decideShed` is computed ONCE, right here, and reused for
  * BOTH dispatch shapes below: the skill path's own `RunJobDeps.shed`, and the exec path's
- * `PassDeps.shed` (read by `nightly-sandcastle.ts`'s `execPass` for its own internal `runJob`
+ * `ctx.shed` (read by `nightly-sandcastle.ts`'s `execPass` for its own internal `runJob`
  * call). It is keyed on `classOf(job.name)` directly — the supervisor's own `realShouldShed`
  * (host/supervisor.ts) asks `classOf(programOf(e))` instead, and the two strings agree only by
  * convention (host/classes.test.ts test 11). `deps.shed`, as received in this function's OWN
- * parameter, is never read — it exists on `PassDeps` only because `execPass` (and every direct
+ * parameter, is never read — it exists on `JobContext` only because `execPass` (and every direct
  * caller that is not `runNamed`, e.g. a test) needs somewhere to receive a real decision from.
  */
-export async function runNamed(job: Job, deps: PassDeps): Promise<number> {
+export async function runNamed(job: Job, deps: JobContext): Promise<number> {
   const spawnsAgent = job.skill !== undefined;
 
   if (spawnsAgent && isPaused(QUOTA_SCOPE)) {
@@ -106,7 +155,7 @@ export async function runNamed(job: Job, deps: PassDeps): Promise<number> {
       key,
       async () => {
         if (job.exec !== undefined) {
-          await (job.exec as unknown as (deps: PassDeps) => Promise<void>)({ ...deps, shed });
+          await job.exec({ ...deps, shed });
           return;
         }
         const result = await runJob(job, {
@@ -142,10 +191,6 @@ export async function runNamed(job: Job, deps: PassDeps): Promise<number> {
 // ---------------------------------------------------------------------------------------------
 // The argv block. UNTESTED BY CONSTRUCTION — no test imports this file in a way that reaches it.
 // It is driven as a real child process instead.
-//
-// `deps.db` is a GETTER, not an eagerly-opened handle: `openDb` runs on the FIRST access to
-// `deps.db` (inside `execPass`, which is well past the kill switch), so a killed pass creates no
-// database file at all.
 // ---------------------------------------------------------------------------------------------
 if (import.meta.filename === process.argv[1]) {
   const resolved = resolveJob(process.argv[2], JOBS);
@@ -153,41 +198,6 @@ if (import.meta.filename === process.argv[1]) {
     process.stderr.write(`${resolved.error}\n`);
     process.exitCode = 1;
   } else {
-    const job = resolved;
-    const utcStamp = (): string => new Date().toISOString().replace(/[:.]/g, "-");
-    const deps: PassDeps = {
-      root: ROOT,
-      runner: sandcastleRunner({
-        gitConfigGlobal: projectPath(".doppelganger/gitconfig"),
-        // The push gate: a COMMAND, not a write path. Signed in test/writes.test.ts's
-        // DOOR1_EXCEPTIONS; door 1 decodes escapes now, so no spelling hides from it.
-        gitSshCommand: "/bin/false",
-      }),
-      git,
-      now: () => new Date(),
-      get db() {
-        return openDb(dbPath("nightly"));
-      },
-      log: logger(job.name),
-      worktreeRoot: projectPath(".doppelganger/worktrees"),
-      runLogPath: (name: string) => projectPath(`.doppelganger/runs/${name}-${utcStamp()}.log`),
-      runIn: (dir, cmd, args, env) => {
-        const r = spawnSync(cmd, args, {
-          cwd: dir,
-          encoding: "utf8",
-          env: { ...parentEnv(), ...env },
-          timeout: GATE_TIMEOUT_MS,
-          maxBuffer: 16 * 1024 * 1024,
-        });
-        return { ok: r.status === 0, out: `${r.stdout ?? ""}${r.stderr ?? ""}` };
-      },
-      scratchRoot: projectPath(".doppelganger/scratch"),
-      jobs: JOBS,
-      // A placeholder to satisfy PassDeps' shape: runNamed computes the REAL decision itself
-      // (classOf(job.name), this instant) and overrides it before dispatching to job.exec — this
-      // value is never read.
-      shed: NO_SHED,
-    };
-    process.exitCode = await runNamed(job, deps);
+    process.exitCode = await runNamed(resolved, buildContext(resolved));
   }
 }

@@ -9,6 +9,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { projectPath } from "../kernel/paths.ts";
+import { envStr, envNum, envOptional } from "../kernel/config.ts";
 import { closeAll } from "../kernel/runtime/db.ts";
 import { read as readLease } from "../kernel/runtime/lease.ts";
 import { isPaused as quotaIsPaused, QUOTA_SCOPE } from "../kernel/runtime/quota.ts";
@@ -18,7 +19,7 @@ import type { Job } from "../kernel/ports/job.ts";
 import type { Runner, RunRequest, RunResult } from "../kernel/ports/runner.ts";
 import { JOBS } from "./jobs/index.ts";
 import { resolveJob, jobListing, runNamed } from "./run.ts";
-import type { PassDeps } from "./jobs/nightly-sandcastle.ts";
+import type { JobContext } from "../kernel/ports/context.ts";
 
 const ROOT = new URL("..", import.meta.url).pathname.replace(/\/$/, "");
 
@@ -81,22 +82,38 @@ function fakeJob(overrides: Partial<Job> = {}): Job {
   return { name, description: "d", plugin: "nightly", skill: name, permissionMode: "bypassPermissions", local: true, ...overrides };
 }
 
-function fakePassDeps(overrides: Partial<PassDeps> = {}): PassDeps {
+/** A fake `JobContext` (PRT-05): the real one's shape, with nothing that reaches the outside. */
+function fakePassDeps(overrides: Partial<JobContext> = {}): JobContext {
+  const unused = (what: string) => (): never => {
+    throw new Error(`${what} is unused by these tests`);
+  };
   return {
+    instance: "test",
     root: mkdtempSync(join(tmpdir(), "run-deps-")),
+    now: () => new Date(),
+    log: { debug() {}, info() {}, warn() {}, error() {}, raw() {} },
+    env: { str: envStr, num: envNum, optional: envOptional },
+    path: (...segs: string[]) => join(tmpdir(), ...segs),
+    db: unused("db"),
+    git: () => "",
+    runIn: () => ({ ok: true, out: "" }),
     runner: (async () => {
       throw new Error("this runner must not be called");
     }) as Runner,
-    git: () => "",
-    now: () => new Date(),
-    db: undefined as unknown as PassDeps["db"], // unused by these tests — never accessed
-    log: { debug() {}, info() {}, warn() {}, error() {}, raw() {} },
-    worktreeRoot: mkdtempSync(join(tmpdir(), "run-wt-")),
-    runLogPath: (name: string) => join(mkdtempSync(join(tmpdir(), "run-log-")), `${name}.log`),
-    runIn: () => ({ ok: true, out: "" }),
-    scratchRoot: mkdtempSync(join(tmpdir(), "run-scratch-")),
-    jobs: [],
     shed: NO_SHED,
+    jobs: [],
+    runLogPath: (name: string) => join(mkdtempSync(join(tmpdir(), "run-log-")), `${name}.log`),
+    scratchRoot: mkdtempSync(join(tmpdir(), "run-scratch-")),
+    runJob: unused("runJob"),
+    shedModel: (model: string) => model,
+    worktree: {
+      root: mkdtempSync(join(tmpdir(), "run-wt-")),
+      prep: unused("worktree.prep"),
+      teardown: unused("worktree.teardown"),
+      reap: unused("worktree.reap"),
+      promptLines: unused("worktree.promptLines"),
+    },
+    payload: { extractBlock: unused("payload.extractBlock"), extractFields: unused("payload.extractFields") },
     ...overrides,
   };
 }
@@ -105,10 +122,10 @@ test("5. runNamed with an exec job calls exec once, returns 0, and never calls t
   let execCalls = 0;
   const job = fakeJob({
     skill: undefined,
-    exec: (async (deps: PassDeps) => {
+    exec: async (ctx: JobContext) => {
       execCalls++;
-      void deps;
-    }) as unknown as Job["exec"],
+      void ctx;
+    },
   });
   const code = await runNamed(job, fakePassDeps());
   assert.equal(execCalls, 1);
@@ -158,7 +175,7 @@ interface LoggedCall {
   readonly fields: Record<string, unknown>;
 }
 
-function capturingLog(): { log: PassDeps["log"]; calls: LoggedCall[] } {
+function capturingLog(): { log: JobContext["log"]; calls: LoggedCall[] } {
   const calls: LoggedCall[] = [];
   const at = (level: string) => (event: string, fields: Record<string, unknown> = {}) => {
     calls.push({ level, event, fields });

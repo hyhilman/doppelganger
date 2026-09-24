@@ -6,20 +6,15 @@
 // teardown — deliberate: prepWorktree is idempotent and reuses it, so deleting it would only cost
 // the next pass a re-create. A reviewer running `git branch --list 'nightly/*'` after a smoke will
 // see one branch a zero-cost run created; that is this line's warrant, not a leak.
+//
+// Every runtime capability comes in through `ctx` (PRT-05): this file imports only
+// kernel/ports/*, kernel/plugin.ts and node: builtins (TST-03).
 import { spawnSync } from "node:child_process";
 import { existsSync, symlinkSync } from "node:fs";
 import { join } from "node:path";
-import { envStr, envNum, envOptional, type EnvSpec } from "../../kernel/config.ts";
-import { isKilled } from "../../kernel/plugin.ts";
-import { INSTANCE } from "../../kernel/instance.ts";
-import type { Db } from "../../kernel/runtime/db.ts";
-import type { Logger } from "../../kernel/runtime/log/emit.ts";
-import { extractBlock, extractFields } from "../../kernel/runtime/payload.ts";
-import { runJob } from "../../kernel/runtime/runjob.ts";
-import { prepWorktree, teardownWorktree, reapWorktrees, worktreePromptLines, type Worktree } from "../../kernel/runtime/worktree.ts";
-import { shedModel, type ShedDecision } from "../../kernel/runtime/shed.ts";
+import { isKilled, type EnvSpec } from "../../kernel/plugin.ts";
+import type { Db, JobContext, RunIn, Worktree } from "../../kernel/ports/context.ts";
 import { DEFAULTS, defineJob, type Job } from "../../kernel/ports/job.ts";
-import type { Runner } from "../../kernel/ports/runner.ts";
 
 // ---------------------------------------------------------------------------------------------
 // The verdict — reproduces plugins/nightly/skills/nightly-sandcastle/SKILL.md's report block and
@@ -49,10 +44,10 @@ const splitListField = (v: string | undefined): readonly string[] =>
  * or not in `OUTCOMES`, or `goal` or `summary` is absent. HRN-10's "malformed payload writes
  * nothing", as a return value.
  */
-export function parseVerdict(stdout: string): Verdict | null {
-  const block = extractBlock(stdout, "SANDCASTLE");
+export function parseVerdict(stdout: string, payload: JobContext["payload"]): Verdict | null {
+  const block = payload.extractBlock(stdout, "SANDCASTLE");
   if (block === null) return null;
-  const fields = extractFields(block);
+  const fields = payload.extractFields(block);
 
   const outcome = fields.outcome;
   if (outcome === undefined || !isOutcome(outcome)) return null;
@@ -232,7 +227,7 @@ export const GATE_TIMEOUT_MS = 300_000;
 export interface GateDeps {
   /** The worktree the pass is running in. */
   readonly work: string;
-  readonly runIn: (dir: string, cmd: string, args: readonly string[], env?: Record<string, string>) => { ok: boolean; out: string };
+  readonly runIn: RunIn;
   /** Where tier 4's `<NS>_DB` redirects point — a throwaway directory, never the live store. */
   readonly scratch: string;
   readonly jobs: readonly Job[];
@@ -384,31 +379,9 @@ export function writeState(db: Db, index: number, recent: readonly string[]): vo
     .run(index, JSON.stringify(recent));
 }
 
-/** Every deps `exec` needs, assembled once in the real argv block (host/run.ts, J3.14) and built
- *  fresh per test here. `runner`/`git`/`now`/`db`/`log`/`runIn` are all required — ruling 2. */
-export interface PassDeps {
-  /** The checkout — read, never written by the agent. */
-  readonly root: string;
-  readonly runner: Runner;
-  readonly git: (dir: string, ...args: string[]) => string;
-  readonly now: () => Date;
-  readonly db: Db;
-  readonly log: Logger;
-  /** Project-relative parent of every pass worktree. */
-  readonly worktreeRoot: string;
-  readonly runLogPath: (name: string) => string;
-  readonly runIn: GateDeps["runIn"];
-  readonly scratchRoot: string;
-  readonly jobs: readonly Job[];
-  /** QTA-08's downshift half — the SAME decision `host/run.ts`'s `runNamed` computed for this
-   *  run, handed straight through so `execPass`'s own `runJob` call (below) never recomputes it
-   *  (kernel/runtime/runjob.ts's `RunJobDeps.shed` is required, no default). */
-  readonly shed: ShedDecision;
-}
-
 /** The uncommitted files the agent left behind inside the worktree — `git status --porcelain`,
  *  parsed. This is what the gate runs over, and what step 13 stages for the landing commit. */
-function changedFiles(git: PassDeps["git"], wtPath: string): string[] {
+function changedFiles(git: JobContext["git"], wtPath: string): string[] {
   // `-uall`: a plain `git status --porcelain` collapses a brand-new untracked DIRECTORY into one
   // `?? dir/` line instead of listing the files inside it — which would make a new file under a
   // blocked directory (host/supervisor.ts, say) invisible to tier 1's per-file blockedBy check.
@@ -433,7 +406,7 @@ type LandOutcome =
  * diff, and landing it on the strength of the pre-rebase gate is exactly what this gate exists to
  * prevent), retry once. A second failure discards.
  */
-function landOrDiscard(deps: PassDeps, wt: Worktree, base: string, branch: string, goal: Goal, verdict: Verdict | null, dryRun: boolean, noMerge: boolean): LandOutcome {
+function landOrDiscard(deps: JobContext, wt: Worktree, base: string, branch: string, goal: Goal, verdict: Verdict | null, dryRun: boolean, noMerge: boolean): LandOutcome {
   const files = changedFiles(deps.git, wt.path);
   if (files.length === 0) return { kind: "no-op" };
 
@@ -450,7 +423,7 @@ function landOrDiscard(deps: PassDeps, wt: Worktree, base: string, branch: strin
   // configured the machine.
   deps.git(wt.path,
     "-c", `user.name=nightly-sandcastle`,
-    "-c", `user.email=nightly-sandcastle@${INSTANCE}`,
+    "-c", `user.email=nightly-sandcastle@${deps.instance}`,
     "commit", "-m", subject, "-m", `nightly sandcastle — goal: ${goal.key}`);
 
   if (noMerge) {
@@ -490,7 +463,7 @@ function landOrDiscard(deps: PassDeps, wt: Worktree, base: string, branch: strin
  * checkout except through `deps.root`'s own working tree state (steps 2-4, 12) — every WRITE
  * happens inside the worktree until step 13's `merge --ff-only`.
  */
-export async function execPass(deps: PassDeps): Promise<void> {
+export async function execPass(deps: JobContext): Promise<void> {
   const log = deps.log;
 
   // 1. KRN-07 kill switch — isKilled, not envStr(...) === "1": an unrecognised value (a typo like
@@ -500,12 +473,12 @@ export async function execPass(deps: PassDeps): Promise<void> {
     return;
   }
 
-  const base = envStr(NIGHTLY_SANDCASTLE_BASE_ENV);
-  const dryRun = envStr(NIGHTLY_SANDCASTLE_DRY_RUN_ENV) === "1";
-  const noMerge = envStr(NIGHTLY_SANDCASTLE_NO_MERGE_ENV) === "1";
-  const max = envNum(NIGHTLY_SANDCASTLE_MAX_ENV);
-  const only = envOptional(NIGHTLY_SANDCASTLE_ONLY_ENV);
-  const modelOverride = envOptional(NIGHTLY_SANDCASTLE_MODEL_ENV);
+  const base = deps.env.str(NIGHTLY_SANDCASTLE_BASE_ENV);
+  const dryRun = deps.env.str(NIGHTLY_SANDCASTLE_DRY_RUN_ENV) === "1";
+  const noMerge = deps.env.str(NIGHTLY_SANDCASTLE_NO_MERGE_ENV) === "1";
+  const max = deps.env.num(NIGHTLY_SANDCASTLE_MAX_ENV);
+  const only = deps.env.optional(NIGHTLY_SANDCASTLE_ONLY_ENV);
+  const modelOverride = deps.env.optional(NIGHTLY_SANDCASTLE_MODEL_ENV);
 
   // 2. not-on-base.
   const branch = deps.git(deps.root, "rev-parse", "--abbrev-ref", "HEAD").trim();
@@ -528,18 +501,19 @@ export async function execPass(deps: PassDeps): Promise<void> {
     originBefore = ""; // no remote configured — nothing to compare
   }
 
-  const passBranch = `nightly/${INSTANCE}`; // INS-06
-  const wtPath = join(deps.worktreeRoot, "nightly-sandcastle");
+  const passBranch = `nightly/${deps.instance}`; // INS-06
+  const wtPath = join(deps.worktree.root, "nightly-sandcastle");
 
   // 5. reap a stranded sibling before touching our own path.
-  reapWorktrees(deps.root, deps.worktreeRoot, wtPath);
+  deps.worktree.reap(deps.root, deps.worktree.root, wtPath);
 
   // 6. rotation. An unknown ONLY key throws HERE, before anything is prepped.
-  const state = readState(deps.db);
+  const db = deps.db("nightly");
+  const state = readState(db);
   const { goal, nextIndex } = nextGoal(state, only);
 
   // 7. prep (idempotent — HRN-12).
-  const wt = prepWorktree(deps.root, { branch: passBranch, base }, wtPath);
+  const wt = deps.worktree.prep(deps.root, { branch: passBranch, base }, wtPath);
 
   try {
     // 8. node_modules, so tier 2's `npm test` needs no `npm ci`.
@@ -557,7 +531,7 @@ export async function execPass(deps: PassDeps): Promise<void> {
     if (max === 0) {
       log.info("free-smoke", { goal: goal.key });
       log.raw(`nightly-sandcastle report: goal=${goal.key} outcome=free-smoke`);
-      writeState(deps.db, nextIndex, state.recent);
+      writeState(db, nextIndex, state.recent);
       return;
     }
 
@@ -566,7 +540,7 @@ export async function execPass(deps: PassDeps): Promise<void> {
     const promptArgs: Record<string, string> = {
       GOAL: goal.key,
       BRIEF: goal.brief,
-      WORKTREE: worktreePromptLines(wt).join("\n"),
+      WORKTREE: deps.worktree.promptLines(wt).join("\n"),
     };
     // D10: exactly one of skill/exec. The registered job carries BOTH (skill for SKL-01/render,
     // exec for host/run.ts's dispatch) — the skill invocation runJob makes here must drop exec,
@@ -582,12 +556,12 @@ export async function execPass(deps: PassDeps): Promise<void> {
     // applies `shedModel`'s downshift AFTER this point, so logging `jobForRun.model` here would
     // print DEFAULTS.model under a wall while DEFAULTS.shedModel is what really ran — the one
     // human-readable record of a pass, actively misleading in an incident.
-    const runModel = shedModel(jobForRun.model ?? DEFAULTS.model, deps.shed);
+    const runModel = deps.shedModel(jobForRun.model ?? DEFAULTS.model, deps.shed);
     log.info("pass-start", { goal: goal.key, model: runModel });
-    const run = await runJob(jobForRun, { runner: deps.runner, cwd: wt.path, logPath: runLogPath, shed: deps.shed });
+    const run = await deps.runJob(jobForRun, { runner: deps.runner, cwd: wt.path, logPath: runLogPath, shed: deps.shed });
 
     // 11. verdict — HRN-10's "malformed payload writes nothing" as a warning, not a crash.
-    const verdict = parseVerdict(run.stdout);
+    const verdict = parseVerdict(run.stdout, deps.payload);
     if (verdict === null) {
       log.warn("no-verdict", { goal: goal.key });
     }
@@ -627,10 +601,10 @@ export async function execPass(deps: PassDeps): Promise<void> {
       `nightly-sandcastle report: goal=${goal.key} outcome=${outcome.kind} verdict=${verdict ? verdict.outcome : "none"}`,
     );
     if (!dryRun && outcome.kind === "landed") {
-      writeState(deps.db, nextIndex, state.recent);
+      writeState(db, nextIndex, state.recent);
     }
   } finally {
-    teardownWorktree(deps.root, wt.path);
+    deps.worktree.teardown(deps.root, wt.path);
   }
 }
 

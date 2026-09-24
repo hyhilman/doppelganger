@@ -374,6 +374,13 @@ test("3. process.env is named in exactly one non-test file under kernel/, host/,
   assert.deepEqual(named, ["kernel/config.ts"]);
 });
 
+/** The `JobContext` spelling of each kernel/config.ts reader (kernel/ports/context.ts). */
+const CTX_READERS: Readonly<Record<string, string>> = {
+  envStr: ".env.str",
+  envNum: ".env.num",
+  envOptional: ".env.optional",
+};
+
 test("4. every row is read: the key is named once and a real reader is called with the row", () => {
   for (const row of ROWS) {
     const src = readFileSync(join(ROOT, row.file), "utf8");
@@ -382,7 +389,12 @@ test("4. every row is read: the key is named once and a real reader is called wi
     assert.equal(count, 1, `${row.file}: expected ${keyLiteral} exactly once, found ${count}`);
 
     if (row.readers.length === 0) continue; // the <NAME>_DB family row — envDynamic checked in 7
-    const readCalled = row.readers.some((fn) => src.includes(`${fn}(${row.constName}`));
+    // A plugin job reads its rows through `ctx.env` (PRT-05), never kernel/config.ts directly.
+    const readCalled = row.readers.some(
+      (fn) =>
+        src.includes(`${fn}(${row.constName}`) ||
+        (CTX_READERS[fn] !== undefined && src.includes(`${CTX_READERS[fn]}(${row.constName}`)),
+    );
     assert.ok(
       readCalled,
       `${row.file}: expected one of [${row.readers.join(", ")}] called with ${row.constName}`,

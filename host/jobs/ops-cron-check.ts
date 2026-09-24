@@ -28,11 +28,10 @@
 // is not worth widening its exported surface for.
 import { render, installedBlock, legacyRange, diff, readCrontab, CRONTAB_CMD_ENV } from "../../cli/crontab.ts";
 import { envStr } from "../../kernel/config.ts";
-import { INSTANCE } from "../../kernel/instance.ts";
 import type { Logger } from "../../kernel/runtime/log/emit.ts";
 import { defineJob } from "../../kernel/ports/job.ts";
+import type { JobContext } from "../../kernel/ports/context.ts";
 import { SCHEDULE, type ScheduleEntry } from "../schedule.ts";
-import type { PassDeps } from "./nightly-sandcastle.ts";
 
 export interface CronCheckDeps {
   readonly log: Logger;
@@ -106,23 +105,20 @@ export async function runCheck(deps: CronCheckDeps): Promise<void> {
  * `CRONTAB_CMD` is resolved HERE, at run time, never defaulted — a caller who forgets to set it in
  * `.env` (the entry's `dotenv: true` layer) fails loudly with the row's own `why`, which is
  * correct (N2 F1's whole lesson) and is why the entry's own `why` names the one thing an operator
- * must do to turn this job on. `deps: PassDeps` only ever contributes `.log` — every other real
- * value (`crontabCmd`, `readCrontab`, `schedule`, `instance`) is resolved independently, exactly
- * as `host/run.ts`'s own argv block resolves `PassDeps`' real values today; `PassDeps` is imported
- * only because it is the one shape `host/run.ts` currently casts every `exec:` job's deps to
- * (Gaps item 7 — a second real shape is what eventually forces that cast open).
+ * must do to turn this job on. `ctx` (PRT-05) gives the log and the instance name; the schedule
+ * and the crontab reader come from the app itself, which is why this job stays in `host/`.
  */
 export default defineJob({
   name: "ops-cron-check",
   description: "Diff the installed crontab managed block against a fresh render of host/schedule.ts, once a day (JOB-O09).",
   plugin: "ops",
   permissionMode: "auto",
-  exec: (deps: PassDeps): Promise<void> =>
+  exec: (ctx: JobContext): Promise<void> =>
     runCheck({
-      log: deps.log,
+      log: ctx.log,
       crontabCmd: envStr(CRONTAB_CMD_ENV),
       readCrontab,
       schedule: SCHEDULE,
-      instance: INSTANCE,
+      instance: ctx.instance,
     }),
 });

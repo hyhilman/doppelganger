@@ -15,6 +15,8 @@
 // without a real run that reaches a tool prompt. A default nothing exercises guards nothing.
 // Required-plus-real beats optional-plus-aspirational.
 
+import type { JobContext } from "./context.ts";
+
 /** Reasoning effort, matching @ai-hero/sandcastle's ClaudeCodeOptions — kernel/ never imports the
  *  package itself (D1), so the union is restated here rather than imported. */
 export type Effort = "low" | "medium" | "high" | "xhigh" | "max";
@@ -45,7 +47,8 @@ export const DEFAULTS: {
 
 /**
  * PRT-05, with `permissionMode` made required (see the module header) and `worktree`/`session`
- * dropped at N3 (HRN-06 — session runners are M11's). `skill` and `exec` are D10's two shapes and
+ * dropped at N3 (HRN-06 — session runners are M11's). PRT-05's `env` field is not here on purpose:
+ * a plugin's manifest `env` member owns its knob rows (KRN-04/06), so a job has nowhere else to put one. `skill` and `exec` are D10's two shapes and
  * there is no third: exactly one must be set, enforced at runtime by `kernel/runtime/runjob.ts`,
  * because the type alone cannot express "exactly one of".
  */
@@ -57,10 +60,8 @@ export interface Job {
   readonly plugin: string;
   /** Defaults to `name` (skillOf). Absent means `exec` must be set (D10). */
   readonly skill?: string;
-  /** The deterministic shape. `never` on purpose: a `Job` in a registry must not be callable by
-   *  anyone who does not know the job's own deps shape — the job file re-declares `exec` with its
-   *  real type, and `host/run.ts` casts exactly once. */
-  readonly exec?: (deps: never) => Promise<void>;
+  /** The deterministic shape. It gets the one `JobContext` the host builds (PRT-05). */
+  readonly exec?: (ctx: JobContext) => Promise<void>;
   /** Absent means DEFAULTS.model. */
   readonly model?: string;
   readonly effort?: Effort;

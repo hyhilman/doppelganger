@@ -6,14 +6,18 @@ import assert from "node:assert/strict";
 import { mkdtempSync, writeFileSync, readFileSync, mkdirSync, existsSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
-import { extractBlock } from "../../kernel/runtime/payload.ts";
+import { extractBlock, extractFields } from "../../kernel/runtime/payload.ts";
 import type { Job } from "../../kernel/ports/job.ts";
 import { INSTANCE } from "../../kernel/instance.ts";
 import { openDb } from "../../kernel/runtime/db.ts";
 import type { Logger } from "../../kernel/runtime/log/emit.ts";
 import { git } from "../../kernel/runtime/exec.ts";
 import type { Runner, RunRequest, RunResult } from "../../kernel/ports/runner.ts";
-import { NO_SHED } from "../../kernel/runtime/shed.ts";
+import { NO_SHED, shedModel } from "../../kernel/runtime/shed.ts";
+import { envStr, envNum, envOptional } from "../../kernel/config.ts";
+import { runJob } from "../../kernel/runtime/runjob.ts";
+import { prepWorktree, teardownWorktree, reapWorktrees, worktreePromptLines } from "../../kernel/runtime/worktree.ts";
+import type { JobContext, RunIn } from "../../kernel/ports/context.ts";
 import {
   parseVerdict,
   blockedBy,
@@ -28,9 +32,10 @@ import {
   execPass,
   readState,
   type GateDeps,
-  type PassDeps,
   HEAD_MAX_CHARS,
 } from "./nightly-sandcastle.ts";
+
+const PAYLOAD = { extractBlock, extractFields };
 
 const ROOT = new URL("../..", import.meta.url).pathname.replace(/\/$/, "");
 const SOURCE_FILE = join(ROOT, "plugins/nightly/skills/nightly-sandcastle/SKILL.md");
@@ -62,7 +67,7 @@ function fixtureStdout(): string {
 }
 
 test("1. parseVerdict accepts the block the skill documents", () => {
-  const verdict = parseVerdict(fixtureStdout());
+  const verdict = parseVerdict(fixtureStdout(), PAYLOAD);
   assert.ok(verdict !== null);
   assert.equal(verdict!.outcome, "changed");
   assert.equal(verdict!.goal, "docs-vs-code");
@@ -71,34 +76,34 @@ test("1. parseVerdict accepts the block the skill documents", () => {
 
 test("2. two blocks — the second wins", () => {
   const stdout = "<<<SANDCASTLE\ngoal=g1\noutcome=none\nfiles=-\nids=-\nsummary=s1\nverified=v1\nSANDCASTLE>>>\nchatter\n<<<SANDCASTLE\ngoal=g2\noutcome=changed\nfiles=-\nids=-\nsummary=s2\nverified=v2\nSANDCASTLE>>>";
-  const verdict = parseVerdict(stdout);
+  const verdict = parseVerdict(stdout, PAYLOAD);
   assert.equal(verdict!.goal, "g2");
 });
 
 test("3. outcome=shipped is not in OUTCOMES — null", () => {
   const stdout = "<<<SANDCASTLE\ngoal=g\noutcome=shipped\nfiles=-\nids=-\nsummary=s\nverified=v\nSANDCASTLE>>>";
-  assert.equal(parseVerdict(stdout), null);
+  assert.equal(parseVerdict(stdout, PAYLOAD), null);
 });
 
 test("4. missing outcome/goal/summary — null, three cases", () => {
   const missingOutcome = "<<<SANDCASTLE\ngoal=g\nfiles=-\nids=-\nsummary=s\nverified=v\nSANDCASTLE>>>";
   const missingGoal = "<<<SANDCASTLE\noutcome=none\nfiles=-\nids=-\nsummary=s\nverified=v\nSANDCASTLE>>>";
   const missingSummary = "<<<SANDCASTLE\ngoal=g\noutcome=none\nfiles=-\nids=-\nverified=v\nSANDCASTLE>>>";
-  assert.equal(parseVerdict(missingOutcome), null);
-  assert.equal(parseVerdict(missingGoal), null);
-  assert.equal(parseVerdict(missingSummary), null);
+  assert.equal(parseVerdict(missingOutcome, PAYLOAD), null);
+  assert.equal(parseVerdict(missingGoal, PAYLOAD), null);
+  assert.equal(parseVerdict(missingSummary, PAYLOAD), null);
 });
 
 test("5. files=- yields []; files=a.ts,b.ts yields two trimmed entries", () => {
   const dash = "<<<SANDCASTLE\ngoal=g\noutcome=none\nfiles=-\nids=-\nsummary=s\nverified=v\nSANDCASTLE>>>";
   const two = "<<<SANDCASTLE\ngoal=g\noutcome=none\nfiles=a.ts, b.ts\nids=-\nsummary=s\nverified=v\nSANDCASTLE>>>";
-  assert.deepEqual(parseVerdict(dash)!.files, []);
-  assert.deepEqual(parseVerdict(two)!.files, ["a.ts", "b.ts"]);
+  assert.deepEqual(parseVerdict(dash, PAYLOAD)!.files, []);
+  assert.deepEqual(parseVerdict(two, PAYLOAD)!.files, ["a.ts", "b.ts"]);
 });
 
 test("6. a verified= value containing = and / survives intact", () => {
   const stdout = "<<<SANDCASTLE\ngoal=g\noutcome=none\nfiles=-\nids=-\nsummary=s\nverified=npm test -- x=1 / 437 pass\nSANDCASTLE>>>";
-  assert.equal(parseVerdict(stdout)!.verified, "npm test -- x=1 / 437 pass");
+  assert.equal(parseVerdict(stdout, PAYLOAD)!.verified, "npm test -- x=1 / 437 pass");
 });
 
 test("7. blockedBy covers the four things the markdown names (Off limits:)", () => {
@@ -387,7 +392,7 @@ function recordingLogger(): { readonly log: Logger; readonly entries: LogEntry[]
 }
 
 interface TestContext {
-  readonly deps: PassDeps;
+  readonly deps: JobContext;
   readonly entries: LogEntry[];
   readonly raw: string[];
   readonly runnerCalls: RunRequest[];
@@ -395,24 +400,37 @@ interface TestContext {
 
 function buildContext(
   repo: string,
-  opts: { readonly runner?: RecordingRunner; readonly runIn?: PassDeps["runIn"]; readonly jobs?: readonly Job[] } = {},
+  opts: { readonly runner?: RecordingRunner; readonly runIn?: RunIn; readonly jobs?: readonly Job[] } = {},
 ): TestContext {
   const { log, entries, raw } = recordingLogger();
   const runnerBundle = opts.runner ?? happyRunner();
   const dbDir = mkdtempSync(join(tmpdir(), "pass-db-"));
-  const deps: PassDeps = {
+  // A test JobContext (PRT-05): the real runtime pieces, with a fake runner, log and runIn.
+  const deps: JobContext = {
+    instance: INSTANCE,
     root: repo,
-    runner: runnerBundle.runner,
-    git,
     now: () => new Date(),
-    db: openDb(join(dbDir, "nightly.db")),
     log,
-    worktreeRoot: join(repo, ".doppelganger", "worktrees"),
-    runLogPath: (name: string) => join(mkdtempSync(join(tmpdir(), "run-log-")), `${name}.log`),
+    env: { str: envStr, num: envNum, optional: envOptional },
+    path: (...segs: string[]) => join(repo, ...segs),
+    db: (name: string) => openDb(join(dbDir, `${name}.db`)),
+    git,
     runIn: opts.runIn ?? (() => ({ ok: true, out: "" })),
-    scratchRoot: mkdtempSync(join(tmpdir(), "pass-scratch-")),
-    jobs: opts.jobs ?? [],
+    runner: runnerBundle.runner,
     shed: NO_SHED,
+    jobs: opts.jobs ?? [],
+    runLogPath: (name: string) => join(mkdtempSync(join(tmpdir(), "run-log-")), `${name}.log`),
+    scratchRoot: mkdtempSync(join(tmpdir(), "pass-scratch-")),
+    runJob,
+    shedModel,
+    worktree: {
+      root: join(repo, ".doppelganger", "worktrees"),
+      prep: prepWorktree,
+      teardown: teardownWorktree,
+      reap: reapWorktrees,
+      promptLines: worktreePromptLines,
+    },
+    payload: PAYLOAD,
   };
   return { deps, entries, raw, runnerCalls: runnerBundle.calls };
 }
@@ -473,12 +491,12 @@ test("26. tree-dirty — an uncommitted file: one event=skip reason=tree-dirty, 
 test("27. MAX=0 is free and complete — zero runner calls, a worktree was prepared and torn down, the goal rotated, a report line emitted", async () => {
   const repo = makeRepo();
   const { deps, entries, raw, runnerCalls } = buildContext(repo);
-  const before = readState(deps.db);
+  const before = readState(deps.db("nightly"));
   await withEnv({ NIGHTLY_SANDCASTLE_MAX: "0" }, () => execPass(deps));
   assert.equal(runnerCalls.length, 0);
   assert.equal(entries.filter((e) => e.event === "free-smoke").length, 1);
   assert.ok(raw.some((r) => r.includes("free-smoke")));
-  const after = readState(deps.db);
+  const after = readState(deps.db("nightly"));
   assert.notEqual(after.index, before.index);
   assert.equal(worktreeCount(repo), 1);
 });
@@ -500,12 +518,12 @@ test("29. DRY_RUN=1 runs the agent and lands nothing", async () => {
   const repo = makeRepo();
   const before = git(repo, "rev-parse", "HEAD").trim();
   const { deps, runnerCalls } = buildContext(repo);
-  const stateBefore = readState(deps.db);
+  const stateBefore = readState(deps.db("nightly"));
   await withEnv({ NIGHTLY_SANDCASTLE_DRY_RUN: "1" }, () => execPass(deps));
   assert.equal(runnerCalls.length, 1);
   assert.equal(git(repo, "rev-parse", "HEAD").trim(), before);
   assert.equal(git(repo, "rev-parse", `nightly/${INSTANCE}`).trim(), before, "the worktree must have no commit");
-  assert.deepEqual(readState(deps.db), stateBefore);
+  assert.deepEqual(readState(deps.db("nightly")), stateBefore);
 });
 
 test("30. NO_MERGE=1 — the worktree HEAD advanced, the base HEAD did not", async () => {
@@ -537,7 +555,7 @@ test("32. a failing gate discards — base unchanged, one event=gate-failed carr
   symlinkSync(nmTarget, join(repo, "node_modules"));
 
   let sawNodeModules: boolean | undefined;
-  const runIn: PassDeps["runIn"] = (dir, cmd) => {
+  const runIn: RunIn = (dir, cmd) => {
     if (cmd === "npm") {
       sawNodeModules = existsSync(join(dir, "node_modules"));
       return { ok: false, out: "FAIL\n1 failing" };
@@ -611,7 +629,7 @@ test("36. escape route two fires — a local bare origin, no network and no real
 test("37. the ff-miss recovery — a concurrent base commit fails the first merge, a rebase and a second gate call succeed", async () => {
   const repo = makeRepo();
   let npmCalls = 0;
-  const runIn: PassDeps["runIn"] = (_dir, cmd) => {
+  const runIn: RunIn = (_dir, cmd) => {
     if (cmd === "npm") npmCalls++;
     return { ok: true, out: "" };
   };
@@ -661,15 +679,15 @@ test("38. rotation advances once per landing pass and not on a dry run", async (
     // under test.
     const runnerBundle = writingRunner({ "CHANGED.md": `pass ${i}\n` });
     await execPass({ ...deps, runner: runnerBundle.runner });
-    indices.push(readState(deps.db).index);
+    indices.push(readState(deps.db("nightly")).index);
   }
   assert.equal(new Set(indices).size, 3, `expected three distinct indices, got ${indices.join(",")}`);
 
   const dryRepo = makeRepo();
   const { deps: dryDeps } = buildContext(dryRepo);
-  const before = readState(dryDeps.db);
+  const before = readState(dryDeps.db("nightly"));
   await withEnv({ NIGHTLY_SANDCASTLE_DRY_RUN: "1" }, () => execPass(dryDeps));
-  assert.deepEqual(readState(dryDeps.db), before);
+  assert.deepEqual(readState(dryDeps.db("nightly")), before);
 });
 
 test("39. INSTANCE is in the branch name and every path is project-relative", async () => {
