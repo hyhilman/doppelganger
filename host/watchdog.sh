@@ -27,9 +27,10 @@
 # Deliberately NOT the hub xenith's own watchdog posts to: that is another checkout's
 # infrastructure, and D12 says two instances never coordinate.
 #
-# THE POST CAN NEVER FAIL THIS SCRIPT. It is last, after the breach file is already written, and
-# its failure is recorded as a delivery stamp (probe 5) rather than raised — a reporting path that
-# exits on its own failure reports nothing, which is the exact fault probe 0 exists to catch.
+# THE POST CAN NEVER FAIL THIS SCRIPT. Both places that attempt it (probe 0 below, and the main
+# fault path's own `notify()`) send only after their own breach file write is already on disk, and
+# a send failure is recorded as a delivery stamp (probe 5) rather than raised — a reporting path
+# that exits on its own failure reports nothing, which is the exact fault probe 0 exists to catch.
 #
 # No Slack, no hub, no `claude -p` fallback, no cooldown. Declined with the phase each arrives in
 # (JOB-O02/N5 for the reporter-freshness probe and the Slack/Jira stamps, v1 for
@@ -69,13 +70,147 @@ export PATH
 # very first line, and probe 0 is the first place this script can write the breach file.
 DRY="${WATCHDOG_DRY_RUN:-0}"
 
+# The log channel, attempted here — before the notify state below is resolved — so a warning that
+# resolution raises (the WATCHDOG_NO_NOTIFY typo check, further down) goes through the same
+# log_info/log_error lines as everything else, whenever the channel actually works. PROBE 0
+# (below) is still what DECIDES a broken channel is itself a fault and REPORTS it — this line only
+# makes the attempt and, if it worked, names the job. `set -uo pipefail` does not exit on a failed
+# `.`, so a missing or broken log.sh just leaves log_init/log_error undefined here, caught by
+# PROBE 0 below.
+. "$ROOT/kernel/runtime/log/log.sh" 2>/dev/null || true
+declare -F log_init >/dev/null 2>&1 && log_init ops-watchdog
+
+# --- the ntfy path, resolved ONCE here — before probe 0, so probe 0 can push its own fault too,
+# and before the lock, since none of this touches disk. Probe 5 and every stamp write read this one
+# answer, so they can never disagree about whether a stamp can still be cleared.
+
+# CRON HANDS THIS SCRIPT A BARE ENVIRONMENT. The entry is `supervised: false` (SUP-09), so it
+# never gets the supervisor's dotenv injection, and its PROGRAMS row is `dotenv: false` anyway.
+# Without this fallback the knobs below are empty on every real tick, and the POST that exists for
+# the unattended case only ever works when a human runs the script by hand — the exact inversion
+# of the point. xenith's watchdog solved the same problem by sourcing its own `hub.env`; this
+# reads `.env` instead, so an operator has ONE file to edit.
+#
+# READ, never SOURCED, and that distinction is load-bearing: `.` on `.env` executes whatever is in
+# it, inside the one script that has to keep working when everything else is broken. This takes
+# the last assignment of ONE named key, strips optional surrounding quotes, and can execute
+# nothing. A commented-out line cannot match because `^` anchors the key.
+dotenv_get() {
+  [ -f "$ROOT/.env" ] || return 0
+  sed -n "s/^$1=//p" "$ROOT/.env" | tail -n 1 | sed -e 's/^"\(.*\)"$/\1/' -e "s/^'\(.*\)'$/\1/"
+}
+
+# Logs through log_info/log_error when log.sh loaded, a bare printf to stderr when it did not — the
+# ntfy path has to report itself even on the one tick where the channel it would otherwise use is
+# the exact thing that is down (probe 0's own push, below).
+logline() {
+  local level="$1"
+  shift
+  if declare -F log_error >/dev/null 2>&1; then
+    if [ "$level" = "error" ]; then log_error "$@"; else log_info "$@"; fi
+  else
+    printf '%s watchdog: %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$*" >&2
+  fi
+}
+
+# $1: 1 = failed (write the stamp), 0 = delivered (remove it). Its own presence/absence is what
+# probe 5 (below) checks.
+stamp_ntfy() {
+  if [ "$1" = "0" ]; then
+    rm -f "$NTFYSTAMP"
+  else
+    printf '%s %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "${2:-unknown}" > "$NTFYSTAMP"
+  fi
+}
+
+# The one place curl is invoked — probe 0 and the main fault path's `notify()` (below) both call
+# this, so they send through the same code and land on the same stamp. $1: request body, $2: fault
+# count for the Title. Always returns 0: a reporting path that fails its caller over its own
+# bookkeeping is the fault probe 0 exists to catch.
+#
+# The bearer token never touches curl's own argv — any local user can read another process's argv
+# from `ps` or /proc/<pid>/cmdline for as long as the call is in flight. `-H @<path>` makes curl
+# read that one header from a file instead of a command-line argument (curl 7.55+), and `<(...)`
+# is an anonymous pipe, not a file on disk that outlives this call — there is nothing left to clean
+# up once curl exits.
+#
+# ONE flat topic, segmented by Title and Tags rather than by the topic name: ntfy topics have no
+# hierarchy, and a topic per stage means a NEW stage publishes somewhere nobody is subscribed yet,
+# so its first alarm is silent. Headers are kept ASCII — ntfy does not promise UTF-8 header
+# handling. The body is the fault text verbatim, sent as the raw request body, so nothing has to be
+# JSON-escaped — an escaper is code that runs only when the fleet is already broken and is
+# therefore the least-exercised line in the alarm path.
+ntfy_post() {
+  local body="$1" count="$2"
+  if ! command -v curl >/dev/null 2>&1; then
+    logline error notify-failed msg="curl is not on PATH"
+    stamp_ntfy 1 "curl is not on PATH"
+    return 0
+  fi
+  local http
+  http="$(curl -sS -m 10 -o /dev/null -w '%{http_code}' \
+    -H @<(printf 'Authorization: Bearer %s\n' "$token") \
+    -H "Title: $topic watchdog: ${count} fault(s)" \
+    -H "Tags: rotating_light,ops" \
+    -H "Priority: 4" \
+    --data-binary "$body" \
+    "${url%/}/$topic" 2>/dev/null)" || http="000"
+
+  case "$http" in
+    2??) logline info notify-sent topic="$topic" faults="$count" http="$http"
+         stamp_ntfy 0 ;;
+    # 000 is curl's own failure (DNS, TLS, timeout, refused) — kept distinct from a real HTTP
+    # status because "the server said 403" and "there was no server" are different repairs.
+    *)   logline error notify-failed topic="$topic" http="$http" msg="ntfy POST did not return 2xx — this alarm was not delivered"
+         stamp_ntfy 1 "http=$http" ;;
+  esac
+  return 0
+}
+
+# WATCHDOG_NO_NOTIFY (KRN-07's kill switch): "1" disables, "0"/unset/"" leaves it on. Anything else
+# is a typo, and a typo must not silently disable an alarm switch — so it stays ON (an alarm path
+# fails toward delivering) and logs once, naming the key and the value seen, rather than reading a
+# mistyped value as "off".
+NOTIFY_STATE="ready" # ready | unconfigured | disabled
+no_notify="${WATCHDOG_NO_NOTIFY:-0}"
+case "$no_notify" in
+  1) NOTIFY_STATE="disabled" ;;
+  0) ;;
+  *) logline error notify-config-typo key=WATCHDOG_NO_NOTIFY value="$no_notify" msg="expected 0 or 1 - notify stays ON" ;;
+esac
+
+url="${NTFY_URL:-$(dotenv_get NTFY_URL)}"
+token="${NTFY_TOKEN:-$(dotenv_get NTFY_TOKEN)}"
+# INS-01: NTFY_TOPIC, then INSTANCE (env then .env, the same order and the same value
+# kernel/instance.ts resolves for every other host-global write), then the checkout's own
+# directory name — so two checkouts that happen to share a directory name but are given different
+# INSTANCE values still land on different topics, which `basename $ROOT` alone could not tell
+# apart.
+topic="${NTFY_TOPIC:-$(dotenv_get NTFY_TOPIC)}"
+[ -n "$topic" ] || topic="${INSTANCE:-$(dotenv_get INSTANCE)}"
+[ -n "$topic" ] || topic="$(basename "$ROOT")"
+
+# Unconfigured is SILENCE, not a fault: a host that never set this up has not lost an alarm, it
+# declined one. Checked after the kill switch so a disabled watchdog is never relabeled
+# "unconfigured" over knobs nobody is going to read anyway — and, either way, nothing below ever
+# touches NTFYSTAMP while NOTIFY_STATE is not "ready", so a stale stamp from a past working config
+# is left exactly as it was until notify comes back.
+if [ "$NOTIFY_STATE" != "disabled" ] && { [ -z "$url" ] || [ -z "$token" ]; }; then
+  NOTIFY_STATE="unconfigured"
+fi
+
 # PROBE 0 — the log channel itself. `set -uo pipefail` does NOT exit on a failed `.`, so a missing
 # log.sh leaves log_init/log_error undefined, every fault line becomes `command not found` on
 # stderr, and a healthy-looking `exit 0` follows: EVERY FAULT SILENTLY LOST from the one channel
-# that remains. Detected here, reported with a bare printf, and the script stops before it can
-# pretend to be healthy. `declare -F log_error`, not the `.`'s own exit status, is what decides —
-# a present-but-empty log.sh sources CLEANLY (status 0) and still defines nothing.
-if ! . "$ROOT/kernel/runtime/log/log.sh" 2>/dev/null || ! declare -F log_error >/dev/null 2>&1; then
+# that remains. `declare -F log_error`, not the load attempt's own exit status (already made,
+# above, before the notify state), is what decides — a present-but-empty log.sh sources CLEANLY
+# (status 0) and still defines nothing. Reported here with a bare printf, and the script stops
+# before it can pretend to be healthy.
+#
+# This is the one fault the log channel can never carry on its own, so it is pushed through ntfy
+# directly too: ntfy_post logs through `logline` (above), not log_error, so it works whether or
+# not log.sh loaded.
+if ! declare -F log_error >/dev/null 2>&1; then
   msg="$(date -u +%Y-%m-%dT%H:%M:%SZ) watchdog: log.sh missing or broken at $ROOT/kernel/runtime/log/log.sh — the log channel is DOWN"
   printf '%s\n' "$msg" >&2
   # SAF-01: a dry run writes NOTHING, not even here — checked before the write, matching the same
@@ -83,10 +218,10 @@ if ! . "$ROOT/kernel/runtime/log/log.sh" 2>/dev/null || ! declare -F log_error >
   # file never grows unbounded while log.sh stays broken across many ticks.
   if [ "$DRY" != "1" ]; then
     printf '%s\n' "$msg" > "$BREACH"
+    [ "$NOTIFY_STATE" = "ready" ] && ntfy_post "$msg" 1
   fi
   exit 1
 fi
-log_init ops-watchdog
 
 # Its own lock, deliberately NOT the gate — this is the one job that must run precisely
 # when everything else is wedged, including behind a writer holding the gate exclusively; gating
@@ -139,6 +274,11 @@ fi
 # this probe exists because kernel/runtime/delivery.ts grew an `ntfy-send` row: the drift gate in
 # host/watchdog.test.ts turns a row there into a mandatory probe here, so this was not optional.
 #
+# Gated on NOTIFY_STATE == ready: while notify is disabled or unconfigured nothing in this script
+# ever clears the stamp (notify(), below, returns before it gets the chance), so faulting on it
+# unconditionally would pin an otherwise healthy host in breach forever, with no tick able to clear
+# it. The stamp is left in place, so the first tick after notify comes back still reports the gap.
+#
 # It is deliberately circular and that is FINE. A tick that faults here will try to post — through
 # the very channel the fault says is broken. When the channel is still down the post fails again,
 # the stamp is rewritten and nothing is delivered (the breach file and the log still have it, as
@@ -146,7 +286,7 @@ fi
 # thing the phone hears after an outage is that the alarm channel was down and for how long. The
 # alternative — staying quiet about a broken alarm — is how xenith lost 185 sends over three days
 # (engine/watchdog.sh, 2026-08-07..09) with every health probe green throughout.
-if [ -f "$NTFYSTAMP" ]; then
+if [ "$NOTIFY_STATE" = "ready" ] && [ -f "$NTFYSTAMP" ]; then
   fault "ntfy delivery failing since $(head -c 40 "$NTFYSTAMP") — alarms raised since then were LOST"
 fi
 
@@ -170,90 +310,21 @@ printf '%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "${faults[@]}" > "$BREACH"   # PA
 # pull channels must be complete before the push is attempted, so a hang here can only delay the
 # alarm, never lose it.
 #
-# Every failure mode ends in `stamp_ntfy 1` and NEVER in a non-zero exit from this function — a
-# reporting path that fails its caller over its own bookkeeping is the fault probe 0 exists for.
-# `|| true` on the call itself is the belt to that braces.
-stamp_ntfy() {            # $1: 1 = failed (write the stamp), 0 = delivered (remove it)
-  if [ "$1" = "0" ]; then
-    rm -f "$NTFYSTAMP"
-  else
-    printf '%s %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "${2:-unknown}" > "$NTFYSTAMP"
-  fi
-}
-
+# The kill switch, "unconfigured", and the actual send are already resolved above (NOTIFY_STATE,
+# url, token, topic — before probe 0), so this only ever dispatches on that one answer, and
+# probe 0's own push and this one always agree.
 notify() {
-  # The kill switch is checked FIRST and leaves the stamp untouched: standing the POST down is not
-  # a delivery failure, and flipping it must not make probe 5 fault on the next tick.
-  if [ "${WATCHDOG_NO_NOTIFY:-0}" = "1" ]; then
-    log_info notify-disabled faults="${#faults[@]}"
-    return 0
-  fi
-
-  # CRON HANDS THIS SCRIPT A BARE ENVIRONMENT. The entry is `supervised: false` (SUP-09), so it
-  # never gets the supervisor's dotenv injection, and its PROGRAMS row is `dotenv: false` anyway.
-  # Without this fallback the three knobs below are empty on every real tick and the POST that
-  # exists for the unattended case only ever works when a human runs the script by hand — the
-  # exact inversion of the point. xenith's watchdog solved the same problem by sourcing its own
-  # `hub.env`; this reads `.env` instead, so an operator has ONE file to edit.
-  #
-  # READ, never SOURCED, and that distinction is load-bearing: `.` on `.env` executes whatever is
-  # in it, inside the one script that has to keep working when everything else is broken. This
-  # takes the last assignment of ONE named key, strips optional surrounding quotes, and can
-  # execute nothing. A commented-out line cannot match because `^` anchors the key.
-  dotenv_get() {
-    [ -f "$ROOT/.env" ] || return 0
-    sed -n "s/^$1=//p" "$ROOT/.env" | tail -n 1 | sed -e 's/^"\(.*\)"$/\1/' -e "s/^'\(.*\)'$/\1/"
-  }
-
-  local url="${NTFY_URL:-$(dotenv_get NTFY_URL)}"
-  local token="${NTFY_TOKEN:-$(dotenv_get NTFY_TOKEN)}"
-  # INS-01: the topic IS the checkout's own name, so two checkouts on one host never share an
-  # alarm channel and neither has to be told about the other. `basename $ROOT` is exactly what
-  # kernel/instance.ts resolves INSTANCE to, and INSTANCE's charset is a strict subset of what an
-  # ntfy topic accepts, so a valid instance name cannot produce an invalid topic.
-  local topic="${NTFY_TOPIC:-$(dotenv_get NTFY_TOPIC)}"
-  [ -n "$topic" ] || topic="$(basename "$ROOT")"
-
-  # Unconfigured is SILENCE, not a fault: a host that never set this up has not lost an alarm, it
-  # declined one, and stamping it would make probe 5 cry on every tick forever.
-  if [ -z "$url" ] || [ -z "$token" ]; then
-    log_info notify-unconfigured msg="NTFY_URL or NTFY_TOKEN is empty — no POST attempted"
-    return 0
-  fi
-  if ! command -v curl >/dev/null 2>&1; then
-    log_error notify-failed msg="curl is not on PATH"
-    stamp_ntfy 1 "curl is not on PATH"
-    return 0
-  fi
-
-  # ONE flat topic, segmented by Title and Tags rather than by the topic name: ntfy topics have no
-  # hierarchy (measured against this server 2026-09-16 — `<topic>/ops` is 404 "page not found"),
-  # and a topic per stage means a NEW stage publishes somewhere nobody is subscribed yet, so its
-  # first alarm is silent. Headers are kept ASCII — ntfy does not promise UTF-8 header handling.
-  #
-  # The body is the fault list verbatim, sent as the raw request body, so nothing has to be JSON-
-  # escaped. That is not a shortcut: an escaper is code that runs only when the fleet is already
-  # broken and is therefore the least-exercised line in the alarm path.
+  case "$NOTIFY_STATE" in
+    disabled)
+      logline info notify-disabled faults="${#faults[@]}"
+      return 0 ;;
+    unconfigured)
+      logline info notify-unconfigured msg="NTFY_URL or NTFY_TOKEN is empty — no POST attempted"
+      return 0 ;;
+  esac
   local body
   body="$(printf '%s\n' "${faults[@]}")"
-  local http
-  http="$(curl -sS -m 10 -o /dev/null -w '%{http_code}' \
-    -H "Authorization: Bearer $token" \
-    -H "Title: $topic watchdog: ${#faults[@]} fault(s)" \
-    -H "Tags: rotating_light,ops" \
-    -H "Priority: 4" \
-    --data-binary "$body" \
-    "${url%/}/$topic" 2>/dev/null)" || http="000"
-
-  case "$http" in
-    2??) log_info notify-sent topic="$topic" faults="${#faults[@]}" http="$http"
-         stamp_ntfy 0 ;;
-    # 000 is curl's own failure (DNS, TLS, timeout, refused) — kept distinct from a real HTTP
-    # status because "the server said 403" and "there was no server" are different repairs.
-    *)   log_error notify-failed topic="$topic" http="$http" msg="ntfy POST did not return 2xx — this alarm was not delivered"
-         stamp_ntfy 1 "http=$http" ;;
-  esac
-  return 0
+  ntfy_post "$body" "${#faults[@]}"
 }
 notify || true
 

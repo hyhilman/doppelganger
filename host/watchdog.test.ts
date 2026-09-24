@@ -18,6 +18,7 @@ import {
   NTFY_TOKEN_ENV,
   WATCHDOG_NO_NOTIFY_ENV,
 } from "./config.ts";
+import { INSTANCE_ENV } from "../kernel/instance.ts";
 import { DELIVERY_STAMPS } from "../kernel/runtime/delivery.ts";
 import { parseLine } from "../kernel/runtime/log/parse.ts";
 
@@ -83,6 +84,10 @@ const ROWS = [
   NTFY_TOPIC_ENV,
   NTFY_TOKEN_ENV,
   WATCHDOG_NO_NOTIFY_ENV,
+  // The topic falls back to INSTANCE before it falls back to the checkout's own directory name
+  // (INS-01), so the script now reads it too. Its row lives in kernel/instance.ts, not
+  // host/config.ts, but this gate only cares that every read has SOME matching row.
+  INSTANCE_ENV,
 ];
 
 /** Signed list of knobs whose default is COMPUTED, so no string on the EnvSpec row can express it
@@ -98,12 +103,16 @@ const COMPUTED_DEFAULTS: Record<string, string> = {
   NTFY_URL: "$(dotenv_get NTFY_URL)",
   NTFY_TOKEN: "$(dotenv_get NTFY_TOKEN)",
   NTFY_TOPIC: "$(dotenv_get NTFY_TOPIC)",
+  // The topic's own middle fallback: NTFY_TOPIC unset falls back to INSTANCE (env then .env)
+  // before it falls back to basename(ROOT) below.
+  INSTANCE: "$(dotenv_get INSTANCE)",
 };
 
-/** The LAST resort under the computed default above: with neither the environment nor `.env`
- *  naming a topic, the checkout's own directory name is it (INS-01). Signed separately because
- *  `extractDefault` only ever sees the FIRST `:-` form, so this line would otherwise be invisible
- *  to test 1 — and it is the line the whole per-repo derivation rests on. */
+/** The LAST resort under both computed defaults above: with none of NTFY_TOPIC, the environment's
+ *  INSTANCE or `.env`'s INSTANCE naming a topic, the checkout's own directory name is it (INS-01).
+ *  Signed separately because `extractDefault` only ever sees the FIRST `:-` form, so this line
+ *  would otherwise be invisible to test 1 — and it is the line the whole per-repo derivation rests
+ *  on. */
 const TOPIC_LAST_RESORT = '[ -n "$topic" ] || topic="$(basename "$ROOT")"';
 
 test("1. every knob in the script has a matching EnvSpec row, and the defaults agree — membership decided by reads-never-assigns, not by a spelling", () => {
@@ -399,21 +408,43 @@ test("12. exit 1 is asserted as a status, never as a delivery", () => {
 // of any network at all, which matters for a suite CI runs on every push.
 
 /** Writes a `curl` onto PATH that records its argv NUL-separated and prints `code` on stdout —
- *  exactly what `-w '%{http_code}'` would have printed. Returns the capture path and the PATH the
- *  script must run with. */
-function curlShim(root: string, code: string): { capture: string; path: string } {
+ *  exactly what `-w '%{http_code}'` would have printed. Returns two capture paths and the PATH the
+ *  script must run with.
+ *
+ *  `rawCapture` is argv exactly as the real curl process would have received it — the thing test
+ *  26 checks the bearer token is absent from. `capture` decodes any `-H @path` argument into the
+ *  header text that path pointed at before recording it, so every OTHER test's header assertions
+ *  (`Authorization: Bearer …` etc., tests 13/14/15/18/19) read the same as before Fix4 moved the
+ *  token off the command line — the shim resolves the indirection so the tests do not have to. */
+function curlShim(root: string, code: string): { capture: string; rawCapture: string; path: string } {
   const bin = join(root, "shimbin");
   mkdirSync(bin, { recursive: true });
   const capture = join(root, "curl.argv");
+  const rawCapture = join(root, "curl.argv.raw");
   // The values are BAKED IN rather than read from the environment: the shim must not be steerable
   // by the very env the script under test is handed, or a knob leaking into it would read as a
   // passing test.
-  writeFileSync(
-    join(bin, "curl"),
-    `#!/usr/bin/env bash\nprintf '%s\\0' "$@" >> ${JSON.stringify(capture)}\nprintf '%s' ${JSON.stringify(code)}\n`,
-    { mode: 0o755 },
-  );
-  return { capture, path: `${bin}:${process.env.PATH ?? ""}` };
+  const script = [
+    "#!/usr/bin/env bash",
+    `printf '%s\\0' "$@" >> ${JSON.stringify(rawCapture)}`,
+    'prev=""',
+    "args=()",
+    'for a in "$@"; do',
+    '  cur="$a"',
+    '  if [ "$prev" = "-H" ]; then',
+    '    case "$cur" in',
+    '      @*) cur="$(cat "${cur#@}" 2>/dev/null)" ;;',
+    "    esac",
+    "  fi",
+    '  args+=("$cur")',
+    '  prev="$a"',
+    "done",
+    `printf '%s\\0' "\${args[@]}" >> ${JSON.stringify(capture)}`,
+    `printf '%s' ${JSON.stringify(code)}`,
+    "",
+  ].join("\n");
+  writeFileSync(join(bin, "curl"), script, { mode: 0o755 });
+  return { capture, rawCapture, path: `${bin}:${process.env.PATH ?? ""}` };
 }
 
 /** The shim's capture as a flat argv array; `[]` when curl was never called. */
@@ -555,4 +586,109 @@ test("19. an environment value BEATS .env — the operator file is a fallback, n
   assert.match(r.stderr, /event=notify-sent/);
   assert.equal(args.at(-1), `https://env.example/${basename(f.root)}`);
   assert.ok(after(args, "-H").includes("Authorization: Bearer tk_env"));
+});
+
+// ---------------------------------------------------------------------------------------------
+// Tests 20-26: a stale ntfy.fail must not pin a healthy host in breach forever, the topic falls
+// back through INSTANCE before the checkout's basename, probe 0 pushes too, a WATCHDOG_NO_NOTIFY
+// typo fails toward delivering, and the bearer token never lands on curl's own argv.
+// ---------------------------------------------------------------------------------------------
+
+test("20. a stale ntfy.fail does not breach a healthy host while the kill switch is on, and the stamp is left alone", () => {
+  const f = makeFixture(); // heartbeat fresh: nothing else is wrong
+  writeFileSync(f.ntfyStamp, "2026-09-16T10:00:00Z http=000\n");
+  const r = run(f.root, { WATCHDOG_NO_NOTIFY: "1" });
+  assert.equal(r.status, 0);
+  assert.ok(!existsSync(f.breach), "disabled must not re-fault on the old ntfy.fail");
+  assert.ok(existsSync(f.ntfyStamp), "the stamp is neither cleared nor rewritten while disabled");
+});
+
+test("21. a stale ntfy.fail does not breach a healthy host while ntfy is simply unconfigured, and the stamp is left alone", () => {
+  const f = makeFixture(); // heartbeat fresh: nothing else is wrong
+  writeFileSync(f.ntfyStamp, "2026-09-16T10:00:00Z http=000\n");
+  const r = run(f.root); // no NTFY_URL / NTFY_TOKEN in the environment, no .env
+  assert.equal(r.status, 0);
+  assert.ok(!existsSync(f.breach), "unconfigured must not re-fault on the old ntfy.fail either");
+  assert.ok(existsSync(f.ntfyStamp), "the stamp is neither cleared nor rewritten while unconfigured");
+});
+
+test("22. NTFY_TOPIC unset falls back to INSTANCE, not straight to the checkout's own basename", () => {
+  const f = makeFixture();
+  ageFile(f.heartbeat, 10);
+  const shim = curlShim(f.root, "200");
+  const r = run(f.root, {
+    NTFY_URL: "https://ntfy.example",
+    NTFY_TOKEN: "tk_test",
+    INSTANCE: "my-instance",
+    PATH: shim.path,
+  });
+  assert.equal(r.status, 1);
+  const args = argv(shim.capture);
+  // basename(f.root) is a random tmp-dir name, never "my-instance" — this only passes if INSTANCE
+  // actually won over it.
+  assert.equal(args.at(-1), "https://ntfy.example/my-instance");
+});
+
+test("23. probe 0 pushes too: log.sh missing, ntfy configured — the POST carries the probe-0 message", () => {
+  const f = makeFixture();
+  rmSync(join(f.root, "kernel/runtime/log/log.sh"));
+  const shim = curlShim(f.root, "200");
+  const r = run(f.root, { NTFY_URL: "https://ntfy.example", NTFY_TOKEN: "tk_test", PATH: shim.path });
+  assert.equal(r.status, 1);
+  assert.ok(existsSync(f.breach));
+  const args = argv(shim.capture);
+  assert.ok(args.length > 0, "curl must be invoked even though log.sh is broken");
+  assert.match(after(args, "--data-binary")[0]!, /log\.sh missing or broken/);
+  assert.equal(args.at(-1), `https://ntfy.example/${basename(f.root)}`);
+});
+
+test("24. probe 0 stays inert under WATCHDOG_DRY_RUN even with ntfy configured — no POST, no breach file", () => {
+  const f = makeFixture();
+  rmSync(join(f.root, "kernel/runtime/log/log.sh"));
+  const shim = curlShim(f.root, "200");
+  const r = run(f.root, {
+    NTFY_URL: "https://ntfy.example",
+    NTFY_TOKEN: "tk_test",
+    WATCHDOG_DRY_RUN: "1",
+    PATH: shim.path,
+  });
+  assert.equal(r.status, 1);
+  assert.ok(!existsSync(f.breach));
+  assert.deepEqual(argv(shim.capture), [], "a dry run that pages someone is not a dry run, even from probe 0");
+});
+
+test("25. an unrecognised WATCHDOG_NO_NOTIFY value stays ON (fails toward delivering) and logs the typo once", () => {
+  const f = makeFixture();
+  ageFile(f.heartbeat, 10);
+  const shim = curlShim(f.root, "200");
+  const r = run(f.root, {
+    NTFY_URL: "https://ntfy.example",
+    NTFY_TOKEN: "tk_test",
+    WATCHDOG_NO_NOTIFY: "true", // not "0" or "1" — a plausible typo, not a recognised value
+    PATH: shim.path,
+  });
+  assert.equal(r.status, 1);
+  assert.ok(argv(shim.capture).length > 0, "a typo in the kill switch must not silently disable the alarm");
+  assert.match(r.stderr, /level=error[^\n]*event=notify-config-typo[^\n]*key=WATCHDOG_NO_NOTIFY[^\n]*value=true/);
+  assert.match(r.stderr, /event=notify-sent/);
+  // The typo is logged, not raised as a fault of its own — only the pre-existing stale heartbeat
+  // is a breach line.
+  assert.equal(breachLines(r.stderr).length, 1);
+});
+
+test("26. the bearer token never appears as a literal curl argv entry", () => {
+  const f = makeFixture();
+  ageFile(f.heartbeat, 10);
+  const shim = curlShim(f.root, "200");
+  run(f.root, { NTFY_URL: "https://ntfy.example", NTFY_TOKEN: "tk_super_secret", PATH: shim.path });
+
+  const raw = argv(shim.rawCapture);
+  assert.ok(raw.length > 0, "curl was invoked");
+  assert.ok(!raw.some((a) => a.includes("tk_super_secret")), "the token leaked onto curl's own argv");
+  assert.ok(raw.some((a) => a.startsWith("@")), "the Authorization header must be passed via -H @<path>, not inline");
+
+  // ...and the real header still reaches the server — Fix4 hides the token from argv, it does not
+  // stop it being sent.
+  const decoded = argv(shim.capture);
+  assert.ok(after(decoded, "-H").includes("Authorization: Bearer tk_super_secret"));
 });

@@ -51,7 +51,7 @@ export const DELIVERY_STAMPS: readonly StampRow[] = [
     // The one row whose writer is bash, not TypeScript. The seam above says a send path "adds a
     // row here" and the drift gate "then FORCES the script to grow the matching probe" — that is
     // exactly what happened: this row is what made probe 5 mandatory, not the other way round.
-    writer: "host/watchdog.sh notify()",
+    writer: "host/watchdog.sh stamp_ntfy()",
     why: "the ntfy POST is failing, so every alarm raised since is being LOST — the one fault that cannot report itself through the channel it is about",
   },
 ];
