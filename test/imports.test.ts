@@ -44,7 +44,7 @@
 //     with a template-literal `code` string) whose code contains a dynamic import of a real,
 //     existing module — a scrubbed-env or fresh-module-cache probe, not an import of the file
 //     doing the spawning — accounting for 33 of the 36 hits, 14 of them in test/knobs.test.ts alone;
-//   - host/jobs/nightly-sandcastle.test.ts writes a deliberately BROKEN fixture — a source string
+//   - host/nightly-sandcastle.test.ts writes a deliberately BROKEN fixture — a source string
 //     whose own import names a module that does not exist — to prove a broken import surfaces as
 //     a load failure at run time: 1 hit, and the one P4 names by file;
 //   - test/model.test.ts and test/writes.test.ts each carry a doc-comment describing this regex's

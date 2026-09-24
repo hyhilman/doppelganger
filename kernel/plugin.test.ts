@@ -3,7 +3,7 @@
 //
 // This file lives under kernel/, so it is itself bound by TST-03 rule 1 (a file under kernel/ may
 // name only kernel/) — the real subject, NIGHTLY_NO_SANDCASTLE_ENV, is NOT imported here for that
-// reason; it is exercised over host/jobs/nightly-sandcastle.ts instead (that file's own test 24,
+// reason; it is exercised over plugins/nightly/jobs/nightly-sandcastle.ts instead (host/nightly-sandcastle.test.ts's own test 24,
 // and test/knobs.test.ts assertions 1/2/8). This file builds its own fixture rows with
 // killSwitch() itself.
 

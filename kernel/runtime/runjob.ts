@@ -15,7 +15,7 @@ export interface RunJobDeps {
   readonly env?: Readonly<Record<string, string>>;
   /** QTA-08's downshift half. REQUIRED, no default (N2 ruling 2: a default a caller can silently
    *  inherit is the failure mode) — the caller (host/run.ts's `runNamed`,
-   *  host/jobs/nightly-sandcastle.ts's `execPass`) computes it once and hands it in. */
+   *  plugins/nightly/jobs/nightly-sandcastle.ts's `execPass`) computes it once and hands it in. */
   readonly shed: ShedDecision;
 }
 
