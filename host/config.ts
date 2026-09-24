@@ -57,7 +57,7 @@ export const WATCHDOG_DRY_RUN_ENV: EnvSpec = {
  *  answers, and that is an outcome, not a default a string could state up front. */
 export const NTFY_URL_ENV: EnvSpec = {
   key: "NTFY_URL",
-  why: "base URL of the ntfy server the watchdog POSTs a breach to; unset in BOTH the environment and .env means no send at all — a real default would be a guess about someone else's host, the same reason CRONTAB_CMD has none",
+  why: "base URL of the ntfy server the watchdog POSTs a breach to and the log report (JOB-O02) POSTs its report to; unset in BOTH the environment and .env means no send at all — a real default would be a guess about someone else's host, the same reason CRONTAB_CMD has none",
 };
 
 /** No `default` here on purpose, and the ONLY row in this file without one. The fallback is
@@ -67,12 +67,12 @@ export const NTFY_URL_ENV: EnvSpec = {
  *  host/watchdog.test.ts signs this one in COMPUTED_DEFAULTS instead. */
 export const NTFY_TOPIC_ENV: EnvSpec = {
   key: "NTFY_TOPIC",
-  why: "the ntfy topic a breach lands on; defaults to INSTANCE (the checkout's own directory name), so two checkouts on one host never share an alarm channel (INS-01)",
+  why: "the ntfy topic a watchdog breach and a log report land on; defaults to INSTANCE (the checkout's own directory name), so two checkouts on one host never share an alarm channel (INS-01)",
 };
 
 export const NTFY_TOKEN_ENV: EnvSpec = {
   key: "NTFY_TOKEN",
-  why: "bearer token for NTFY_URL, read from the environment or from .env; unset in both means no send at all — an ntfy server that denies anonymous publish turns a missing token into a silent 403 rather than a delivered alarm",
+  why: "bearer token for NTFY_URL, used by the watchdog and the log report, read from the environment or from .env; unset in both means no send at all — an ntfy server that denies anonymous publish turns a missing token into a silent 403 rather than a delivered alarm",
 };
 
 export const WATCHDOG_NO_NOTIFY_ENV: EnvSpec = {

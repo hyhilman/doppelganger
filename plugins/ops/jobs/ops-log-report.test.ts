@@ -6,6 +6,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { EnvSpec } from "../../../kernel/plugin.ts";
+import type { NotifyResult } from "../../../kernel/ports/context.ts";
 import {
   reportLogs,
   LAST_OK_KEY,
@@ -64,7 +65,7 @@ interface Harness {
 
 function harness(
   batches: TailBatch[],
-  opts: { env?: Record<string, string>; post?: (body: string) => Promise<{ ok: boolean; detail: string }> } = {},
+  opts: { env?: Record<string, string>; post?: (body: string) => Promise<NotifyResult> } = {},
 ): Harness {
   const logs: Rec[] = [];
   const meta = new Map<string, string>();
@@ -98,7 +99,7 @@ function harness(
     post: async (body) => {
       posts.push(body);
       metaAtSend.push(new Map(meta));
-      return opts.post ? opts.post(body) : { ok: true, detail: "http=200" };
+      return opts.post ? opts.post(body) : { ok: true, configured: true, detail: "http=200" };
     },
     print: (text) => {
       printed.push(text);
@@ -228,9 +229,25 @@ test("warns alone never post, and warns beside errors that are all cooling never
 });
 
 test("a failed send is an error line, not a throw; the tick still stamps last_report_ok_at", async () => {
-  const h = harness([batch([DRIFT])], { post: async () => ({ ok: false, detail: "http=000" }) });
+  const h = harness([batch([DRIFT])], { post: async () => ({ ok: false, configured: true, detail: "http=000" }) });
   await reportLogs(h.deps);
   assert.deepEqual(h.logs.at(-1), { level: "error", event: "report-send-failed", fields: { keys: 1, msg: "http=000" } });
+  assert.equal(h.meta.get(LAST_OK_KEY), "2026-09-24T08:00:00Z");
+});
+
+test("no ntfy set up is an info line, not an error; the tick still stamps last_report_ok_at", async () => {
+  // An error line here would be reported itself on the next tick, forever.
+  const h = harness([batch([DRIFT])], {
+    post: async () => ({ ok: false, configured: false, detail: "ntfy not configured" }),
+  });
+  await reportLogs(h.deps);
+  assert.equal(h.posts.length, 1);
+  assert.deepEqual(h.logs.at(-1), { level: "info", event: "report-skipped", fields: { keys: 1, reason: "no-channel" } });
+  assert.deepEqual(
+    h.logs.filter((r) => r.level === "error"),
+    [],
+    "a host with no ntfy must not write an error line",
+  );
   assert.equal(h.meta.get(LAST_OK_KEY), "2026-09-24T08:00:00Z");
 });
 

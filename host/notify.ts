@@ -6,17 +6,16 @@
 // kernel/runtime/delivery.ts, so a watchdog POST that works can never clear a failure here, and
 // the other way round.
 //
-// NEVER THROWS. A failed send returns `{ ok: false, detail }` and writes the stamp; the caller
-// decides what a failed send means for its own run.
+// NEVER THROWS. A failed send returns `{ ok: false, configured: true, detail }` and writes the
+// stamp; the caller decides what a failed send means for its own run. No ntfy set up returns
+// `configured: false`, so the caller can tell a skipped send apart from a failed one.
 import { envOptional } from "../kernel/config.ts";
 import { INSTANCE } from "../kernel/instance.ts";
+import type { NotifyResult } from "../kernel/ports/context.ts";
 import { DELIVERY_STAMPS, deliveryStamp, stampPath } from "../kernel/runtime/delivery.ts";
 import { NTFY_URL_ENV, NTFY_TOPIC_ENV, NTFY_TOKEN_ENV } from "./config.ts";
 
-export interface PostResult {
-  readonly ok: boolean;
-  readonly detail: string;
-}
+export type PostResult = NotifyResult;
 
 export interface NtfyDeps {
   readonly url: string | undefined;
@@ -38,14 +37,15 @@ export const NOT_CONFIGURED = "ntfy not configured";
 export const LOG_REPORT_STAMP = "log-report-send";
 
 /**
- * POST `body` to `<url>/<topic>`. Unset url, topic or token is `NOT_CONFIGURED`: no network, and no
- * stamp, because a host that never set ntfy up has not lost a report, it declined one. Any 2xx
+ * POST `body` to `<url>/<topic>`. Unset url, topic or token is `configured: false` with
+ * `NOT_CONFIGURED`: no network, and no stamp, because a host that never set ntfy up has not lost a
+ * report, it declined one. Any 2xx
  * clears the stamp; anything else (a status, a timeout, a refused connection) writes it.
  */
 export function ntfyPost(deps: NtfyDeps): (body: string) => Promise<PostResult> {
   return async (body: string): Promise<PostResult> => {
     const { url, topic, token } = deps;
-    if (!url || !topic || !token) return { ok: false, detail: NOT_CONFIGURED };
+    if (!url || !topic || !token) return { ok: false, configured: false, detail: NOT_CONFIGURED };
     let res: PostResult;
     try {
       const r = await deps.fetch(`${url.replace(/\/+$/, "")}/${topic}`, {
@@ -55,9 +55,9 @@ export function ntfyPost(deps: NtfyDeps): (body: string) => Promise<PostResult> 
         headers: { Authorization: `Bearer ${token}`, Title: `${topic} log report`, Tags: "warning,logs" },
         signal: AbortSignal.timeout(deps.timeoutMs),
       });
-      res = r.ok ? { ok: true, detail: `http=${r.status}` } : { ok: false, detail: `http=${r.status}` };
+      res = { ok: r.ok, configured: true, detail: `http=${r.status}` };
     } catch (e) {
-      res = { ok: false, detail: e instanceof Error ? e.message : String(e) };
+      res = { ok: false, configured: true, detail: e instanceof Error ? e.message : String(e) };
     }
     deps.stamp(res.ok, res.detail);
     return res;

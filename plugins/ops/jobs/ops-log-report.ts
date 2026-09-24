@@ -14,7 +14,7 @@
 //
 // No LLM: parsing is a regex over bytes already on disk, so this is cheap to run through an outage.
 import type { EnvSpec } from "../../../kernel/plugin.ts";
-import type { JobContext } from "../../../kernel/ports/context.ts";
+import type { JobContext, NotifyResult } from "../../../kernel/ports/context.ts";
 import { defineJob } from "../../../kernel/ports/job.ts";
 
 export const LOG_REPORT_COOLDOWN_M_ENV: EnvSpec = {
@@ -78,8 +78,9 @@ export interface LogReportDeps {
     get(key: string): string | null;
     set(key: string, value: string): void;
   };
-  /** Sends the report. Never expected to throw; if it does, it counts as a failed send. */
-  readonly post: (body: string) => Promise<{ readonly ok: boolean; readonly detail: string }>;
+  /** Sends the report. Never expected to throw; if it does, it counts as a failed send.
+   *  `configured: false` means there is no channel to send on, which is not a failure. */
+  readonly post: (body: string) => Promise<NotifyResult>;
   /** Writes to stdout. Only a dry run uses it. */
   readonly print: (text: string) => void;
 }
@@ -146,7 +147,8 @@ export function render(groups: readonly Group[], warns: number, maxKeys: number,
  *   4. write the post stamps BEFORE the send, so a run that dies mid-send cannot re-post the same
  *      keys every tick;
  *   5. send; a failed send is an `error` line, never a throw (its own delivery stamp, JOB-O11,
- *      tells the watchdog);
+ *      tells the watchdog). No channel set up is an `info` line instead: an error line there
+ *      would be reported itself on the next tick, again every cooldown, with nowhere to go;
  *   6. stamp `last_report_ok_at` LAST. It means "the reader finished a tick" (JOB-B12), so a
  *      failed send still stamps it, and a crash never does.
  *
@@ -209,13 +211,14 @@ async function tick(deps: LogReportDeps): Promise<void> {
   }
 
   for (const g of fresh) deps.meta.set(postKey(g.key), iso(now));
-  let res: { readonly ok: boolean; readonly detail: string };
+  let res: NotifyResult;
   try {
     res = await deps.post(body);
   } catch (e) {
-    res = { ok: false, detail: errText(e) };
+    res = { ok: false, configured: true, detail: errText(e) };
   }
   if (res.ok) deps.log.info("posted", { keys: fresh.length, detail: res.detail });
+  else if (!res.configured) deps.log.info("report-skipped", { keys: fresh.length, reason: "no-channel" });
   else deps.log.error("report-send-failed", { keys: fresh.length, msg: res.detail });
 
   deps.meta.set(LAST_OK_KEY, iso(deps.now()));

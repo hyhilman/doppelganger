@@ -24,6 +24,14 @@ export type RunIn = (dir: string, cmd: string, args: readonly string[], env?: Re
   out: string;
 };
 
+/** What one report send came to. `configured: false` means no channel is set up: nothing was sent
+ *  and nothing failed, so it is a state to note, not an error. `ok` is false then too. */
+export interface NotifyResult {
+  readonly ok: boolean;
+  readonly configured: boolean;
+  readonly detail: string;
+}
+
 export interface JobContext {
   /** INS-06: this checkout's name. A write shared with another checkout carries it. */
   readonly instance: string;
@@ -82,8 +90,9 @@ export interface JobContext {
     readonly get: (key: string) => string | null;
     readonly set: (key: string, value: string) => void;
   };
-  /** Sends a report over ntfy. Never throws: a failed send is `ok: false`. */
-  readonly notify: (body: string) => Promise<{ readonly ok: boolean; readonly detail: string }>;
+  /** Sends a report over ntfy. Never throws: a failed send is `ok: false`, and no ntfy set up is
+   *  `configured: false`. */
+  readonly notify: (body: string) => Promise<NotifyResult>;
   /** Writes text to stdout. */
   readonly print: (text: string) => void;
 }

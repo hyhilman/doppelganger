@@ -31,7 +31,7 @@ function harness(overrides: Partial<NtfyDeps> = {}, answer: () => Promise<Respon
 test("1. a 2xx POSTs the body to <url>/<topic> with the bearer token, and clears the stamp", async () => {
   const h = harness();
   const r = await h.post("logs — 1 error line(s)");
-  assert.deepEqual(r, { ok: true, detail: "http=200" });
+  assert.deepEqual(r, { ok: true, configured: true, detail: "http=200" });
   assert.equal(h.calls.length, 1);
   assert.equal(h.calls[0]!.url, "https://ntfy.example/doppelganger", "a trailing slash on the url must not double");
   assert.equal(h.calls[0]!.init.method, "POST");
@@ -44,7 +44,7 @@ test("1. a 2xx POSTs the body to <url>/<topic> with the bearer token, and clears
 test("2. a non-2xx is a failed send: ok false, the status in detail, the stamp written", async () => {
   const h = harness({}, async () => new Response("", { status: 403 }));
   const r = await h.post("x");
-  assert.deepEqual(r, { ok: false, detail: "http=403" });
+  assert.deepEqual(r, { ok: false, configured: true, detail: "http=403" });
   assert.deepEqual(h.stamps, [{ ok: false, detail: "http=403" }]);
 });
 
@@ -53,15 +53,15 @@ test("3. a fetch that throws (refused, timeout) is a failed send, never a throw"
     throw new Error("connect ECONNREFUSED");
   });
   const r = await h.post("x");
-  assert.deepEqual(r, { ok: false, detail: "connect ECONNREFUSED" });
+  assert.deepEqual(r, { ok: false, configured: true, detail: "connect ECONNREFUSED" });
   assert.deepEqual(h.stamps, [{ ok: false, detail: "connect ECONNREFUSED" }]);
 });
 
-test("4. unset url, topic or token: not configured, no network, no stamp", async () => {
+test("4. unset url, topic or token: configured false, no network, no stamp", async () => {
   for (const unset of ["url", "topic", "token"] as const) {
     const h = harness({ [unset]: undefined });
     const r = await h.post("x");
-    assert.deepEqual(r, { ok: false, detail: NOT_CONFIGURED }, `${unset} unset`);
+    assert.deepEqual(r, { ok: false, configured: false, detail: NOT_CONFIGURED }, `${unset} unset`);
     assert.equal(h.calls.length, 0, `${unset} unset must not reach fetch`);
     assert.equal(h.stamps.length, 0, `${unset} unset declines a send, it does not fail one`);
   }
