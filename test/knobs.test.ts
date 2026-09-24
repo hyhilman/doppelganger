@@ -67,6 +67,31 @@ import {
   NIGHTLY_POLISH_TRACKER_ENV,
 } from "../plugins/nightly/jobs/nightly-polish.ts";
 import { killSwitch } from "../kernel/plugin.ts";
+import {
+  RESET_REPOS_ENV,
+  RESET_BRANCHES_ENV,
+  ENV_WORKTREE_BRANCHES_ENV,
+  RECUT_REPOS_ENV,
+  RECUT_BRANCHES_ENV,
+  GIT_WORKTREE_DIR_ENV,
+} from "../plugins/git/scope.ts";
+import {
+  RESET_FORCE_DIRTY_ENV,
+  RESET_FORCE_AHEAD_ENV,
+  RESET_CHECKOUT_MAIN_ENV,
+  RESET_DRY_RUN_ENV,
+  RESET_ENSURE_WORKTREES_ENV,
+} from "../plugins/git/jobs/ops-reset-branches.ts";
+import {
+  ENV_WORKTREE_DRY_RUN_ENV,
+  ENV_WORKTREE_QUIET_ENV,
+} from "../plugins/git/jobs/ops-ensure-env-worktrees.ts";
+import {
+  GIT_NO_RECUT_ENV,
+  RECUT_DRY_RUN_ENV,
+  RECUT_FORCE_ENV,
+  RECUT_DATE_ENV,
+} from "../plugins/git/jobs/ops-reset-env-to-main.ts";
 
 const ROOT = new URL("..", import.meta.url).pathname.replace(/\/$/, "");
 
@@ -82,7 +107,8 @@ function allNonTestTsFiles(): string[] {
       const full = join(dir, entry);
       const st = statSync(full);
       if (st.isDirectory()) walk(full);
-      else if (entry.endsWith(".ts") && !entry.endsWith(".test.ts")) out.push(full);
+      // A fixture is test support, not shipped code; test/writes.test.ts test 7 checks nothing shipped imports one.
+      else if (entry.endsWith(".ts") && !entry.endsWith(".test.ts") && !entry.endsWith(".fixture.ts")) out.push(full);
     }
   };
   for (const d of SCANNED_DIRS) {
@@ -368,6 +394,24 @@ const ROWS: readonly RowMeta[] = [
     constName: "WATCHDOG_NO_NOTIFY_ENV",
     readers: [],
   },
+  // The git plugin's rows. Its jobs read every one through `ctx.env.str` (PRT-05).
+  { spec: RESET_REPOS_ENV, file: "plugins/git/scope.ts", constName: "RESET_REPOS_ENV", readers: ["envStr"] },
+  { spec: RESET_BRANCHES_ENV, file: "plugins/git/scope.ts", constName: "RESET_BRANCHES_ENV", readers: ["envStr"] },
+  { spec: ENV_WORKTREE_BRANCHES_ENV, file: "plugins/git/scope.ts", constName: "ENV_WORKTREE_BRANCHES_ENV", readers: ["envStr"] },
+  { spec: RECUT_REPOS_ENV, file: "plugins/git/scope.ts", constName: "RECUT_REPOS_ENV", readers: ["envStr"] },
+  { spec: RECUT_BRANCHES_ENV, file: "plugins/git/scope.ts", constName: "RECUT_BRANCHES_ENV", readers: ["envStr"] },
+  { spec: GIT_WORKTREE_DIR_ENV, file: "plugins/git/scope.ts", constName: "GIT_WORKTREE_DIR_ENV", readers: ["envStr"] },
+  { spec: RESET_FORCE_DIRTY_ENV, file: "plugins/git/jobs/ops-reset-branches.ts", constName: "RESET_FORCE_DIRTY_ENV", readers: ["envStr"] },
+  { spec: RESET_FORCE_AHEAD_ENV, file: "plugins/git/jobs/ops-reset-branches.ts", constName: "RESET_FORCE_AHEAD_ENV", readers: ["envStr"] },
+  { spec: RESET_CHECKOUT_MAIN_ENV, file: "plugins/git/jobs/ops-reset-branches.ts", constName: "RESET_CHECKOUT_MAIN_ENV", readers: ["envStr"] },
+  { spec: RESET_DRY_RUN_ENV, file: "plugins/git/jobs/ops-reset-branches.ts", constName: "RESET_DRY_RUN_ENV", readers: ["envStr"] },
+  { spec: RESET_ENSURE_WORKTREES_ENV, file: "plugins/git/jobs/ops-reset-branches.ts", constName: "RESET_ENSURE_WORKTREES_ENV", readers: ["envStr"] },
+  { spec: ENV_WORKTREE_DRY_RUN_ENV, file: "plugins/git/jobs/ops-ensure-env-worktrees.ts", constName: "ENV_WORKTREE_DRY_RUN_ENV", readers: ["envStr"] },
+  { spec: ENV_WORKTREE_QUIET_ENV, file: "plugins/git/jobs/ops-ensure-env-worktrees.ts", constName: "ENV_WORKTREE_QUIET_ENV", readers: ["envStr"] },
+  { spec: GIT_NO_RECUT_ENV, file: "plugins/git/jobs/ops-reset-env-to-main.ts", constName: "GIT_NO_RECUT_ENV", readers: ["envStr"] },
+  { spec: RECUT_DRY_RUN_ENV, file: "plugins/git/jobs/ops-reset-env-to-main.ts", constName: "RECUT_DRY_RUN_ENV", readers: ["envStr"] },
+  { spec: RECUT_FORCE_ENV, file: "plugins/git/jobs/ops-reset-env-to-main.ts", constName: "RECUT_FORCE_ENV", readers: ["envStr"] },
+  { spec: RECUT_DATE_ENV, file: "plugins/git/jobs/ops-reset-env-to-main.ts", constName: "RECUT_DATE_ENV", readers: ["envStr"] },
 ];
 
 test("1. assertSpecShape passes over every real row", () => {

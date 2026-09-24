@@ -12,7 +12,7 @@
 //
 // The default scope is EMPTY. A job with nothing in scope logs one line and does nothing, so
 // installing the plugin never resets anything by surprise.
-import { basename, posix } from "node:path";
+import { basename, join, posix } from "node:path";
 import type { EnvSpec } from "../../kernel/plugin.ts";
 
 export const RESET_REPOS_ENV: EnvSpec = {
@@ -72,18 +72,25 @@ export function splitList(raw: string): string[] {
   return raw.split(/[\s,]+/).filter((s) => s !== "");
 }
 
-/** Read the scope through the host's env reader (the host passes its `envStr`). Only splits;
- *  `scopeProblems` judges. */
-export function scopeFrom(read: (spec: EnvSpec) => string): GitScope {
+/** The one env reader the git jobs need. The job context is one; a test passes a map. */
+export interface EnvReader {
+  readonly env: { readonly str: (spec: EnvSpec) => string };
+}
+
+/** Read the scope through the job context's env reader. Only splits; `scopeProblems` judges. */
+export function scopeFrom(ctx: EnvReader): GitScope {
   return {
-    repos: splitList(read(RESET_REPOS_ENV)).map(normalizeEntry),
-    branches: splitList(read(RESET_BRANCHES_ENV)),
-    worktreeBranches: splitList(read(ENV_WORKTREE_BRANCHES_ENV)),
-    recutRepos: splitList(read(RECUT_REPOS_ENV)).map(normalizeEntry),
-    recutBranches: splitList(read(RECUT_BRANCHES_ENV)),
-    worktreeDir: normalizeEntry(read(GIT_WORKTREE_DIR_ENV).trim()),
+    repos: splitList(ctx.env.str(RESET_REPOS_ENV)).map(normalizeEntry),
+    branches: splitList(ctx.env.str(RESET_BRANCHES_ENV)),
+    worktreeBranches: splitList(ctx.env.str(ENV_WORKTREE_BRANCHES_ENV)),
+    recutRepos: splitList(ctx.env.str(RECUT_REPOS_ENV)).map(normalizeEntry),
+    recutBranches: splitList(ctx.env.str(RECUT_BRANCHES_ENV)),
+    worktreeDir: normalizeEntry(ctx.env.str(GIT_WORKTREE_DIR_ENV).trim()),
   };
 }
+
+/** The absolute directory the env and PR-head worktrees go in. */
+export const worktreeRoot = (root: string, s: GitScope): string => join(root, s.worktreeDir);
 
 /** `./a/b/` -> `a/b`. Leaves anything it cannot judge alone, so `pathProblem` sees it as typed. */
 export function normalizeEntry(entry: string): string {

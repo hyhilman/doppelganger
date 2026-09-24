@@ -10,7 +10,7 @@ import { runResetEnvToMain, resetEnvToMainKnobs, GIT_NO_RECUT_ENV, type ResetEnv
 
 after(cleanupWorkspaces);
 
-const reader = (env: Record<string, string>) => (spec: EnvSpec): string => env[spec.key] ?? spec.default ?? "";
+const reader = (env: Record<string, string>) => ({ env: { str: (spec: EnvSpec): string => env[spec.key] ?? spec.default ?? "" } });
 const NOW = new Date("2026-09-26T00:40:00Z");
 const BACKUP = "backup/staging-pre-reset-2026-09-26";
 

@@ -11,7 +11,7 @@ import { runEnsureEnvWorktrees, ensureEnvWorktreesKnobs, type EnsureEnvWorktrees
 
 after(cleanupWorkspaces);
 
-const reader = (env: Record<string, string>) => (spec: EnvSpec): string => env[spec.key] ?? spec.default ?? "";
+const reader = (env: Record<string, string>) => ({ env: { str: (spec: EnvSpec): string => env[spec.key] ?? spec.default ?? "" } });
 
 function scope(over: Partial<GitScope> = {}): GitScope {
   return { ...scopeFrom(reader({})), repos: ["api"], worktreeDir: "worktree", ...over };

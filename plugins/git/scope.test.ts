@@ -18,7 +18,7 @@ import {
 const ROOT = "/srv/proj";
 
 /** A reader over a plain map, falling back to each row's default — the shape of the host's envStr. */
-const reader = (env: Record<string, string>) => (spec: EnvSpec): string => env[spec.key] ?? spec.default ?? "";
+const reader = (env: Record<string, string>) => ({ env: { str: (spec: EnvSpec): string => env[spec.key] ?? spec.default ?? "" } });
 
 const scope = (env: Record<string, string> = {}): GitScope => scopeFrom(reader(env));
 

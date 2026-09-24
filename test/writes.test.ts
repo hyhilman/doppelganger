@@ -18,7 +18,8 @@ function walkTsFiles(dir: string, out: string[]): void {
     const full = join(dir, entry);
     const st = statSync(full);
     if (st.isDirectory()) walkTsFiles(full, out);
-    else if (entry.endsWith(".ts") && !entry.endsWith(".test.ts")) out.push(full);
+    // A fixture is test support, not shipped code; test 7 below checks nothing shipped imports one.
+    else if (entry.endsWith(".ts") && !entry.endsWith(".test.ts") && !entry.endsWith(".fixture.ts")) out.push(full);
   }
 }
 
@@ -88,6 +89,10 @@ const DOOR1_EXCEPTIONS: readonly { file: string; literal: string; count: number;
     why: "the /proc mount's own options - the hidepid downgrade that keeps ENOENT honest (LSE-11)" },
   { file: "kernel/runtime/proc.ts", literal: '"/proc"', count: 1,
     why: "the mount-point FIELD VALUE mountinfo's own line is compared against, not a path this file opens (LSE-11)" },
+  { file: "plugins/git/scope.ts", literal: '"/"', count: 3,
+    why: "the POSIX separator a scope entry is split, trimmed and refused by - one character, not a path (JOB-G04)" },
+  { file: "plugins/git/scope.ts", literal: '"~"', count: 1,
+    why: "the home-directory prefix a scope entry is REFUSED for - a check, not a path (JOB-G04)" },
 ];
 
 /** Strips block and line comments before door 1 scans — needed ONLY because of the backtick arm
@@ -175,6 +180,8 @@ function findEnvSpecRowKeys(): string[] {
  *  shape as door 3, so a future row cannot go unchecked in silence. */
 const RESOLVERS: Record<string, string> = {
   ENGINE_STATE_DIR: "import('./kernel/paths.ts').then(m=>console.log(m.STATE_DIR))",
+  GIT_WORKTREE_DIR:
+    "Promise.all([import('./kernel/paths.ts'),import('./kernel/config.ts'),import('./plugins/git/scope.ts')]).then(([p,c,s])=>console.log(s.worktreeRoot(p.ROOT,s.scopeFrom({env:{str:c.envStr}}))))",
 };
 
 /** Rows ending `_DB`/`_DIR`/`_ROOT` that this door deliberately does not probe directly, each with
@@ -273,6 +280,14 @@ const REGISTER: Record<string, RegisterEntry> = {
   "plugins/nightly/jobs/nightly-polish.ts": {
     category: "project-relative",
     reason: "symlinks node_modules into the polish worktree, all under the project-relative worktree root",
+  },
+  "plugins/git/jobs/ops-ensure-env-worktrees.ts": {
+    category: "project-relative",
+    reason: "mkdirSync for GIT_WORKTREE_DIR under ROOT; scope checks refuse an absolute path or '..' (JOB-G07)",
+  },
+  "plugins/git/pr-worktree.ts": {
+    category: "project-relative",
+    reason: "the PR-head tree under ROOT's GIT_WORKTREE_DIR, and its list file in the caller's run directory (JOB-G14)",
   },
 };
 
@@ -466,4 +481,14 @@ function findModuleScopeOffenders(): string[] {
 test("6. door 6 — no module-scope path/write call in host/ or cli/ (ruling 2)", () => {
   const offenders = findModuleScopeOffenders();
   assert.deepEqual(offenders, [], `module-scope side effect(s) found:\n${offenders.join("\n")}`);
+});
+
+// The doors above skip `*.fixture.ts`: a fixture builds throwaway repos under the OS temp dir and
+// is never shipped. That skip is only safe while no shipped file imports a fixture.
+test("7. no shipped file imports a *.fixture.ts, so the doors' fixture skip hides nothing", () => {
+  const importsFixture = /(?:\bfrom\s*|\bimport\s*\(?\s*)["'][^"']*\.fixture\.ts["']/;
+  const offenders = allTsFiles()
+    .filter((f) => importsFixture.test(readFileSync(f, "utf8")))
+    .map((f) => f.slice(ROOT.length + 1));
+  assert.deepEqual(offenders, [], `shipped file(s) import a fixture:\n${offenders.join("\n")}`);
 });

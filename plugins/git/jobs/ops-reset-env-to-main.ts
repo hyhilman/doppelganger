@@ -16,17 +16,21 @@
 // `refs/heads/staging/…` cannot.
 import { existsSync } from "node:fs";
 import { join } from "node:path";
-import { killSwitch, type EnvSpec } from "../../../kernel/plugin.ts";
+import type { EnvSpec } from "../../../kernel/plugin.ts";
+import type { JobContext } from "../../../kernel/ports/context.ts";
+import { defineJob, type Job } from "../../../kernel/ports/job.ts";
 import { type Git, type GitLog, type Say, isRepoRoot, short, tryGit } from "../git.ts";
-import { type GitScope, parseFlag, scopeFrom, scopeProblems } from "../scope.ts";
+import { type EnvReader, type GitScope, parseFlag, scopeFrom, scopeProblems } from "../scope.ts";
 
 const TAG = "[reset-env-to-main]";
 
-export const GIT_NO_RECUT_ENV: EnvSpec = killSwitch(
-  "git",
-  "recut",
-  "1 stops reset-env-to-main before it fetches or pushes anything; the weekly re-cut of env branches is skipped (JOB-G09)",
-);
+// A kill switch row (KRN-07): the same key and default the killSwitch helper builds for
+// plugin git, feature recut.
+export const GIT_NO_RECUT_ENV: EnvSpec = {
+  key: "GIT_NO_RECUT",
+  default: "0",
+  why: "KRN-07 kill switch: 1 stops reset-env-to-main before it fetches or pushes anything; the weekly re-cut of env branches is skipped (JOB-G09)",
+};
 export const RECUT_DRY_RUN_ENV: EnvSpec = {
   key: "RECUT_DRY_RUN",
   default: "0",
@@ -72,15 +76,15 @@ export interface ResetEnvToMainResult {
   readonly exitCode: 0 | 1;
 }
 
-/** Resolve the knobs through the host's env reader. The kill switch reads with the same 0/1
- *  rule as `isKilled`. */
-export function resetEnvToMainKnobs(read: (spec: EnvSpec) => string): ResetEnvToMainKnobs {
+/** Resolve the knobs through the job context's env reader. The kill switch reads with the same
+ *  0/1 rule as `isKilled`. */
+export function resetEnvToMainKnobs(ctx: EnvReader): ResetEnvToMainKnobs {
   return {
-    scope: scopeFrom(read),
-    killed: parseFlag(GIT_NO_RECUT_ENV, read(GIT_NO_RECUT_ENV)),
-    dryRun: parseFlag(RECUT_DRY_RUN_ENV, read(RECUT_DRY_RUN_ENV)),
-    force: parseFlag(RECUT_FORCE_ENV, read(RECUT_FORCE_ENV)),
-    date: read(RECUT_DATE_ENV).trim(),
+    scope: scopeFrom(ctx),
+    killed: parseFlag(GIT_NO_RECUT_ENV, ctx.env.str(GIT_NO_RECUT_ENV)),
+    dryRun: parseFlag(RECUT_DRY_RUN_ENV, ctx.env.str(RECUT_DRY_RUN_ENV)),
+    force: parseFlag(RECUT_FORCE_ENV, ctx.env.str(RECUT_FORCE_ENV)),
+    date: ctx.env.str(RECUT_DATE_ENV).trim(),
   };
 }
 
@@ -207,3 +211,28 @@ export function runResetEnvToMain(deps: ResetEnvToMainDeps): ResetEnvToMainResul
   else log.info("reset-env-to-main", fields);
   return result();
 }
+
+/** Human lines go to stdout; the logfmt lines go to stderr through `ctx.log` (LOG-06). */
+const sayOut = (line: string): void => {
+  process.stdout.write(`${line}\n`);
+};
+
+const job: Job = defineJob({
+  name: "ops-reset-env-to-main",
+  description: "Back up, then force each scoped repo's env branches back to main on origin (JOB-G09).",
+  plugin: "git",
+  permissionMode: "auto",
+  exec: async (ctx: JobContext) => {
+    const r = runResetEnvToMain({
+      root: ctx.root,
+      git: ctx.git,
+      say: sayOut,
+      log: ctx.log,
+      now: ctx.now,
+      knobs: resetEnvToMainKnobs(ctx),
+    });
+    if (r.exitCode === 1) throw new Error(`ops-reset-env-to-main: ${r.failed} failed; the lines above say which`);
+  },
+});
+
+export default job;

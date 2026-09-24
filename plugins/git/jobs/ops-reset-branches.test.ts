@@ -15,7 +15,7 @@ import { runResetBranches, resetBranchesKnobs, type ResetBranchesKnobs } from ".
 
 after(cleanupWorkspaces);
 
-const reader = (env: Record<string, string>) => (spec: EnvSpec): string => env[spec.key] ?? spec.default ?? "";
+const reader = (env: Record<string, string>) => ({ env: { str: (spec: EnvSpec): string => env[spec.key] ?? spec.default ?? "" } });
 
 /** One run over `root`, with the reference test's settings: only `main`, no worktree step. */
 function run(root: string, env: Record<string, string> = {}) {

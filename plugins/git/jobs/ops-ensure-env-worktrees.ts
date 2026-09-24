@@ -12,8 +12,10 @@
 import { existsSync, mkdirSync, realpathSync } from "node:fs";
 import { join, resolve } from "node:path";
 import type { EnvSpec } from "../../../kernel/plugin.ts";
+import type { JobContext } from "../../../kernel/ports/context.ts";
+import { defineJob, type Job } from "../../../kernel/ports/job.ts";
 import { type Git, type GitLog, type Say, isRepoRoot, lastLine, tryGit, worktreesByBranch } from "../git.ts";
-import { type GitScope, parseFlag, repoSlug, scopeFrom, scopeProblems } from "../scope.ts";
+import { type EnvReader, type GitScope, parseFlag, repoSlug, scopeFrom, scopeProblems, worktreeRoot } from "../scope.ts";
 
 const TAG = "[env-worktrees]";
 
@@ -53,12 +55,12 @@ export interface EnsureEnvWorktreesResult {
   readonly exitCode: 0 | 1;
 }
 
-/** Resolve the knobs through the host's env reader. */
-export function ensureEnvWorktreesKnobs(read: (spec: EnvSpec) => string): EnsureEnvWorktreesKnobs {
+/** Resolve the knobs through the job context's env reader. */
+export function ensureEnvWorktreesKnobs(ctx: EnvReader): EnsureEnvWorktreesKnobs {
   return {
-    scope: scopeFrom(read),
-    dryRun: parseFlag(ENV_WORKTREE_DRY_RUN_ENV, read(ENV_WORKTREE_DRY_RUN_ENV)),
-    quiet: parseFlag(ENV_WORKTREE_QUIET_ENV, read(ENV_WORKTREE_QUIET_ENV)),
+    scope: scopeFrom(ctx),
+    dryRun: parseFlag(ENV_WORKTREE_DRY_RUN_ENV, ctx.env.str(ENV_WORKTREE_DRY_RUN_ENV)),
+    quiet: parseFlag(ENV_WORKTREE_QUIET_ENV, ctx.env.str(ENV_WORKTREE_QUIET_ENV)),
   };
 }
 
@@ -96,7 +98,7 @@ export function runEnsureEnvWorktrees(deps: EnsureEnvWorktreesDeps): EnsureEnvWo
     return result();
   }
 
-  const wtRoot = join(root, scope.worktreeDir);
+  const wtRoot = worktreeRoot(root, scope);
   if (!dryRun) {
     try {
       mkdirSync(wtRoot, { recursive: true });
@@ -168,3 +170,27 @@ export function runEnsureEnvWorktrees(deps: EnsureEnvWorktreesDeps): EnsureEnvWo
   if (failed > 0) log.error("env-worktrees-failed", { created, existing, skipped, failed });
   return result();
 }
+
+/** Human lines go to stdout; the logfmt lines go to stderr through `ctx.log` (LOG-06). */
+const sayOut = (line: string): void => {
+  process.stdout.write(`${line}\n`);
+};
+
+const job: Job = defineJob({
+  name: "ops-ensure-env-worktrees",
+  description: "Give each env branch of each scoped repo its own read-only worktree (JOB-G07).",
+  plugin: "git",
+  permissionMode: "auto",
+  exec: async (ctx: JobContext) => {
+    const r = runEnsureEnvWorktrees({
+      root: ctx.root,
+      git: ctx.git,
+      say: sayOut,
+      log: ctx.log,
+      knobs: ensureEnvWorktreesKnobs(ctx),
+    });
+    if (r.exitCode === 1) throw new Error(`ops-ensure-env-worktrees: ${r.failed} failed; the lines above say which`);
+  },
+});
+
+export default job;

@@ -20,8 +20,10 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import type { EnvSpec } from "../../../kernel/plugin.ts";
+import type { JobContext } from "../../../kernel/ports/context.ts";
+import { defineJob, type Job } from "../../../kernel/ports/job.ts";
 import { type Git, type GitLog, type Say, isRepoRoot, short, tryGit, worktreesByBranch } from "../git.ts";
-import { type GitScope, parseFlag, scopeFrom, scopeProblems } from "../scope.ts";
+import { type EnvReader, type GitScope, parseFlag, scopeFrom, scopeProblems } from "../scope.ts";
 import { runEnsureEnvWorktrees } from "./ops-ensure-env-worktrees.ts";
 
 const TAG = "[reset-branches]";
@@ -88,16 +90,15 @@ export interface ResetBranchesResult {
   readonly exitCode: 0 | 1;
 }
 
-/** Resolve the knobs through the host's env reader. */
-export function resetBranchesKnobs(read: (spec: EnvSpec) => string): ResetBranchesKnobs {
-  const flag = (spec: EnvSpec): boolean => parseFlag(spec, read(spec));
+/** Resolve the knobs through the job context's env reader. */
+export function resetBranchesKnobs(ctx: EnvReader): ResetBranchesKnobs {
   return {
-    scope: scopeFrom(read),
-    forceDirty: flag(RESET_FORCE_DIRTY_ENV),
-    forceAhead: flag(RESET_FORCE_AHEAD_ENV),
-    checkoutMain: flag(RESET_CHECKOUT_MAIN_ENV),
-    dryRun: flag(RESET_DRY_RUN_ENV),
-    ensureWorktrees: flag(RESET_ENSURE_WORKTREES_ENV),
+    scope: scopeFrom(ctx),
+    forceDirty: parseFlag(RESET_FORCE_DIRTY_ENV, ctx.env.str(RESET_FORCE_DIRTY_ENV)),
+    forceAhead: parseFlag(RESET_FORCE_AHEAD_ENV, ctx.env.str(RESET_FORCE_AHEAD_ENV)),
+    checkoutMain: parseFlag(RESET_CHECKOUT_MAIN_ENV, ctx.env.str(RESET_CHECKOUT_MAIN_ENV)),
+    dryRun: parseFlag(RESET_DRY_RUN_ENV, ctx.env.str(RESET_DRY_RUN_ENV)),
+    ensureWorktrees: parseFlag(RESET_ENSURE_WORKTREES_ENV, ctx.env.str(RESET_ENSURE_WORKTREES_ENV)),
   };
 }
 
@@ -272,3 +273,28 @@ export function runResetBranches(deps: ResetBranchesDeps): ResetBranchesResult {
   else log.info("reset-branches", fields);
   return result();
 }
+
+/** Human lines go to stdout; the logfmt lines go to stderr through `ctx.log` (LOG-06). */
+const sayOut = (line: string): void => {
+  process.stdout.write(`${line}\n`);
+};
+
+const job: Job = defineJob({
+  name: "ops-reset-branches",
+  description: "Fetch, then sync each scoped repo's long-lived local branches to origin, never pushing (JOB-G01).",
+  plugin: "git",
+  permissionMode: "auto",
+  exec: async (ctx: JobContext) => {
+    const r = runResetBranches({
+      root: ctx.root,
+      git: ctx.git,
+      say: sayOut,
+      log: ctx.log,
+      now: ctx.now,
+      knobs: resetBranchesKnobs(ctx),
+    });
+    if (r.exitCode === 1) throw new Error(`ops-reset-branches: ${r.failed} failed; the lines above say which`);
+  },
+});
+
+export default job;
