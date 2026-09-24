@@ -163,35 +163,45 @@ export function boot(plugins: readonly Plugin[], deps: BootDeps = DEFAULT_BOOT_D
   }
 
   // 3. job declares a model — resolves through DEFAULTS.model, then assertPinned (HRN-11's own
-  // runtime check).
-  for (const plugin of plugins) {
-    for (const job of plugin.jobs) {
-      const model = job.model ?? DEFAULTS.model;
-      try {
-        assertPinned(model);
-      } catch (e) {
-        report(plugin.name, "job declares a model", `job ${JSON.stringify(job.name)}: ${errText(e)}`);
-      }
+  // runtime check). Reads the de-duplicated map from check 1, so a job listed under two manifests
+  // (or twice in one) gets one line here, attributed to the plugin that registered it first.
+  for (const { job, plugin } of jobsByName.values()) {
+    const model = job.model ?? DEFAULTS.model;
+    try {
+      assertPinned(model);
+    } catch (e) {
+      report(plugin, "job declares a model", `job ${JSON.stringify(job.name)}: ${errText(e)}`);
     }
   }
 
-  // 4. job names a skill that resolves to a directory on disk (SKL-06, direction one).
-  for (const plugin of plugins) {
-    for (const job of plugin.jobs) {
-      if (job.skill === undefined) continue; // an exec-only job names no skill, by construction
-      if (!deps.skillDirExists(job)) {
-        report(
-          plugin.name,
-          "job names a skill that resolves to a directory on disk",
-          `job ${JSON.stringify(job.name)} names skill ${JSON.stringify(job.skill)}, which has no directory at plugins/${job.plugin}/skills/${skillOf(job)}`,
-        );
-      }
+  // 4. job names a skill that resolves to a directory on disk (SKL-06, direction one). Same
+  // de-duplicated map as check 3, same reason.
+  for (const { job, plugin } of jobsByName.values()) {
+    if (job.skill === undefined) continue; // an exec-only job names no skill, by construction
+    if (!deps.skillDirExists(job)) {
+      report(
+        plugin,
+        "job names a skill that resolves to a directory on disk",
+        `job ${JSON.stringify(job.name)} names skill ${JSON.stringify(job.skill)}, which has no directory at plugins/${job.plugin}/skills/${skillOf(job)}`,
+      );
     }
   }
 
   // 5. every skill directory on disk is named by a registered job (SKL-06, direction two).
+  // "Named by" means job.plugin — the same field that picks the skill's real path in check 4 —
+  // not which manifest happens to list the job: a manifest can list a job whose own `plugin` field
+  // names a different plugin. So the expected set for directory plugins/<P>/skills is every
+  // de-duplicated job (from every manifest passed to boot()) whose `job.plugin === P`, not just
+  // the jobs the manifest named P happens to list.
+  const skillsByJobPlugin = new Map<string, Set<string>>();
+  for (const { job } of jobsByName.values()) {
+    if (job.skill === undefined) continue;
+    const set = skillsByJobPlugin.get(job.plugin) ?? new Set<string>();
+    set.add(skillOf(job));
+    skillsByJobPlugin.set(job.plugin, set);
+  }
   for (const plugin of plugins) {
-    const expected = new Set(plugin.jobs.filter((j) => j.skill !== undefined).map((j) => skillOf(j)));
+    const expected = skillsByJobPlugin.get(plugin.name) ?? new Set<string>();
     for (const dirName of deps.listSkillDirs(plugin.name)) {
       if (!expected.has(dirName)) {
         report(

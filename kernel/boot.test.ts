@@ -413,3 +413,43 @@ test("13. DEFAULT_BOOT_DEPS resolves the same plugins/<plugin>/skills/<skill> pa
   // the day a plugin's skills tree holds a file, and pinning it earlier would mean either widening
   // BootDeps with a root argument or writing scratch into the checkout.
 });
+
+// ---------------------------------------------------------------------------------------------
+// Check 5's expected set is keyed by job.plugin, not by which manifest object lists the job — a
+// manifest may one day list a job whose own `plugin` field names a different plugin.
+// ---------------------------------------------------------------------------------------------
+
+test("14. AC3 — check 5 groups by job.plugin, not by the manifest that lists the job: a job listed under one manifest but naming another plugin does not orphan its own skill directory", () => {
+  // "ops" lists the job object, but the job's own `plugin` field says "nightly" — the field that
+  // both check 4 and the real disk layout (plugins/<job.plugin>/skills/<skill>) actually use. The
+  // skill directory sits under plugins/nightly/skills, same as the job's own `plugin` field says.
+  const crossJob = job({ name: "cross-job", plugin: "nightly", skill: "cross-job" });
+  const ops = plugin({ name: "ops", jobs: [crossJob] });
+  const nightly = plugin({ name: "nightly", jobs: [] });
+  const deps: BootDeps = {
+    skillDirExists: (j) => j.name === "cross-job",
+    listSkillDirs: (pluginName) => (pluginName === "nightly" ? ["cross-job"] : []),
+  };
+
+  assert.doesNotThrow(() => boot([ops, nightly], deps));
+});
+
+test("15. AC3 — the same job object listed by two manifests: an unpinned model produces exactly one 'job declares a model' line, attributed to the plugin that registered it first", () => {
+  const shared = job({ name: "shared-model-job", plugin: "alpha", model: "opus" });
+  const alpha = plugin({ name: "alpha", jobs: [shared] });
+  const beta = plugin({ name: "beta", jobs: [shared] });
+
+  const msg = captureThrow(() => boot([alpha, beta], NOOP_DEPS));
+
+  const modelLines = msg.split("\n").filter((l) => l.includes("[job declares a model]"));
+  assert.equal(modelLines.length, 1, `expected exactly one "job declares a model" line, got ${modelLines.length}:\n${msg}`);
+  assert.ok(modelLines[0].includes('plugin "alpha"'), `the single line must go to the plugin that registered it first:\n${msg}`);
+
+  const problemLines = msg.split("\n").filter((l) => l.startsWith("  - "));
+  assert.equal(
+    problemLines.length,
+    2,
+    `expected exactly 2 problem lines total (the duplicate-name line plus one model line), got ${problemLines.length}:\n${msg}`,
+  );
+  assert.ok(msg.includes("[duplicate names across registries]"), msg);
+});
