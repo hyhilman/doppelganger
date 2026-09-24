@@ -149,17 +149,19 @@ const LIVE_FIXTURE_WINDOW: RefreshWindow = {
   why: "fixture: covers nightly-sandcastle's whole 16:38-21:38 firing range, every day",
 };
 
-test("8. entriesInWindow over the real SCHEDULE and PROGRAMS — four entries, a real discrimination (TST-17)", () => {
-  // Four entries make this a genuine split: nightly-sandcastle (38 16-21 * * *) and nightly-polish
-  // (39 16-21 * * *) fire inside this 16:00-22:00 window; ops-watchdog (3,18,33,48 * * * *) fires
-  // every 15 minutes round the clock, so it fires inside ANY window and joins it; ops-cron-check
-  // (15 22 * * *) fires at 22:15, fifteen minutes past this window's half-open close at 22:00, and
-  // stays OUT. The exact three-name set is the discriminating claim — a set that silently admitted
-  // or dropped ops-cron-check would go unnoticed by a looser assertion.
+test("8. entriesInWindow over the real SCHEDULE and PROGRAMS — six entries, a real discrimination (TST-17)", () => {
+  // Six entries make this a genuine split: nightly-sandcastle (38 16-21 * * *) and nightly-polish
+  // (39 16-21 * * *) fire inside this 16:00-22:00 window; ops-watchdog (3,18,33,48 * * * *) and
+  // ops-reset-branches (45 * * * *) fire round the clock, so they fire inside ANY window and join
+  // it; ops-cron-check (15 22 * * *) fires at 22:15, fifteen minutes past this window's half-open
+  // close at 22:00, and stays OUT; ops-reset-env-to-main (40 0 * * 6) fires at 00:40 and stays OUT.
+  // The exact name set is the discriminating claim — a set that silently admitted or dropped
+  // ops-cron-check would go unnoticed by a looser assertion.
   const result = entriesInWindow(SCHEDULE, LIVE_FIXTURE_WINDOW, PROGRAMS);
   assert.deepEqual(result, [
     { name: "nightly-sandcastle", gate: "excl" },
     { name: "nightly-polish", gate: "excl" },
     { name: "ops-watchdog", gate: "none" },
+    { name: "ops-reset-branches", gate: "excl" },
   ]);
 });

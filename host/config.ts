@@ -94,9 +94,10 @@ export interface GateResource {
   readonly why: string;
 }
 
-/** Three resources. Each one has a named writer; a new one arrives only with the job that needs
+/** Four resources. Each one has a named writer; a new one arrives only with the job that needs
  *  it. `docs` came with nightly-polish (JOB-C16): it lets the two nightly passes hold excl at the
- *  same time, because their resource sets do not overlap. */
+ *  same time, because their resource sets do not overlap. `services` came with the git jobs
+ *  (JOB-G01, JOB-G09). */
 export const RESOURCES: readonly GateResource[] = [
   {
     name: "repo",
@@ -112,6 +113,11 @@ export const RESOURCES: readonly GateResource[] = [
     name: "docs",
     path: ".",
     why: "the tracked Markdown docs nightly-polish rewrites, spread across the checkout. Polish lands on the same base branch as nightly-sandcastle, and --ff-only plus one rebase retry absorbs that, so polish holds docs, not repo, and the two nightlies run side by side (JOB-C16).",
+  },
+  {
+    name: "services",
+    path: ".",
+    why: "the repos RESET_REPOS and RECUT_REPOS list, anywhere under ROOT and never this checkout itself. The git jobs reset and re-cut their branches and worktrees, so they hold excl on it.",
   },
 ];
 

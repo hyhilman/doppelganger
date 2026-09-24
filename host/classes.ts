@@ -26,7 +26,14 @@ export const REVIEW: readonly string[] = [];
  *  for a `script:` entry IS `e.script` verbatim, and the watchdog's own schedule entry (J4.14) sets
  *  `script: "host/watchdog.sh"` — the project-relative path `scriptCommandOf` needs to find the
  *  real file. See host/schedule.ts's own PROGRAMS row comment for the full deviation record. */
-export const WATCH: readonly string[] = ["ops-cron-check", "host/watchdog.sh"];
+export const WATCH: readonly string[] = [
+  "ops-cron-check",
+  "host/watchdog.sh",
+  // The git jobs run no agent and keep origin refs honest for every agent that reads them, so
+  // they are never shed.
+  "ops-reset-branches",
+  "ops-reset-env-to-main",
+];
 
 /** An unlisted name defaults to `"watch"` — the safe default: never skipped, downshifted like
  *  every other job not explicitly waiting on a human. Called from two places that must agree only

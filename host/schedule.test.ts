@@ -48,12 +48,14 @@ export function program(over: Partial<Program> = {}): Program {
   };
 }
 
-test("1. the schedule carries four entries, nightly-sandcastle first (J3.15's the first non-vacuous validate(SCHEDULE); JOB-C16 adds nightly-polish, J4.12 ops-cron-check, J4.14 ops-watchdog)", () => {
-  assert.equal(SCHEDULE.length, 4);
+test("1. the schedule carries six entries, nightly-sandcastle first (J3.15's the first non-vacuous validate(SCHEDULE); JOB-C16 adds nightly-polish, J4.12 ops-cron-check, J4.14 ops-watchdog, the git plugin its two)", () => {
+  assert.equal(SCHEDULE.length, 6);
   assert.equal(SCHEDULE[0]!.name, "nightly-sandcastle");
   assert.equal(SCHEDULE[1]!.name, "nightly-polish");
   assert.equal(SCHEDULE[2]!.name, "ops-cron-check");
   assert.equal(SCHEDULE[3]!.name, "ops-watchdog");
+  assert.equal(SCHEDULE[4]!.name, "ops-reset-branches");
+  assert.equal(SCHEDULE[5]!.name, "ops-reset-env-to-main");
   assert.doesNotThrow(() => validate(SCHEDULE, { jobNames: JOBS.map((j) => j.name) }));
 
   for (const e of SCHEDULE) {

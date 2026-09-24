@@ -77,6 +77,10 @@ export const PROGRAMS: Readonly<Record<string, Program>> = {
     whyNoGate:
       "must run precisely when everything else is wedged, including behind a writer holding the gate exclusively; gating it would let the failure it exists to catch silence it. It takes its own flock instead — the gate is in-memory inside the supervisor and this process is deliberately outside it",
   },
+  // The git jobs write the scoped repos, never this checkout, so they hold `services` and not
+  // `repo`. dotenv: the scope (RESET_REPOS, RECUT_REPOS) lives in `.env`.
+  "ops-reset-branches": { self: true, gate: "excl", resources: ["services"], dotenv: true },
+  "ops-reset-env-to-main": { self: true, gate: "excl", resources: ["services"], dotenv: true },
 };
 
 /**
@@ -136,6 +140,22 @@ export const SCHEDULE: readonly ScheduleEntry[] = [
     supervised: false,
     log: projectPath(".doppelganger/logs/ops-watchdog.log"),
     why: "Runtime liveness every 15 min, round the clock — the ONE job that does not run through the toolchain it watches, and THE ONLY ENTRY ON THE REAL CRONTAB (SUP-09). bash plus system binaries: no node except a deliberate two-line type-strip probe, no npm, nothing under node_modules, no model call, no network. A liveness probe scheduled by the process it probes reports nothing in the one case that matters. Four probes: node_modules is a real directory, node runs and strips types, the supervisor's 60s heartbeat (SUP-14) is younger than WATCHDOG_SUPERVISOR_STALE_M, and JOB-O11's heartbeat stamp is absent. It reports to its own log, to .doppelganger/watchdog.breach (presence is the alarm) and by exiting non-zero so cron's MAILTO carries it — there is no Slack path before v1 and this entry does not pretend otherwise.",
+  },
+  {
+    name: "ops-reset-branches",
+    cron: "45 * * * *",
+    job: "ops-reset-branches",
+    log: projectPath(".doppelganger/logs/ops-reset-branches.log"),
+    gateWait: true,
+    why: "Hourly at :45: fetch --prune --force, then sync each scoped repo's long-lived local branches to origin, so an agent reading origin/main or main sees the truth (JOB-G01). Never pushes. Runs ensure-env-worktrees first, quietly (JOB-G07). An empty RESET_REPOS logs one no-scope line and does nothing.",
+  },
+  {
+    name: "ops-reset-env-to-main",
+    cron: "40 0 * * 6",
+    job: "ops-reset-env-to-main",
+    log: projectPath(".doppelganger/logs/ops-reset-env-to-main.log"),
+    gateWait: true,
+    why: "Weekly, Saturday 00:40 UTC (07:40 WIB): push a dated backup of each env branch, then force it back to origin/main (JOB-G09…12). The one git job that writes the remote. :40 keeps it off reset-branches' :45, so the two never queue on the same minute. GIT_NO_RECUT=1 stops it; an empty RECUT_REPOS logs one no-scope line.",
   },
 ];
 
