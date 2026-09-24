@@ -5,7 +5,7 @@
 // the run does not depend on who runs the suite (the jobs read `user.email` to decide whose
 // commits they would discard), and no inherited GIT_DIR from a hook can redirect a command.
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { appendFileSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { makeGit, type Git, type GitLog } from "./git.ts";
@@ -107,6 +107,26 @@ export function recorder(): Recorded {
     out: () => lines.join("\n"),
   };
 }
+
+/**
+ * Turn clone `root` into a project root with a linked worktree of ITSELF at `<root>/<rel>`,
+ * detached at HEAD. First `root`'s `main` gains a landing by a bot identity that origin lacks.
+ * `rel` and each path in `ignore` go in the root's info/exclude, so the root's own tree stays
+ * clean and no dirty-tree guard can stand in for a missing refusal. Returns the worktree's path.
+ */
+export function selfWorktree(root: string, rel: string, ignore: readonly string[] = []): string {
+  writeFileSync(join(root, "landed.txt"), "a nightly landing nobody pushed\n");
+  git(root, "add", "-A");
+  git(root, "-c", "user.email=bot@nightly", "-c", "user.name=bot", "commit", "-qm", "nightly: landed");
+  mkdirSync(join(root, ".git", "info"), { recursive: true });
+  appendFileSync(join(root, ".git", "info", "exclude"), [rel, ...ignore].map((p) => `/${p}\n`).join(""));
+  const path = join(root, rel);
+  git(root, "worktree", "add", "-q", "--detach", path);
+  return path;
+}
+
+/** Every ref in `repo` with its SHA, one per line: equal before and after means nothing moved. */
+export const refs = (repo: string): string => git(repo, "for-each-ref", "--format=%(refname) %(objectname)");
 
 export const subject = (repo: string, ref = "HEAD"): string => git(repo, "log", "-1", "--format=%s", ref).trim();
 export const head = (repo: string, ref = "HEAD"): string => git(repo, "rev-parse", ref).trim();

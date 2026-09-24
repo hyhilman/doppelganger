@@ -2,7 +2,7 @@
 // every test reads origin's refs directly rather than trusting the job's own report.
 import { test, after } from "node:test";
 import assert from "node:assert/strict";
-import { cleanupWorkspaces, git, head, recorder, workspace, type Workspace } from "../repo.fixture.ts";
+import { cleanupWorkspaces, git, head, recorder, refs, selfWorktree, workspace, type Workspace } from "../repo.fixture.ts";
 import { scopeFrom, type GitScope } from "../scope.ts";
 import type { EnvSpec } from "../../../kernel/plugin.ts";
 import type { Git } from "../git.ts";
@@ -153,4 +153,18 @@ test("8. a bad RECUT_DATE refuses before any fetch", () => {
   const r = run(ws.root, { date: "26/09/2026" });
   assert.equal(r.result.exitCode, 1);
   assert.match(r.out(), /refusing to run: RECUT_DATE '26\/09\/2026' is not YYYY-MM-DD/);
+});
+
+test("9. JOB-G04: a linked worktree of the checkout is refused before any fetch or push, so origin is untouched", () => {
+  const ws = envWorkspace();
+  const root = ws.repo("api");
+  const x = ".claude/worktrees/x";
+  selfWorktree(root, x);
+  const before = originRefs(ws);
+  const local = refs(root);
+  const r = run(root, { scope: scope({ repos: [x], recutRepos: [x] }) });
+  assert.equal(originRefs(ws), before, "no backup and no re-cut was pushed");
+  assert.equal(refs(root), local, "not even a fetch");
+  assert.equal(r.result.exitCode, 1, r.out());
+  assert.match(r.out(), /✗  \.claude\/worktrees\/x — shares this checkout's branches \(a linked worktree of it\), refused/);
 });

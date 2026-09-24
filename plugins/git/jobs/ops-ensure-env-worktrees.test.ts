@@ -4,7 +4,7 @@ import { test, after } from "node:test";
 import assert from "node:assert/strict";
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { cleanupWorkspaces, git, head, recorder, workspace } from "../repo.fixture.ts";
+import { cleanupWorkspaces, git, head, recorder, refs, selfWorktree, workspace } from "../repo.fixture.ts";
 import { scopeFrom, type GitScope } from "../scope.ts";
 import type { EnvSpec } from "../../../kernel/plugin.ts";
 import { runEnsureEnvWorktrees, ensureEnvWorktreesKnobs, type EnsureEnvWorktreesKnobs } from "./ops-ensure-env-worktrees.ts";
@@ -105,4 +105,17 @@ test("6. JOB-G04: an empty scope logs one line and does nothing; a bad scope ref
 test("7. the knobs read 0/1 flags and throw on anything else", () => {
   assert.equal(ensureEnvWorktreesKnobs(reader({ ENV_WORKTREE_QUIET: "1" })).quiet, true);
   assert.throws(() => ensureEnvWorktreesKnobs(reader({ ENV_WORKTREE_DRY_RUN: "yes" })), /ENV_WORKTREE_DRY_RUN/);
+});
+
+test("8. JOB-G04: a linked worktree of the checkout is refused, so no branch or tree lands in the checkout's own refs", () => {
+  const ws = workspace(["api"], ["staging"]);
+  const root = ws.repo("api");
+  selfWorktree(root, ".claude/worktrees/x", ["worktree"]);
+  const before = refs(root);
+  const trees = git(root, "worktree", "list", "--porcelain");
+  const r = run(root, { scope: scope({ repos: [".claude/worktrees/x"] }) });
+  assert.equal(refs(root), before, "no local staging branch was made in the checkout");
+  assert.equal(git(root, "worktree", "list", "--porcelain"), trees, "no tree was registered on the checkout");
+  assert.equal(r.result.exitCode, 1, r.out());
+  assert.match(r.out(), /✗  \.claude\/worktrees\/x — shares this checkout's branches \(a linked worktree of it\), refused/);
 });

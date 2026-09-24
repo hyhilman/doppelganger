@@ -14,7 +14,7 @@ import { join, resolve } from "node:path";
 import type { EnvSpec } from "../../../kernel/plugin.ts";
 import type { JobContext } from "../../../kernel/ports/context.ts";
 import { defineJob, type Job } from "../../../kernel/ports/job.ts";
-import { type Git, type GitLog, type Say, isRepoRoot, lastLine, tryGit, worktreesByBranch } from "../git.ts";
+import { type Git, type GitLog, type Say, isRepoRoot, lastLine, sharedRefsProblem, tryGit, worktreesByBranch } from "../git.ts";
 import { type EnvReader, type GitScope, parseFlag, repoSlug, scopeFrom, scopeProblems, worktreeRoot } from "../scope.ts";
 
 const TAG = "[env-worktrees]";
@@ -116,6 +116,14 @@ export function runEnsureEnvWorktrees(deps: EnsureEnvWorktreesDeps): EnsureEnvWo
     const src = join(root, repo);
     if (!existsSync(src) || !isRepoRoot(git, src)) {
       say(`✗  ${repo} — not a git repo, skipped`);
+      failed++;
+      continue;
+    }
+    // A new branch or tree here would land in this checkout's own refs. A failure, not a skip:
+    // like listing the checkout itself, it is a scope mistake that never clears on its own.
+    const shared = sharedRefsProblem(git, root, src);
+    if (shared !== null) {
+      say(`✗  ${repo} — ${shared}`);
       failed++;
       continue;
     }

@@ -8,7 +8,7 @@ import { test, after } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { cleanupWorkspaces, git, head, recorder, subject, workspace } from "../repo.fixture.ts";
+import { cleanupWorkspaces, git, head, recorder, refs, selfWorktree, subject, workspace } from "../repo.fixture.ts";
 import { scopeFrom } from "../scope.ts";
 import type { EnvSpec } from "../../../kernel/plugin.ts";
 import { runResetBranches, resetBranchesKnobs, type ResetBranchesKnobs } from "./ops-reset-branches.ts";
@@ -189,4 +189,22 @@ test("13. JOB-G04: the checkout itself is refused before any fetch, so a bot's u
     assert.equal(head(root), before, "main did not move");
     assert.equal(subject(root), "nightly: landed");
   }
+});
+
+test("14. JOB-G04: a linked worktree of the checkout shares its branches, so it is refused before any fetch and the landing survives", () => {
+  // The same landing, but the scope names a worktree of the root, not the root. Every check on
+  // the entry's path passes; only its git dir gives it away. A separate clone under the root, in
+  // the same scope, is still synced.
+  const ws = workspace(["api"]);
+  const root = ws.repo("api");
+  selfWorktree(root, ".claude/worktrees/x", ["sub"]);
+  git(root, "clone", "-q", ws.origin, "sub");
+  ws.upstream("main", "f.txt", "third\n", "third");
+  const before = refs(root);
+  const r = run(root, { RESET_REPOS: ".claude/worktrees/x sub" });
+  assert.equal(subject(root), "nightly: landed", "main did not move");
+  assert.equal(refs(root), before, "no ref moved, not even origin/main: the fetch never ran");
+  assert.equal(r.result.exitCode, 1, r.out());
+  assert.match(r.out(), /✗  \.claude\/worktrees\/x — shares this checkout's branches \(a linked worktree of it\), refused/);
+  assert.equal(subject(join(root, "sub")), "third", "a separate clone under the root is not refused");
 });

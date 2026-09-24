@@ -19,7 +19,7 @@ import { join } from "node:path";
 import type { EnvSpec } from "../../../kernel/plugin.ts";
 import type { JobContext } from "../../../kernel/ports/context.ts";
 import { defineJob, type Job } from "../../../kernel/ports/job.ts";
-import { type Git, type GitLog, type Say, isRepoRoot, short, tryGit } from "../git.ts";
+import { type Git, type GitLog, type Say, isRepoRoot, sharedRefsProblem, short, tryGit } from "../git.ts";
 import { type EnvReader, type GitScope, parseFlag, scopeFrom, scopeProblems } from "../scope.ts";
 
 const TAG = "[reset-env-to-main]";
@@ -131,6 +131,14 @@ export function runResetEnvToMain(deps: ResetEnvToMainDeps): ResetEnvToMainResul
     const dir = join(root, repo);
     if (!existsSync(dir) || !isRepoRoot(git, dir)) {
       say(`✗  ${repo} — not a git repo, skipped`);
+      failed++;
+      continue;
+    }
+    // Checked before the fetch, which writes refs too. A failure, not a skip: like listing the
+    // checkout itself, it is a scope mistake that never clears on its own.
+    const shared = sharedRefsProblem(git, root, dir);
+    if (shared !== null) {
+      say(`✗  ${repo} — ${shared}`);
       failed++;
       continue;
     }
