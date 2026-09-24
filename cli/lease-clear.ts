@@ -44,7 +44,9 @@ interface Result {
  * design: running it twice must not start looking like a failure.
  */
 export function run(argv: readonly string[], deps: LeaseClearDeps): Result {
-  const [scope, key, ...rest] = argv;
+  // `--force` may sit anywhere in argv, so take it out before reading the positionals.
+  const force = argv.includes("--force");
+  const [scope, key] = argv.filter((a) => a !== "--force");
 
   if (scope === undefined) {
     return { out: "", err: USAGE, code: 1 };
@@ -60,7 +62,6 @@ export function run(argv: readonly string[], deps: LeaseClearDeps): Result {
     };
   }
 
-  const force = rest.includes("--force");
   const row = read(scope, key);
   if (!row) {
     return { out: "", err: `no claim ${scope}/${key} — nothing to clear\n`, code: 0 };

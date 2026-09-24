@@ -124,3 +124,38 @@ test("9. the five-field owner is printed whole in the held refusal", () => {
   const parts = got.lease.owner.split(":");
   assert.equal(parts.length, 5, "INS-04's own shape — an operator can copy this into parseOwner's vocabulary");
 });
+
+test("10. <scope> --force <key> over a held claim → code 0, the row is gone", () => {
+  const { scope, key } = fresh();
+  const got = acquire(scope, key);
+  assert.equal(got.ok, true);
+
+  const r = run([scope, "--force", key], { dryRun: false });
+  assert.equal(r.code, 0);
+  assert.equal(r.err, `deleted ${scope}/${key}\n`);
+  assert.equal(read(scope, key), null);
+});
+
+test("11. --force is never read as the key, wherever it sits", () => {
+  const { scope, key } = fresh();
+  const got = acquire(scope, key);
+  assert.equal(got.ok, true);
+
+  for (const argv of [[scope, "--force", key], ["--force", scope, key], [scope, "--force"]]) {
+    const r = run(argv, { dryRun: true });
+    const lines = `${r.out}${r.err}`.split("\n");
+    assert.ok(!lines.some((l) => l.includes(`${scope}/--force`)), `argv ${argv.join(" ")} took --force as a key`);
+  }
+});
+
+test("12. <scope> --force with no key lists the scope and leaves the claim in place", () => {
+  const { scope, key } = fresh();
+  const got = acquire(scope, key);
+  assert.equal(got.ok, true);
+
+  const r = run([scope, "--force"], { dryRun: false });
+  assert.equal(r.code, 0);
+  assert.match(r.out, new RegExp(`^held attempts=1 updated=.+ ${key}\\n$`));
+  assert.equal(r.err, `1 claim(s) in scope \`${scope}\`\n`);
+  assert.equal(read(scope, key)?.status, "held");
+});
