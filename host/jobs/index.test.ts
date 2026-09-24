@@ -6,13 +6,15 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { JOBS } from "./index.ts";
 import nightlySandcastle from "../../plugins/nightly/jobs/nightly-sandcastle.ts";
+import opsHello from "../../plugins/ops/jobs/ops-hello.ts";
 import opsCronCheck from "./ops-cron-check.ts";
 
 test("1. JOBS lists the registered jobs in registration order", () => {
-  assert.deepEqual(JOBS.map((j) => j.name), ["nightly-sandcastle", "ops-cron-check"]);
+  assert.deepEqual(JOBS.map((j) => j.name), ["nightly-sandcastle", "ops-hello", "ops-cron-check"]);
 });
 
 test("2. JOBS holds the same job objects the job files export — registry() does not clone or wrap", () => {
   assert.strictEqual(JOBS[0], nightlySandcastle);
-  assert.strictEqual(JOBS[1], opsCronCheck);
+  assert.strictEqual(JOBS[1], opsHello);
+  assert.strictEqual(JOBS[2], opsCronCheck);
 });
