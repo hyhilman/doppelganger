@@ -232,6 +232,27 @@ test("10. a run in the NEXT hour succeeds — the version moved, so the key move
   assert.equal(runnerCalls, 2);
 });
 
+test("10b. leaseWindow: \"minute\" keys the run on the UTC minute — two minutes of one hour both run, one minute runs once (LSE-04)", async () => {
+  const job = fakeJob({ leaseWindow: "minute" });
+  let runnerCalls = 0;
+  const runner: Runner = async () => {
+    runnerCalls++;
+    return { stdout: "", completionSignal: null, iterations: 1, commits: [], branch: "main", logPath: null };
+  };
+  await runNamed(job, fakePassDeps({ runner, now: () => new Date("2026-08-26T22:15:10Z") }));
+  await runNamed(job, fakePassDeps({ runner, now: () => new Date("2026-08-26T22:16:10Z") }));
+  assert.equal(runnerCalls, 2, "a minute job was refused in its second minute");
+  assert.ok(readLease("job", `${job.name}@2026-08-26T22:15`), "expected a lease row keyed on the minute");
+
+  const { log, calls } = capturingLog();
+  await runNamed(job, fakePassDeps({ runner, now: () => new Date("2026-08-26T22:16:50Z"), log }));
+  assert.equal(runnerCalls, 2, "the same minute must still run once");
+  assert.equal(calls[0]!.event, "lease-held");
+
+  // The one real hourly job keeps the default.
+  assert.equal(JOBS.find((j) => j.name === "nightly-sandcastle")!.leaseWindow, undefined);
+});
+
 test("11. the TTL is the derived one — SUPERVISOR_MAX_RUN_MIN's bound plus the kill grace", async () => {
   const job = fakeJob();
   const frozen = new Date("2026-08-26T22:15:00Z");

@@ -77,6 +77,8 @@ export interface Job {
    *  precondition — see kernel/ports/runner.ts's neighbour test/model.test.ts for the companion
    *  scan this distinction requires. */
   readonly local?: boolean;
+  /** LSE-04: the clock slice one run's lease key covers. Absent means "hour". */
+  readonly leaseWindow?: "hour" | "minute";
 }
 
 /**

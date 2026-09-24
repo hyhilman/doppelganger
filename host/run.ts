@@ -109,7 +109,8 @@ export function buildContext(job: Job): JobContext {
  * (LOG-06: stdout stays free for the payload).
  *
  * LSE-04 — every registered job claims its hour before it runs, GENERIC, not special-cased: the
- * key is `${job.name}@<UTC hour>`, the clock versioning it for a reason wholly unrelated to
+ * key is `${job.name}@<UTC hour>` (or `<UTC minute>` for a job with `leaseWindow: "minute"`, which
+ * fires more often than hourly), the clock versioning it for a reason wholly unrelated to
  * whether the pass worked. `done` terminal is then exactly right — that hour's run happened once —
  * and it excludes what the gate (per-process) cannot: a hand-run beside a scheduled tick, or a
  * second checkout. The TTL is DERIVED from SUP-13's own bound (`SUPERVISOR_MAX_RUN_MIN` —
@@ -147,8 +148,11 @@ export async function runNamed(job: Job, deps: JobContext): Promise<number> {
 
   const shed = decideShed(inspect(QUOTA_SCOPE), classOf(job.name), deps.now());
 
-  const hour = deps.now().toISOString().slice(0, 13); // "2026-08-26T22"
-  const key = `${job.name}@${hour}`;
+  // "2026-08-26T22" for an hour, "2026-08-26T22:15" for a minute. A job that fires more often
+  // than once an hour needs the shorter slice, or every tick after the first is refused.
+  const window = job.leaseWindow ?? "hour";
+  const slice = deps.now().toISOString().slice(0, window === "minute" ? 16 : 13);
+  const key = `${job.name}@${slice}`;
   try {
     const got = await withLease(
       "job",
@@ -174,7 +178,7 @@ export async function runNamed(job: Job, deps: JobContext): Promise<number> {
       deps.log.info("lease-held", {
         key,
         reason: got.reason,
-        msg: `another run of ${job.name} owns this hour — \`npm run lease-clear -- job ${key}\` to release it`,
+        msg: `another run of ${job.name} owns this ${window} — \`npm run lease-clear -- job ${key}\` to release it`,
       });
       return 0;
     }
