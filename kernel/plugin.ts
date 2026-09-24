@@ -43,9 +43,9 @@
 // becomes the safer read. Neither exists today.
 //
 // `isKilled` has two subjects, both in plugin `nightly`: `NIGHTLY_NO_SANDCASTLE` and
-// `NIGHTLY_NO_POLISH`. Only `NIGHTLY_NO_POLISH` is built with `killSwitch`; the sandcastle row is
-// still written out by hand. test/knobs.test.ts reads a killSwitch call (plugin and feature names)
-// as the row's key, so a built row is scanned like a literal one. `WATCHDOG_NO_NOTIFY` is a kill
+// `NIGHTLY_NO_POLISH`, and both rows are built with `killSwitch`. test/knobs.test.ts reads a
+// killSwitch call (plugin and feature names) as the row's key, so a built row is scanned like a
+// literal one. `WATCHDOG_NO_NOTIFY` is a kill
 // switch too, but a bash-read one, so it cannot call `isKilled`. `NIGHTLY_SANDCASTLE_NO_MERGE`
 // and `NIGHTLY_POLISH_NO_MERGE` look similar and are NOT subjects — they are SAF-02 shadow modes
 // ("commit inside the worktree, never move the base branch"), never switches that stop a pass

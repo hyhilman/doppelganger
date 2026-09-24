@@ -12,7 +12,7 @@
 import { spawnSync } from "node:child_process";
 import { existsSync, symlinkSync } from "node:fs";
 import { join } from "node:path";
-import { isKilled, type EnvSpec } from "../../../kernel/plugin.ts";
+import { isKilled, killSwitch, type EnvSpec } from "../../../kernel/plugin.ts";
 import type { Db, JobContext, RunIn, Worktree } from "../../../kernel/ports/context.ts";
 import { DEFAULTS, defineJob, type Job } from "../../../kernel/ports/job.ts";
 
@@ -317,11 +317,11 @@ export function gate(files: readonly string[], deps: GateDeps): GateResult {
 // safe-run surface is these seven knobs).
 // ---------------------------------------------------------------------------------------------
 
-export const NIGHTLY_NO_SANDCASTLE_ENV: EnvSpec = {
-  key: "NIGHTLY_NO_SANDCASTLE",
-  default: "0",
-  why: "KRN-07 kill switch: the pass logs killed and returns before reading anything",
-};
+export const NIGHTLY_NO_SANDCASTLE_ENV: EnvSpec = killSwitch(
+  "nightly",
+  "sandcastle",
+  "KRN-07 kill switch: the pass logs killed and returns before reading anything",
+);
 export const NIGHTLY_SANDCASTLE_BASE_ENV: EnvSpec = {
   key: "NIGHTLY_SANDCASTLE_BASE",
   default: "main",
